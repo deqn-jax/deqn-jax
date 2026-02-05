@@ -1,49 +1,12 @@
-"""CMR-style NK-DSGE with Financial Frictions ("Disaster Model").
+"""Equilibrium equations for Disaster (NK-DSGE) model."""
 
-A medium-scale New Keynesian model with:
-- 13 state variables (8 endogenous + 5 exogenous)
-- 12 policy variables
-- 12 equilibrium equations
-- Financial frictions (costly state verification banking)
-"""
+from typing import Dict
 
-from typing import Dict, Tuple
-
-import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import erf
 
-from deqn_jax.types import ModelSpec
-from deqn_jax.models.variables import DISASTER_SPEC as SPEC
-
-
-# Model constants
-CONSTANTS = {
-    # Preferences
-    "beta": 0.9985, "b": 0.74, "sigma_L": 1.0, "psi_L": 0.7705,
-    # Production
-    "alpha": 0.4, "delta": 0.025, "kappa": 2.0, "Phi": 0.606,
-    # Price/wage setting
-    "lambda_f": 1.2, "lambda_w": 1.2, "xi_p": 0.6, "xi_w": 0.6,
-    "iota": 0.9, "iota_w": 0.49, "iota_mu": 0.94,
-    # Monetary policy
-    "rho_p": 0.85, "alpha_pi": 1.5, "alpha_y": 0.36,
-    # Taxes
-    "tau_c": 0.047, "tau_k": 0.32, "tau_l": 0.24,
-    # Financial frictions
-    "Theta": 0.005, "gamma_e": 0.985, "w_e": 0.005,
-    "sigma_omega": 0.26822, "mu_mon": 0.22,
-    # Steady states
-    "pi_ss": 1.006, "mu_z_ss": 1.0041, "R_ss": 1.011678,
-    "y_ss": 3.0308, "g_ss": 0.616,
-    # Shock parameters
-    "rho_eps": 0.809, "sigma_eps": 0.0046,
-    "rho_mu_ups": 0.987, "sigma_mu_ups": 0.004,
-    "rho_mu_z": 0.146, "sigma_mu_z": 0.00715,
-    "rho_g": 0.94, "sigma_g": 0.023,
-    "sigma_mp": 0.49,
-}
+from deqn_jax.models.disaster.variables import SPEC
 
 EQUATION_NAMES = (
     "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
@@ -51,16 +14,6 @@ EQUATION_NAMES = (
     "eq7_investment_euler", "eq8_bank_participation", "eq9_entrepreneur_contract",
     "eq10_marginal_cost", "eq11_resource_constraint", "eq12_capital_accumulation"
 )
-
-# Steady state values
-STEADY_STATE = {
-    "pi_lag": 1.006, "k_lag": 27.531, "c_lag": 1.6, "q_lag": 1.0,
-    "i_lag": 0.79853, "R_lag": 1.011678, "w_tilda_lag": 1.9224, "L_lag": 1.9658,
-    "eps": 1.0, "mu_ups": 1.0, "g": 0.616, "mu_z": 1.0041, "m_p": 0.0,
-    "lambda_z": 0.59945, "i": 0.79853, "pi": 1.006, "c": 1.6,
-    "w_tilda": 1.9224, "s": 0.83333, "omega_bar": 0.48848, "h": 0.94596,
-    "F_w": 0.89465, "F_p": 4.5318, "q": 1.0, "L": 1.9658,
-}
 
 
 # Financial friction helpers
@@ -230,65 +183,3 @@ def equations(
     residuals["eq12_capital_accumulation"] = defs["k"] - (1 - c["delta"]) * st.k_lag / st.mu_z - (1 - defs["S_val"]) * p.i
 
     return residuals
-
-
-def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
-    """State transition."""
-    st = SPEC.unpack_state(state)
-    p = SPEC.unpack_policy(policy)
-    defs = definitions(state, policy, constants)
-    c = constants
-
-    # Shocks
-    eps_shock, mu_ups_shock, mu_z_shock, g_shock, mp_shock = shock[:, 0], shock[:, 1], shock[:, 2], shock[:, 3], shock[:, 4]
-
-    safe_log = lambda x: jnp.log(jnp.maximum(x, 1e-8))
-
-    # Evolve exogenous states
-    eps_next = jnp.exp(c["rho_eps"] * safe_log(st.eps) + c["sigma_eps"] * eps_shock)
-    mu_ups_next = jnp.exp(c["rho_mu_ups"] * safe_log(st.mu_ups) + c["sigma_mu_ups"] * mu_ups_shock)
-    mu_z_next = jnp.exp(c["rho_mu_z"] * safe_log(st.mu_z) + (1 - c["rho_mu_z"]) * safe_log(c["mu_z_ss"]) + c["sigma_mu_z"] * mu_z_shock)
-    g_next = jnp.exp(c["rho_g"] * safe_log(st.g) + (1 - c["rho_g"]) * safe_log(c["g_ss"]) + c["sigma_g"] * g_shock)
-    m_p_next = c["sigma_mp"] * mp_shock
-
-    next_state = jnp.stack([
-        p.pi, defs["k"], p.c, p.q, p.i, defs["R"], p.w_tilda, p.L,
-        eps_next, mu_ups_next, g_next, mu_z_next, m_p_next
-    ], axis=1)
-
-    lower = jnp.array([0.9, 10.0, 0.5, 0.5, 0.3, 1.0, 1.0, 1.0, 0.8, 0.9, 0.4, 0.99, -2.0])
-    upper = jnp.array([1.2, 50.0, 3.0, 2.0, 2.0, 1.1, 3.0, 4.0, 1.2, 1.1, 0.9, 1.02, 2.0])
-    return jnp.clip(next_state, lower, upper)
-
-
-def steady_state(constants: Dict) -> Tuple[Array, Array]:
-    ss_state = jnp.array([STEADY_STATE[n] for n in SPEC.state_names])
-    ss_policy = jnp.array([STEADY_STATE[n] for n in SPEC.policy_names])
-    return ss_state, ss_policy
-
-
-def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
-    ss_state, _ = steady_state(constants)
-    noise = jax.random.uniform(key, (batch_size, 13), minval=-0.05, maxval=0.05)
-    return ss_state * (1 + noise)
-
-
-POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 0.5, 1.0, 0.5, 0.1, 0.5, 0.1, 1.0, 0.5, 1.0])
-POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 3.0, 1.5, 1.5, 1.5, 3.0, 10.0, 2.0, 4.0])
-
-MODEL = ModelSpec(
-    name="disaster",
-    n_states=SPEC.n_states,
-    n_policies=SPEC.n_policies,
-    n_shocks=5,
-    state_names=SPEC.state_names,
-    policy_names=SPEC.policy_names,
-    equation_names=EQUATION_NAMES,
-    constants=CONSTANTS,
-    equations_fn=equations,
-    step_fn=step,
-    steady_state_fn=steady_state,
-    init_state_fn=init_state,
-    policy_lower=POLICY_LOWER,
-    policy_upper=POLICY_UPPER,
-)

@@ -1,0 +1,58 @@
+"""Variable specification and constants for Disaster (NK-DSGE) model."""
+
+import jax.numpy as jnp
+
+from deqn_jax.models.variable_spec import VariableSpec
+
+SPEC = VariableSpec(
+    state_names=(
+        "pi_lag", "k_lag", "c_lag", "q_lag", "i_lag", "R_lag",
+        "w_tilda_lag", "L_lag", "eps", "mu_ups", "g", "mu_z", "m_p"
+    ),
+    policy_names=(
+        "lambda_z", "i", "pi", "c", "w_tilda", "s", "omega_bar",
+        "h", "F_w", "F_p", "q", "L"
+    ),
+)
+
+CONSTANTS = {
+    # Preferences
+    "beta": 0.9985, "b": 0.74, "sigma_L": 1.0, "psi_L": 0.7705,
+    # Production
+    "alpha": 0.4, "delta": 0.025, "kappa": 2.0, "Phi": 0.606,
+    # Price/wage setting
+    "lambda_f": 1.2, "lambda_w": 1.2, "xi_p": 0.6, "xi_w": 0.6,
+    "iota": 0.9, "iota_w": 0.49, "iota_mu": 0.94,
+    # Monetary policy
+    "rho_p": 0.85, "alpha_pi": 1.5, "alpha_y": 0.36,
+    # Taxes
+    "tau_c": 0.047, "tau_k": 0.32, "tau_l": 0.24,
+    # Financial frictions
+    "Theta": 0.005, "gamma_e": 0.985, "w_e": 0.005,
+    "sigma_omega": 0.26822, "mu_mon": 0.22,
+    # Steady states
+    "pi_ss": 1.006, "mu_z_ss": 1.0041, "R_ss": 1.011678,
+    "y_ss": 3.0308, "g_ss": 0.616,
+    # Shock parameters
+    "rho_eps": 0.809, "sigma_eps": 0.0046,
+    "rho_mu_ups": 0.987, "sigma_mu_ups": 0.004,
+    "rho_mu_z": 0.146, "sigma_mu_z": 0.00715,
+    "rho_g": 0.94, "sigma_g": 0.023,
+    "sigma_mp": 0.49,
+}
+
+STEADY_STATE = {
+    "pi_lag": 1.006, "k_lag": 27.531, "c_lag": 1.6, "q_lag": 1.0,
+    "i_lag": 0.79853, "R_lag": 1.011678, "w_tilda_lag": 1.9224, "L_lag": 1.9658,
+    "eps": 1.0, "mu_ups": 1.0, "g": 0.616, "mu_z": 1.0041, "m_p": 0.0,
+    "lambda_z": 0.59945, "i": 0.79853, "pi": 1.006, "c": 1.6,
+    "w_tilda": 1.9224, "s": 0.83333, "omega_bar": 0.48848, "h": 0.94596,
+    "F_w": 0.89465, "F_p": 4.5318, "q": 1.0, "L": 1.9658,
+}
+
+POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 0.5, 1.0, 0.5, 0.1, 0.5, 0.1, 1.0, 0.5, 1.0])
+POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 3.0, 1.5, 1.5, 1.5, 3.0, 10.0, 2.0, 4.0])
+
+N_SHOCKS = 5
+
+DESCRIPTION = "NK-DSGE with financial frictions"

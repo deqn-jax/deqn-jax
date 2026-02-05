@@ -41,6 +41,8 @@ class NetworkConfig:
     type: str = "mlp"
     hidden_sizes: Tuple[int, ...] = (64, 64)
     activation: str = "tanh"
+    activations: Optional[Tuple[str, ...]] = None  # per-layer override
+    init: str = "default"
 
 
 @dataclass
@@ -100,6 +102,10 @@ class TrainConfig:
         if "hidden_sizes" in net_dict and isinstance(net_dict["hidden_sizes"], list):
             net_dict["hidden_sizes"] = tuple(net_dict["hidden_sizes"])
 
+        # Convert activations list to tuple
+        if "activations" in net_dict and isinstance(net_dict["activations"], list):
+            net_dict["activations"] = tuple(net_dict["activations"])
+
         # Convert loss_weights list (YAML gives lists)
         if "loss_weights" in d and isinstance(d["loss_weights"], list):
             d["loss_weights"] = list(d["loss_weights"])
@@ -143,6 +149,20 @@ class TrainConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to nested dictionary."""
         return asdict(self)
+
+    def to_yaml(self, path: str) -> None:
+        """Write config to a YAML file."""
+        import yaml
+
+        d = self.to_dict()
+        # Convert tuples to lists for YAML readability
+        if "network" in d and "hidden_sizes" in d["network"]:
+            d["network"]["hidden_sizes"] = list(d["network"]["hidden_sizes"])
+        if "network" in d and d["network"].get("activations") is not None:
+            d["network"]["activations"] = list(d["network"]["activations"])
+
+        with open(path, "w") as f:
+            yaml.dump(d, f, default_flow_style=False, sort_keys=False)
 
 
 def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:

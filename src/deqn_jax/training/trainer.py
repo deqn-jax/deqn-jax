@@ -137,6 +137,7 @@ def create_train_state(
     loss_weights: Optional[List[float]] = None,
     n_equations: int = 1,
     optimizer_config=None,
+    network_config=None,
 ) -> Tuple[TrainState, Any, OptimizerKind]:
     """Initialize training state and optimizer.
 
@@ -151,17 +152,31 @@ def create_train_state(
         loss_weights: Manual per-equation weights
         n_equations: Number of equations
         optimizer_config: OptimizerConfig (if provided, overrides optimizer/learning_rate/grad_clip)
+        network_config: NetworkConfig (if provided, overrides hidden_sizes and adds activations/init)
 
     Returns:
         Tuple of (TrainState, optimizer, OptimizerKind)
     """
     key, net_key, state_key = jax.random.split(key, 3)
 
+    # Extract network params from config or use defaults
+    activation = "tanh"
+    activations = None
+    init = "xavier_normal"
+    if network_config is not None:
+        hidden_sizes = network_config.hidden_sizes
+        activation = network_config.activation
+        activations = network_config.activations
+        init = network_config.init
+
     # Create policy network
     policy_net = create_mlp(
         n_states=model.n_states,
         n_policies=model.n_policies,
         hidden_sizes=hidden_sizes,
+        activation=activation,
+        activations=activations,
+        init=init,
         policy_lower=model.policy_lower,
         policy_upper=model.policy_upper,
         key=net_key,
@@ -567,15 +582,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     Returns:
         Tuple of (trained_params, history_dict)
     """
-    # Import model
-    if config.model == "brock_mirman":
-        from deqn_jax.models.brock_mirman import MODEL
-    elif config.model == "disaster":
-        from deqn_jax.models.disaster import MODEL
-    else:
-        raise ValueError(f"Unknown model: {config.model}")
-
-    model = MODEL
+    # Load model via loader
+    from deqn_jax.models import load_model
+    model = load_model(config.model)
     n_equations = len(model.equation_names) if model.equation_names else 1
 
     if config.loss_weights is not None and len(config.loss_weights) != n_equations:
@@ -596,6 +605,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         loss_weights=config.loss_weights,
         n_equations=n_equations,
         optimizer_config=config.optimizer,
+        network_config=config.network,
     )
 
     # Warm start from steady state

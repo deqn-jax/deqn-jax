@@ -117,21 +117,3 @@ class VariableSpec:
     def get_policy_idx(self, name: str) -> int:
         """Get index for policy variable by name."""
         return self.policy_idx[name]
-
-
-# Pre-built specs for models
-BROCK_MIRMAN_SPEC = VariableSpec(
-    state_names=("k", "z"),
-    policy_names=("sav_rate",),
-)
-
-DISASTER_SPEC = VariableSpec(
-    state_names=(
-        "pi_lag", "k_lag", "c_lag", "q_lag", "i_lag", "R_lag",
-        "w_tilda_lag", "L_lag", "eps", "mu_ups", "g", "mu_z", "m_p"
-    ),
-    policy_names=(
-        "lambda_z", "i", "pi", "c", "w_tilda", "s", "omega_bar",
-        "h", "F_w", "F_p", "q", "L"
-    ),
-)

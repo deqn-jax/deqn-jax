@@ -33,12 +33,21 @@ src/deqn_jax/
   metrics.py              # TensorBoard, W&B, NullLogger
 
   models/
-    brock_mirman.py       # Simple RBC (1 eq, 2 states, 1 policy) -- canonical test case
-    disaster.py           # NK-DSGE with financial frictions (12 eq, 13 states, 12 policies)
-    variables.py          # VariableSpec for named array access
+    __init__.py           # load_model(), list_models(), explicit model registry
+    variable_spec.py      # VariableSpec class for named array access
+    brock_mirman/         # Simple RBC (1 eq, 2 states, 1 policy)
+      variables.py        # SPEC, CONSTANTS, N_SHOCKS, DESCRIPTION
+      equations.py        # equations(), definitions(), EQUATION_NAMES
+      dynamics.py         # step()
+      steady_state.py     # steady_state(), init_state()
+    disaster/             # NK-DSGE with financial frictions (12 eq, 13 states, 12 policies)
+      variables.py        # SPEC, CONSTANTS, N_SHOCKS, DESCRIPTION, POLICY_LOWER/UPPER
+      equations.py        # equations(), definitions(), EQUATION_NAMES
+      dynamics.py         # step()
+      steady_state.py     # steady_state(), init_state()
 
   networks/
-    mlp.py                # Equinox MLP with optional sigmoid output bounds
+    mlp.py                # Equinox MLP with per-layer activations, custom init, sigmoid output bounds
     lstm.py               # Equinox LSTM for history-dependent policies
 
   optimizers/

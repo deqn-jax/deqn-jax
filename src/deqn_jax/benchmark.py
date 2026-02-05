@@ -33,12 +33,8 @@ def benchmark_model(
     import optax
 
     # Load model
-    if model_name == "brock_mirman":
-        from deqn_jax.models.brock_mirman import MODEL
-    elif model_name == "disaster":
-        from deqn_jax.models.disaster import MODEL
-    else:
-        raise ValueError(f"Unknown model: {model_name}")
+    from deqn_jax.models import load_model
+    MODEL = load_model(model_name)
 
     if verbose:
         print(f"Benchmarking {model_name}")

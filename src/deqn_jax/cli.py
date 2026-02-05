@@ -167,8 +167,19 @@ def main():
     # List command
     subparsers.add_parser("list", help="List available models")
 
+    # Info command
+    info_parser = subparsers.add_parser("info", help="Show model details")
+    info_parser.add_argument("model", type=str, help="Model name")
+
     # Optimizers command
     subparsers.add_parser("optimizers", help="List available optimizers")
+
+    # Check command
+    subparsers.add_parser("check", help="Check installation")
+
+    # Init-config command
+    init_parser = subparsers.add_parser("init-config", help="Generate default config file")
+    init_parser.add_argument("output", nargs="?", default="train.yaml", help="Output path (default: train.yaml)")
 
     args = parser.parse_args()
 
@@ -176,8 +187,14 @@ def main():
         run_train(args)
     elif args.command == "list":
         run_list()
+    elif args.command == "info":
+        run_info(args)
     elif args.command == "optimizers":
         run_optimizers()
+    elif args.command == "check":
+        run_check()
+    elif args.command == "init-config":
+        run_init_config(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -268,10 +285,9 @@ def run_train(args):
 
 def run_list():
     """List available models."""
-    models = [
-        ("brock_mirman", "Brock-Mirman (1972) optimal growth model"),
-        ("disaster", "NK-DSGE with financial frictions"),
-    ]
+    from deqn_jax.models import list_models
+
+    models = list_models()
 
     print("Available models:")
     print()
@@ -279,6 +295,85 @@ def run_list():
         print(f"  {name:20s} - {desc}")
     print()
     print("Usage: deqn-jax train <model> [options]")
+
+
+def run_info(args):
+    """Show model details."""
+    from deqn_jax.models import load_model
+
+    try:
+        model = load_model(args.model)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    w = 60
+    print("=" * w)
+    print(f"Model: {model.name}")
+    print("=" * w)
+
+    print(f"\nStates ({model.n_states}):")
+    for name in (model.state_names or []):
+        print(f"  {name}")
+
+    print(f"\nPolicies ({model.n_policies}):")
+    if model.state_names and model.policy_lower is not None and model.policy_upper is not None:
+        import jax.numpy as jnp
+        for i, name in enumerate(model.policy_names or []):
+            lo = float(model.policy_lower[i])
+            hi = float(model.policy_upper[i])
+            print(f"  {name:20s} [{lo:.4g}, {hi:.4g}]")
+    else:
+        for name in (model.policy_names or []):
+            print(f"  {name}")
+
+    print(f"\nEquations ({len(model.equation_names or ())}):")
+    for name in (model.equation_names or []):
+        print(f"  {name}")
+
+    print(f"\nShocks: {model.n_shocks}")
+    print(f"Steady state: {'yes' if model.steady_state_fn else 'no'}")
+
+    print(f"\nConstants ({len(model.constants)}):")
+    for k, v in model.constants.items():
+        print(f"  {k:20s} = {v}")
+
+    print()
+
+
+def run_check():
+    """Check installation."""
+    import jax
+
+    print(f"JAX:     {jax.__version__}")
+    print(f"Devices: {jax.devices()}")
+
+    x = jax.numpy.ones((2, 2))
+    print(f"Ops:     OK (sum={float(jax.numpy.sum(x))})")
+
+    import equinox
+    print(f"Equinox: {equinox.__version__}")
+
+    import optax
+    print(f"Optax:   {optax.__version__}")
+
+    from deqn_jax.models import list_models
+    names = [n for n, _ in list_models()]
+    print(f"Models:  {names}")
+
+    from deqn_jax.optimizers import list_optimizers
+    print(f"Optims:  {list_optimizers()}")
+
+    print("\nAll checks passed!")
+
+
+def run_init_config(args):
+    """Generate a default config file."""
+    from deqn_jax.config import TrainConfig
+
+    config = TrainConfig()
+    config.to_yaml(args.output)
+    print(f"Created {args.output}")
 
 
 def run_optimizers():
