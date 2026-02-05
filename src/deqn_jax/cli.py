@@ -163,6 +163,37 @@ def main():
         default=None,
         help="Checkpoint interval (episodes)",
     )
+    train_parser.add_argument(
+        "--max-checkpoints",
+        type=int,
+        default=None,
+        help="Keep only N most recent checkpoints",
+    )
+    train_parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Resume from checkpoint .eqx file",
+    )
+    train_parser.add_argument(
+        "--switch-optimizer",
+        type=str,
+        default=None,
+        help="Switch to this optimizer mid-training",
+    )
+    train_parser.add_argument(
+        "--switch-episode",
+        type=int,
+        default=None,
+        help="Episode at which to switch optimizer",
+    )
+    train_parser.add_argument(
+        "--switch-lr",
+        type=float,
+        default=None,
+        help="Learning rate for switched optimizer",
+    )
 
     # List command
     subparsers.add_parser("list", help="List available models")
@@ -262,6 +293,16 @@ def run_train(args):
         cli_kwargs["checkpoint_dir"] = args.checkpoint_dir
     if args.checkpoint_every is not None:
         cli_kwargs["checkpoint_every"] = args.checkpoint_every
+    if args.max_checkpoints is not None:
+        cli_kwargs["max_checkpoints"] = args.max_checkpoints
+    if args.resume is not None:
+        cli_kwargs["resume"] = args.resume
+    if args.switch_optimizer is not None:
+        cli_kwargs["switch_optimizer"] = args.switch_optimizer
+    if args.switch_episode is not None:
+        cli_kwargs["switch_episode"] = args.switch_episode
+    if args.switch_lr is not None:
+        cli_kwargs["switch_lr"] = args.switch_lr
 
     # Load config with priority: --set > CLI > YAML > defaults
     config = load_config(

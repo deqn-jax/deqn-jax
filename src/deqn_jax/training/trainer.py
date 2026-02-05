@@ -115,11 +115,25 @@ def _print_final(
     print("=" * w)
 
 
-def _save_checkpoint(state: TrainState, checkpoint_dir: str, episode: int):
-    """Save training state checkpoint."""
+def _save_checkpoint(state: TrainState, checkpoint_dir: str, episode: int, config=None):
+    """Save training state checkpoint and optionally config snapshot."""
     os.makedirs(checkpoint_dir, exist_ok=True)
     path = os.path.join(checkpoint_dir, f"checkpoint_{episode:06d}.eqx")
     eqx.tree_serialise_leaves(path, state)
+    # Save config once (first checkpoint only)
+    if config is not None:
+        cfg_path = os.path.join(checkpoint_dir, "config.yaml")
+        if not os.path.exists(cfg_path):
+            config.to_yaml(cfg_path)
+
+
+def _prune_checkpoints(checkpoint_dir: str, max_keep: int):
+    """Delete oldest checkpoints, keeping only the most recent max_keep."""
+    import glob as glob_mod
+    pattern = os.path.join(checkpoint_dir, "checkpoint_*.eqx")
+    existing = sorted(glob_mod.glob(pattern))
+    while len(existing) > max_keep:
+        os.remove(existing.pop(0))
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +589,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     """Train from a TrainConfig object.
 
     This is the primary entry point for config-driven training.
+    Supports checkpoint resume, mid-training optimizer switching,
+    and grouped TensorBoard logging.
 
     Args:
         config: TrainConfig instance
@@ -582,8 +598,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     Returns:
         Tuple of (trained_params, history_dict)
     """
-    # Load model via loader
     from deqn_jax.models import load_model
+    from deqn_jax.config import TrainConfig, OptimizerConfig
+
     model = load_model(config.model)
     n_equations = len(model.equation_names) if model.equation_names else 1
 
@@ -597,25 +614,70 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     hidden_sizes = config.network.hidden_sizes
 
     key = jax.random.PRNGKey(config.seed)
-    state, opt, kind = create_train_state(
-        model,
-        key,
-        hidden_sizes=hidden_sizes,
-        batch_size=config.batch_size,
-        loss_weights=config.loss_weights,
-        n_equations=n_equations,
-        optimizer_config=config.optimizer,
-        network_config=config.network,
-    )
 
-    # Warm start from steady state
-    if config.warm_start:
-        from deqn_jax.training.warm_start import warm_start_network
-        state = state._replace(
-            params=warm_start_network(state.params, model, verbose=config.verbose)
+    # ---- Resume from checkpoint or create fresh state ----
+    start_episode = 0
+
+    if config.resume:
+        # Load original config to reconstruct matching template for deserialization
+        ckpt_dir = os.path.dirname(config.resume)
+        orig_cfg_path = os.path.join(ckpt_dir, "config.yaml")
+        if os.path.exists(orig_cfg_path):
+            orig_config = TrainConfig.from_yaml(orig_cfg_path)
+        else:
+            orig_config = config  # assume same optimizer
+
+        # Build template with ORIGINAL optimizer (matching checkpoint pytree structure)
+        template_state, orig_opt, orig_kind = create_train_state(
+            model,
+            key,
+            hidden_sizes=orig_config.network.hidden_sizes,
+            batch_size=orig_config.batch_size,
+            loss_weights=config.loss_weights,
+            n_equations=n_equations,
+            optimizer_config=orig_config.optimizer,
+            network_config=orig_config.network,
         )
 
-    # Metric logger
+        state = eqx.tree_deserialise_leaves(config.resume, template_state)
+        start_episode = int(state.episode)
+
+        # Check if optimizer changed
+        optimizer_changed = config.optimizer.name != orig_config.optimizer.name
+        if optimizer_changed:
+            new_opt, new_kind = create_optimizer(config.optimizer)
+            if new_kind == OptimizerKind.MAO and isinstance(new_opt, _MAOFactory):
+                new_opt = new_opt.with_num_tasks(n_equations)
+            new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
+            state = state._replace(opt_state=new_opt_state)
+            opt, kind = new_opt, new_kind
+            if config.verbose:
+                print(f"  Resumed from {config.resume} (episode {start_episode})")
+                print(f"  Switched optimizer: {orig_config.optimizer.name} -> {config.optimizer.name}")
+        else:
+            opt, kind = orig_opt, orig_kind
+            if config.verbose:
+                print(f"  Resumed from {config.resume} (episode {start_episode})")
+    else:
+        state, opt, kind = create_train_state(
+            model,
+            key,
+            hidden_sizes=hidden_sizes,
+            batch_size=config.batch_size,
+            loss_weights=config.loss_weights,
+            n_equations=n_equations,
+            optimizer_config=config.optimizer,
+            network_config=config.network,
+        )
+
+        # Warm start from steady state (only for fresh training)
+        if config.warm_start:
+            from deqn_jax.training.warm_start import warm_start_network
+            state = state._replace(
+                params=warm_start_network(state.params, model, verbose=config.verbose)
+            )
+
+    # ---- Metric logger ----
     wandb_config = config.to_dict() if config.wandb_project else None
     logger = create_logger(
         tensorboard_dir=config.tensorboard_dir,
@@ -623,7 +685,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         wandb_config=wandb_config,
     )
 
-    # Print header
+    # ---- Print header ----
     n_params = _count_params(state.params)
     if config.verbose:
         _print_header(
@@ -640,7 +702,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             fp64=fp64,
         )
 
-    # Create JIT-compiled train step
+    # ---- Create JIT-compiled train step ----
     train_step = make_train_step(
         model, opt, config.episode_length, config.mc_samples, config.batch_size,
         loss_reweight=config.loss_reweight,
@@ -648,12 +710,50 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         kind=kind,
     )
 
-    # Training loop
+    # ---- Mid-training optimizer switch setup ----
+    switch_episode = config.switch_episode
+    switched = False
+    if config.switch_optimizer and config.switch_episode is None:
+        raise ValueError("--switch-optimizer requires --switch-episode")
+
+    # ---- Training loop ----
+    total_episodes = start_episode + config.episodes
+    ep_width = len(str(total_episodes))
+
     history: Dict[str, list] = {"loss": [], "grad_norm": []}
     t_start = time.perf_counter()
     last_metrics = None
 
-    for ep in range(config.episodes):
+    for ep_num in range(start_episode + 1, total_episodes + 1):
+        # Mid-training optimizer switch
+        if (
+            not switched
+            and switch_episode is not None
+            and config.switch_optimizer is not None
+            and ep_num == switch_episode
+        ):
+            switch_lr = config.switch_lr or config.optimizer.learning_rate
+            switch_cfg = OptimizerConfig(
+                name=config.switch_optimizer,
+                learning_rate=switch_lr,
+                grad_clip=config.optimizer.grad_clip,
+            )
+            new_opt, new_kind = create_optimizer(switch_cfg)
+            if new_kind == OptimizerKind.MAO and isinstance(new_opt, _MAOFactory):
+                new_opt = new_opt.with_num_tasks(n_equations)
+            new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
+            state = state._replace(opt_state=new_opt_state)
+            opt, kind = new_opt, new_kind
+            train_step = make_train_step(
+                model, opt, config.episode_length, config.mc_samples, config.batch_size,
+                loss_reweight=config.loss_reweight,
+                reweight_alpha=config.reweight_alpha,
+                kind=kind,
+            )
+            switched = True
+            if config.verbose:
+                print(f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}")
+
         state, metrics = train_step(state)
         last_metrics = metrics
 
@@ -662,35 +762,53 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         history["loss"].append(loss_val)
         history["grad_norm"].append(grad_val)
 
-        ep_num = ep + 1
+        # ---- Grouped logging ----
+        if ep_num % config.log_every == 0 or ep_num == total_episodes:
+            elapsed = time.perf_counter() - t_start
+            eps_done = ep_num - start_episode
+            ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
 
-        if ep_num % config.log_every == 0 or ep_num == config.episodes:
-            log_dict = {"loss": loss_val, "grad_norm": grad_val}
+            param_norm = float(optax.global_norm(eqx.filter(state.params, eqx.is_array)))
+
+            log_dict = {
+                "train/loss": loss_val,
+                "train/grad_norm": grad_val,
+                "train/param_norm": param_norm,
+                "train/ep_per_sec": ep_per_sec,
+            }
             if metrics.residuals:
                 for k, v in metrics.residuals.items():
                     log_dict[f"eq/{k}"] = float(v)
+            # Log per-equation weights when adaptive reweighting is active
+            if config.loss_reweight != "none" and model.equation_names:
+                for i, name in enumerate(model.equation_names):
+                    log_dict[f"weights/{name}"] = float(state.loss_weights[i])
             logger.log_scalars(log_dict, step=ep_num)
 
         if config.verbose and ep_num % config.log_every == 0:
             elapsed = time.perf_counter() - t_start
-            eps = ep_num / elapsed if elapsed > 0 else 0
+            eps_done = ep_num - start_episode
+            ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
             residuals = metrics.residuals or {}
             residual_str = " | ".join(
                 f"{k}={float(v):.2e}" for k, v in residuals.items()
             )
             sep = " | " if residual_str else ""
             print(
-                f"  [{ep_num:>{len(str(config.episodes))}}/{config.episodes}] "
+                f"  [{ep_num:>{ep_width}}/{total_episodes}] "
                 f"loss={loss_val:.2e}{sep}{residual_str} | "
-                f"grad={grad_val:.2e} | {eps:.0f} ep/s"
+                f"grad={grad_val:.2e} | {ep_per_sec:.0f} ep/s"
             )
 
+        # ---- Checkpointing with config snapshot + pruning ----
         if (
             config.checkpoint_dir is not None
             and config.checkpoint_every is not None
             and ep_num % config.checkpoint_every == 0
         ):
-            _save_checkpoint(state, config.checkpoint_dir, ep_num)
+            _save_checkpoint(state, config.checkpoint_dir, ep_num, config=config)
+            if config.max_checkpoints is not None:
+                _prune_checkpoints(config.checkpoint_dir, config.max_checkpoints)
 
     elapsed = time.perf_counter() - t_start
 

@@ -79,6 +79,12 @@ class TrainConfig:
     wandb_project: Optional[str] = None
     checkpoint_dir: Optional[str] = None
     checkpoint_every: Optional[int] = None
+    max_checkpoints: Optional[int] = None
+
+    resume: Optional[str] = None
+    switch_optimizer: Optional[str] = None
+    switch_episode: Optional[int] = None
+    switch_lr: Optional[float] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TrainConfig":
