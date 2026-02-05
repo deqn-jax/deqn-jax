@@ -98,11 +98,12 @@ def compute_loss(
     states: Array,
     key: Array,
     mc_samples: int = 5,
+    weights: Optional[Array] = None,
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with Monte Carlo expectations.
 
     The loss is:
-        L = mean over samples [ mean over batch [ sum over equations [ r² ] ] ]
+        L = mean over samples [ mean over batch [ sum over equations [ w_i * r_i² ] ] ]
 
     Args:
         model: Model specification
@@ -110,6 +111,7 @@ def compute_loss(
         states: State batch [batch, n_states]
         key: PRNG key for shock sampling
         mc_samples: Number of Monte Carlo samples
+        weights: Per-equation weights [n_eq] (default: uniform)
 
     Returns:
         Tuple of (scalar loss, dict of per-equation losses)
@@ -130,16 +132,29 @@ def compute_loss(
     eq_losses = {}
     total_loss = 0.0
 
-    for eq_name, residuals in all_residuals.items():
+    for i, (eq_name, residuals) in enumerate(all_residuals.items()):
         # residuals: [n_samples, batch]
         # Average over samples first (MC expectation)
         mean_residual = jnp.mean(residuals, axis=0)  # [batch]
         # MSE over batch
         eq_loss = jnp.mean(mean_residual ** 2)
         eq_losses[eq_name] = eq_loss
-        total_loss = total_loss + eq_loss
+        w = 1.0 if weights is None else weights[i]
+        total_loss = total_loss + w * eq_loss
 
     return total_loss, eq_losses
+
+
+def eq_losses_to_array(eq_losses: Dict[str, Array]) -> Array:
+    """Convert per-equation loss dict to stacked array.
+
+    Args:
+        eq_losses: Dict mapping equation names to scalar losses
+
+    Returns:
+        Array of shape [n_eq] with losses in dict iteration order
+    """
+    return jnp.stack(list(eq_losses.values()))
 
 
 def compute_loss_for_grad(

@@ -32,9 +32,11 @@ dev = [
     "pytest-xdist>=3.0",
 ]
 logging = [
-    "tensorboard>=2.14.0",
+    "tensorboardX>=2.6",
     "orbax-checkpoint>=0.5.0",
 ]
+wandb = ["wandb>=0.15.0"]
+all = ["deqn-jax[logging,wandb]"]
 
 [project.scripts]
 deqn-jax = "deqn_jax.cli:main"

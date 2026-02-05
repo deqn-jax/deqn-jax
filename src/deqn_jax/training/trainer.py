@@ -3,7 +3,9 @@
 Key design: single JIT boundary around entire train_step for maximum performance.
 """
 
-from typing import Any, Callable, Dict, Optional, Tuple
+import os
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from functools import partial
 
 import jax
@@ -12,11 +14,111 @@ from jax import Array
 import equinox as eqx
 import optax
 
-from deqn_jax.types import ModelSpec, TrainState, Metrics
+from deqn_jax.types import ModelSpec, TrainState, Metrics, ReweightState, make_reweight_state
 from deqn_jax.networks import create_mlp
-from deqn_jax.training.loss import compute_loss
+from deqn_jax.training.loss import compute_loss, eq_losses_to_array
 from deqn_jax.training.episode import run_episode, sample_initial_states
+from deqn_jax.metrics import create_logger
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _count_params(model: eqx.Module) -> int:
+    """Count trainable parameters in an Equinox model."""
+    params = eqx.filter(model, eqx.is_array)
+    leaves = jax.tree_util.tree_leaves(params)
+    return sum(x.size for x in leaves)
+
+
+def _network_shape_str(model_spec: ModelSpec, hidden_sizes: Tuple[int, ...]) -> str:
+    """Format network shape as e.g. '2 -> 64 -> 64 -> 1'."""
+    sizes = [model_spec.n_states] + list(hidden_sizes) + [model_spec.n_policies]
+    return " \u2192 ".join(str(s) for s in sizes)
+
+
+def _format_time(seconds: float) -> str:
+    """Format seconds as human-readable string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        return f"{seconds / 60:.1f}m"
+    else:
+        return f"{seconds / 3600:.1f}h"
+
+
+def _print_header(
+    model_spec: ModelSpec,
+    optimizer: str,
+    learning_rate: float,
+    hidden_sizes: Tuple[int, ...],
+    n_params: int,
+    batch_size: int,
+    mc_samples: int,
+    warm_start: bool,
+    grad_clip: Optional[float],
+    loss_reweight: str,
+    fp64: bool,
+):
+    """Print rich training header."""
+    eq_names = list(model_spec.equation_names or [])
+    if not eq_names:
+        # Discover from a dummy call if equation_names not set
+        eq_names = ["(auto-discovered)"]
+
+    precision = "float64" if fp64 else "float32"
+    ws_str = "yes" if warm_start else "no"
+    clip_str = str(grad_clip) if grad_clip else "none"
+    reweight_str = loss_reweight if loss_reweight != "none" else "none"
+
+    w = 60
+    print("=" * w)
+    print("DEQN-JAX Training")
+    print("=" * w)
+    print(f"  Model:           {model_spec.name}")
+    print(f"  Optimizer:       {optimizer} (lr={learning_rate:.0e})")
+    print(f"  Precision:       {precision}")
+    print(f"  Network:         MLP [{_network_shape_str(model_spec, hidden_sizes)}]")
+    print(f"  Parameters:      {n_params:,}")
+    print(f"  Batch size:      {batch_size}")
+    print(f"  MC samples:      {mc_samples}")
+    print(f"  Warm start:      {ws_str}")
+    if grad_clip:
+        print(f"  Grad clip:       {clip_str}")
+    if loss_reweight != "none":
+        print(f"  Reweighting:     {reweight_str}")
+    print("=" * w)
+
+
+def _print_final(
+    elapsed: float,
+    episodes: int,
+    final_loss: float,
+    final_residuals: Optional[Dict[str, float]],
+):
+    """Print final training summary."""
+    eps_per_sec = episodes / elapsed if elapsed > 0 else 0
+    w = 60
+    print("=" * w)
+    print(f"Training complete in {_format_time(elapsed)} ({eps_per_sec:.0f} ep/s)")
+    print(f"Final loss: {final_loss:.2e}")
+    if final_residuals:
+        for name, val in final_residuals.items():
+            print(f"  {name}: {float(val):.2e}")
+    print("=" * w)
+
+
+def _save_checkpoint(state: TrainState, checkpoint_dir: str, episode: int):
+    """Save training state checkpoint."""
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    path = os.path.join(checkpoint_dir, f"checkpoint_{episode:06d}.eqx")
+    eqx.tree_serialise_leaves(path, state)
+
+
+# ---------------------------------------------------------------------------
+# State + optimizer construction
+# ---------------------------------------------------------------------------
 
 def create_train_state(
     model: ModelSpec,
@@ -25,8 +127,11 @@ def create_train_state(
     learning_rate: float = 1e-3,
     batch_size: int = 64,
     optimizer: str = "adam",
-) -> TrainState:
-    """Initialize training state.
+    grad_clip: Optional[float] = None,
+    loss_weights: Optional[List[float]] = None,
+    n_equations: int = 1,
+) -> Tuple[TrainState, optax.GradientTransformation]:
+    """Initialize training state and optimizer.
 
     Args:
         model: Model specification
@@ -35,9 +140,12 @@ def create_train_state(
         learning_rate: Optimizer learning rate
         batch_size: Batch size for states
         optimizer: Optimizer name ("adam", "sgd", "adamw")
+        grad_clip: Global gradient clipping norm (None = no clipping)
+        loss_weights: Manual per-equation weights (None = uniform)
+        n_equations: Number of equations (for reweight state init)
 
     Returns:
-        Initialized TrainState
+        Tuple of (TrainState, optax optimizer)
     """
     key, net_key, state_key = jax.random.split(key, 3)
 
@@ -51,28 +159,90 @@ def create_train_state(
         key=net_key,
     )
 
-    # Create optimizer
+    # Create base optimizer
     if optimizer == "sgd":
-        opt = optax.sgd(learning_rate)
+        base_opt = optax.sgd(learning_rate)
     elif optimizer == "adamw":
-        opt = optax.adamw(learning_rate)
+        base_opt = optax.adamw(learning_rate)
     else:
-        opt = optax.adam(learning_rate)
+        base_opt = optax.adam(learning_rate)
+
+    # Optionally chain with gradient clipping
+    if grad_clip is not None:
+        opt = optax.chain(optax.clip_by_global_norm(grad_clip), base_opt)
+    else:
+        opt = base_opt
 
     opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
 
     # Sample initial states
     init_states = sample_initial_states(model, state_key, batch_size)
 
-    return TrainState(
+    # Loss weights
+    if loss_weights is not None:
+        weights = jnp.array(loss_weights)
+    else:
+        weights = jnp.ones(n_equations)
+
+    state = TrainState(
         params=policy_net,
         opt_state=opt_state,
         episode_state=init_states,
         key=key,
         step=0,
         episode=0,
+        loss_weights=weights,
+        reweight_state=make_reweight_state(n_equations),
     )
 
+    return state, opt
+
+
+# ---------------------------------------------------------------------------
+# Adaptive reweighting (pure functions for JIT)
+# ---------------------------------------------------------------------------
+
+def _update_weights_lr_annealing(
+    eq_loss_arr: Array,
+    reweight_state: ReweightState,
+    alpha: float,
+    n_eq: int,
+) -> Tuple[Array, ReweightState]:
+    """LR annealing: inverse EMA weighting, normalized to sum=n_eq."""
+    new_running = alpha * reweight_state.running_max + (1.0 - alpha) * eq_loss_arr
+    raw = 1.0 / (new_running + 1e-8)
+    weights = raw / jnp.sum(raw) * n_eq
+    new_rw = reweight_state._replace(running_max=new_running, prev_losses=eq_loss_arr)
+    return weights, new_rw
+
+
+def _update_weights_relobralo(
+    eq_loss_arr: Array,
+    reweight_state: ReweightState,
+    alpha: float,
+    n_eq: int,
+) -> Tuple[Array, ReweightState]:
+    """ReLoBRaLo: relative balancing with softmax of loss ratios."""
+    init = jnp.where(reweight_state.initialized, reweight_state.init_losses, eq_loss_arr)
+    prev = jnp.where(reweight_state.initialized, reweight_state.prev_losses, eq_loss_arr)
+
+    eps = 1e-8
+    # Softmax of ratios
+    w_t = jax.nn.softmax(eq_loss_arr / (prev + eps)) * n_eq
+    w_0 = jax.nn.softmax(eq_loss_arr / (init + eps)) * n_eq
+    weights = alpha * w_t + (1.0 - alpha) * w_0
+
+    new_rw = reweight_state._replace(
+        prev_losses=eq_loss_arr,
+        init_losses=init,
+        initialized=jnp.array(True),
+    )
+    return weights, new_rw
+
+
+# ---------------------------------------------------------------------------
+# JIT-compiled train step
+# ---------------------------------------------------------------------------
 
 def make_train_step(
     model: ModelSpec,
@@ -80,6 +250,8 @@ def make_train_step(
     episode_length: int,
     mc_samples: int,
     batch_size: int,
+    loss_reweight: str = "none",
+    reweight_alpha: float = 0.9,
 ):
     """Create a JIT-compiled training step function.
 
@@ -91,10 +263,14 @@ def make_train_step(
         episode_length: Steps per episode
         mc_samples: MC samples for loss
         batch_size: Batch size
+        loss_reweight: Adaptive strategy ("none", "lr_annealing", "relobralo")
+        reweight_alpha: EMA decay for adaptive reweighting
 
     Returns:
         JIT-compiled train_step function
     """
+    # Discover n_eq from equation_names or default to 1
+    n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
     def train_step(state: TrainState) -> Tuple[TrainState, Metrics]:
@@ -123,9 +299,12 @@ def make_train_step(
         indices = jax.random.permutation(shuffle_key, n_states)[:batch_size]
         train_states = all_states[indices]
 
-        # Loss and gradient
+        # Loss and gradient (with current weights)
         def loss_fn(params):
-            loss, eq_losses = compute_loss(model, params, train_states, loss_key, mc_samples)
+            loss, eq_losses = compute_loss(
+                model, params, train_states, loss_key, mc_samples,
+                weights=state.loss_weights,
+            )
             return loss, eq_losses
 
         (loss, eq_losses), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(state.params)
@@ -143,6 +322,21 @@ def make_train_step(
         # Compute gradient norm for monitoring
         grad_norm = optax.global_norm(grads_arrays)
 
+        # Update loss weights if adaptive reweighting is enabled
+        eq_loss_arr = eq_losses_to_array(eq_losses)
+
+        if loss_reweight == "lr_annealing":
+            new_weights, new_rw = _update_weights_lr_annealing(
+                eq_loss_arr, state.reweight_state, reweight_alpha, n_eq,
+            )
+        elif loss_reweight == "relobralo":
+            new_weights, new_rw = _update_weights_relobralo(
+                eq_loss_arr, state.reweight_state, reweight_alpha, n_eq,
+            )
+        else:
+            new_weights = state.loss_weights
+            new_rw = state.reweight_state
+
         new_state = TrainState(
             params=new_params,
             opt_state=new_opt_state,
@@ -150,6 +344,8 @@ def make_train_step(
             key=key,
             step=state.step + 1,
             episode=state.episode + 1,
+            loss_weights=new_weights,
+            reweight_state=new_rw,
         )
 
         metrics = Metrics(
@@ -162,6 +358,10 @@ def make_train_step(
 
     return train_step
 
+
+# ---------------------------------------------------------------------------
+# Main training entry point
+# ---------------------------------------------------------------------------
 
 def train(
     model_name: str,
@@ -176,6 +376,14 @@ def train(
     seed: int = 42,
     log_every: int = 100,
     verbose: bool = True,
+    grad_clip: Optional[float] = None,
+    loss_weights: Optional[List[float]] = None,
+    loss_reweight: str = "none",
+    reweight_alpha: float = 0.9,
+    tensorboard_dir: Optional[str] = None,
+    wandb_project: Optional[str] = None,
+    checkpoint_dir: Optional[str] = None,
+    checkpoint_every: Optional[int] = None,
 ) -> Tuple[Any, Dict[str, list]]:
     """Train DEQN model.
 
@@ -192,6 +400,14 @@ def train(
         seed: Random seed
         log_every: Log frequency
         verbose: Print progress
+        grad_clip: Global gradient clipping norm (None = no clipping)
+        loss_weights: Manual per-equation weights (None = uniform)
+        loss_reweight: Adaptive strategy ("none", "lr_annealing", "relobralo")
+        reweight_alpha: EMA decay for adaptive reweighting
+        tensorboard_dir: TensorBoard log directory (None = disabled)
+        wandb_project: W&B project name (None = disabled)
+        checkpoint_dir: Checkpoint save directory (None = disabled)
+        checkpoint_every: Checkpoint interval in episodes (None = disabled)
 
     Returns:
         Tuple of (trained_params, history_dict)
@@ -206,15 +422,31 @@ def train(
 
     model = MODEL
 
-    # Initialize
+    # Discover n_equations
+    n_equations = len(model.equation_names) if model.equation_names else 1
+
+    # Validate loss_weights length
+    if loss_weights is not None and len(loss_weights) != n_equations:
+        raise ValueError(
+            f"loss_weights has {len(loss_weights)} entries but model "
+            f"has {n_equations} equations"
+        )
+
+    # Detect fp64
+    fp64 = jnp.zeros(1).dtype == jnp.float64
+
+    # Initialize state + optimizer
     key = jax.random.PRNGKey(seed)
-    state = create_train_state(
+    state, opt = create_train_state(
         model,
         key,
         hidden_sizes=hidden_sizes,
         learning_rate=learning_rate,
         batch_size=batch_size,
         optimizer=optimizer,
+        grad_clip=grad_clip,
+        loss_weights=loss_weights,
+        n_equations=n_equations,
     )
 
     # Warm start from steady state
@@ -224,49 +456,112 @@ def train(
             params=warm_start_network(state.params, model, verbose=verbose)
         )
 
-    # Create optimizer for JIT
-    if optimizer == "sgd":
-        opt = optax.sgd(learning_rate)
-    elif optimizer == "adamw":
-        opt = optax.adamw(learning_rate)
-    else:
-        opt = optax.adam(learning_rate)
+    # Create metric logger
+    wandb_config = dict(
+        model=model_name,
+        episodes=episodes,
+        hidden_sizes=hidden_sizes,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        mc_samples=mc_samples,
+        optimizer=optimizer,
+        grad_clip=grad_clip,
+        loss_reweight=loss_reweight,
+    ) if wandb_project else None
+
+    logger = create_logger(
+        tensorboard_dir=tensorboard_dir,
+        wandb_project=wandb_project,
+        wandb_config=wandb_config,
+    )
+
+    # Print header
+    n_params = _count_params(state.params)
+    if verbose:
+        _print_header(
+            model_spec=model,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            hidden_sizes=hidden_sizes,
+            n_params=n_params,
+            batch_size=batch_size,
+            mc_samples=mc_samples,
+            warm_start=warm_start,
+            grad_clip=grad_clip,
+            loss_reweight=loss_reweight,
+            fp64=fp64,
+        )
+
+    # Create JIT-compiled train step
+    train_step = make_train_step(
+        model, opt, episode_length, mc_samples, batch_size,
+        loss_reweight=loss_reweight,
+        reweight_alpha=reweight_alpha,
+    )
 
     # Training history
-    history = {
+    history: Dict[str, list] = {
         "loss": [],
         "grad_norm": [],
     }
 
-    if verbose:
-        print(f"Training {model_name} for {episodes} episodes...")
-        print(f"  Hidden sizes: {hidden_sizes}")
-        print(f"  Learning rate: {learning_rate}")
-        print(f"  Batch size: {batch_size}")
-        print(f"  MC samples: {mc_samples}")
-        print()
-
-    # Create JIT-compiled train step
-    train_step = make_train_step(model, opt, episode_length, mc_samples, batch_size)
-
     # Training loop
+    t_start = time.perf_counter()
+    last_metrics = None
+
     for ep in range(episodes):
         state, metrics = train_step(state)
+        last_metrics = metrics
 
-        history["loss"].append(float(metrics.loss))
-        history["grad_norm"].append(float(metrics.grad_norm))
+        loss_val = float(metrics.loss)
+        grad_val = float(metrics.grad_norm)
+        history["loss"].append(loss_val)
+        history["grad_norm"].append(grad_val)
 
-        if verbose and (ep + 1) % log_every == 0:
+        ep_num = ep + 1
+
+        # Log to backends
+        if ep_num % log_every == 0 or ep_num == episodes:
+            log_dict = {"loss": loss_val, "grad_norm": grad_val}
+            if metrics.residuals:
+                for k, v in metrics.residuals.items():
+                    log_dict[f"eq/{k}"] = float(v)
+            logger.log_scalars(log_dict, step=ep_num)
+
+        # Print progress
+        if verbose and ep_num % log_every == 0:
+            elapsed = time.perf_counter() - t_start
+            eps = ep_num / elapsed if elapsed > 0 else 0
             residuals = metrics.residuals or {}
-            residual_str = ", ".join(
+            residual_str = " | ".join(
                 f"{k}={float(v):.2e}" for k, v in residuals.items()
             )
+            sep = " | " if residual_str else ""
             print(
-                f"Episode {ep + 1:5d} | Loss: {float(metrics.loss):.4e} | "
-                f"Grad: {float(metrics.grad_norm):.2e} | {residual_str}"
+                f"  [{ep_num:>{len(str(episodes))}}/{episodes}] "
+                f"loss={loss_val:.2e}{sep}{residual_str} | "
+                f"grad={grad_val:.2e} | {eps:.0f} ep/s"
             )
 
-    if verbose:
-        print(f"\nFinal loss: {history['loss'][-1]:.4e}")
+        # Checkpointing
+        if (
+            checkpoint_dir is not None
+            and checkpoint_every is not None
+            and ep_num % checkpoint_every == 0
+        ):
+            _save_checkpoint(state, checkpoint_dir, ep_num)
+
+    # Final summary
+    elapsed = time.perf_counter() - t_start
+
+    if verbose and last_metrics is not None:
+        _print_final(
+            elapsed=elapsed,
+            episodes=episodes,
+            final_loss=float(last_metrics.loss),
+            final_residuals=last_metrics.residuals,
+        )
+
+    logger.close()
 
     return state.params, history

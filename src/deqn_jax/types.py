@@ -68,6 +68,35 @@ class ModelSpec(NamedTuple):
     policy_upper: Optional[Array] = None
 
 
+class ReweightState(NamedTuple):
+    """Running statistics for adaptive loss reweighting.
+
+    Used by lr_annealing and relobralo strategies to track
+    per-equation loss history for dynamic weight adjustment.
+
+    Attributes:
+        running_max: EMA of per-equation losses (for lr_annealing)
+        prev_losses: Previous step losses (for relobralo)
+        init_losses: First step losses (for relobralo)
+        initialized: Whether init_losses has been set
+    """
+
+    running_max: Array   # [n_eq]
+    prev_losses: Array   # [n_eq]
+    init_losses: Array   # [n_eq]
+    initialized: Array   # scalar bool
+
+
+def make_reweight_state(n_equations: int) -> "ReweightState":
+    """Create initial reweight state for n equations."""
+    return ReweightState(
+        running_max=jnp.ones(n_equations),
+        prev_losses=jnp.zeros(n_equations),
+        init_losses=jnp.zeros(n_equations),
+        initialized=jnp.array(False),
+    )
+
+
 class TrainState(NamedTuple):
     """Immutable training state for JAX-compatible training loops.
 
@@ -81,6 +110,8 @@ class TrainState(NamedTuple):
         key: JAX PRNG key
         step: Current training step
         episode: Current episode number
+        loss_weights: Per-equation loss weights [n_eq]
+        reweight_state: Adaptive reweighting running statistics
     """
 
     params: Any  # Equinox model
@@ -89,6 +120,8 @@ class TrainState(NamedTuple):
     key: Array  # JAX PRNG key
     step: int
     episode: int
+    loss_weights: Array  # [n_eq] per-equation weights
+    reweight_state: ReweightState  # adaptive reweighting state
 
 
 class EpisodeState(NamedTuple):

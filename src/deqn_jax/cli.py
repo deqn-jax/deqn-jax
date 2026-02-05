@@ -91,6 +91,59 @@ def main():
         help="Suppress output",
     )
 
+    # New options
+    train_parser.add_argument(
+        "--grad-clip",
+        type=float,
+        default=None,
+        help="Gradient clipping norm (default: none)",
+    )
+    train_parser.add_argument(
+        "--loss-weights",
+        type=str,
+        default=None,
+        help="Manual equation weights, comma-separated (e.g. '1.0,0.5')",
+    )
+    train_parser.add_argument(
+        "--loss-reweight",
+        type=str,
+        default="none",
+        choices=["none", "lr_annealing", "relobralo"],
+        help="Adaptive loss reweighting strategy (default: none)",
+    )
+    train_parser.add_argument(
+        "--reweight-alpha",
+        type=float,
+        default=0.9,
+        help="EMA decay for adaptive reweighting (default: 0.9)",
+    )
+    train_parser.add_argument(
+        "--tensorboard",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="TensorBoard log directory",
+    )
+    train_parser.add_argument(
+        "--wandb",
+        type=str,
+        default=None,
+        metavar="PROJECT",
+        help="W&B project name",
+    )
+    train_parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default=None,
+        help="Checkpoint save directory",
+    )
+    train_parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=None,
+        help="Checkpoint interval (episodes)",
+    )
+
     # List command
     list_parser = subparsers.add_parser("list", help="List available models")
 
@@ -117,6 +170,11 @@ def run_train(args):
     # Parse hidden sizes
     hidden_sizes = tuple(int(x) for x in args.hidden.split(","))
 
+    # Parse loss weights
+    loss_weights = None
+    if args.loss_weights is not None:
+        loss_weights = [float(x) for x in args.loss_weights.split(",")]
+
     # Train
     params, history = train(
         model_name=args.model,
@@ -131,10 +189,15 @@ def run_train(args):
         seed=args.seed,
         log_every=args.log_every,
         verbose=not args.quiet,
+        grad_clip=args.grad_clip,
+        loss_weights=loss_weights,
+        loss_reweight=args.loss_reweight,
+        reweight_alpha=args.reweight_alpha,
+        tensorboard_dir=args.tensorboard,
+        wandb_project=args.wandb,
+        checkpoint_dir=args.checkpoint_dir,
+        checkpoint_every=args.checkpoint_every,
     )
-
-    if not args.quiet:
-        print(f"\nTraining complete. Final loss: {history['loss'][-1]:.4e}")
 
 
 def run_list():
