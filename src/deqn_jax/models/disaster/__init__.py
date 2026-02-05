@@ -28,6 +28,7 @@ MODEL = ModelSpec(
     step_fn=step,
     steady_state_fn=steady_state,
     init_state_fn=init_state,
+    definitions_fn=definitions,
     policy_lower=POLICY_LOWER,
     policy_upper=POLICY_UPPER,
 )

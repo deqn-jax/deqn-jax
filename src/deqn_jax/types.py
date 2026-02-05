@@ -63,6 +63,10 @@ class ModelSpec(NamedTuple):
     # init_state_fn(key, batch_size, constants) -> state
     init_state_fn: Optional[Callable[..., Array]] = None
 
+    # Optional: compute derived quantities for monitoring
+    # definitions_fn(state, policy, constants) -> Dict[str, Array]
+    definitions_fn: Optional[Callable[..., Dict[str, Any]]] = None
+
     # Policy bounds (for output activation)
     policy_lower: Optional[Array] = None
     policy_upper: Optional[Array] = None

@@ -32,6 +32,29 @@ from deqn_jax.optimizers.mao import _MAOFactory
 # Helpers
 # ---------------------------------------------------------------------------
 
+import re
+
+
+def _strip_eq_prefix(name: str) -> str:
+    """Strip 'eq1_', 'eq12_' numeric prefixes from equation names."""
+    return re.sub(r"^eq\d+_", "", name)
+
+
+def _print_residual_table(items: list, n_cols: int = 3):
+    """Print residuals as an aligned multi-column table."""
+    name_width = max(len(n) for n, _ in items)
+    col_width = name_width + 11  # name + space + "1.23e-04" + padding
+    rows = (len(items) + n_cols - 1) // n_cols
+    for r in range(rows):
+        parts = []
+        for c in range(n_cols):
+            idx = r + c * rows
+            if idx < len(items):
+                n, v = items[idx]
+                parts.append(f"{n:<{name_width}} {v:>9.2e}")
+        print("    " + "   ".join(parts))
+
+
 def _count_params(model: eqx.Module) -> int:
     """Count trainable parameters in an Equinox model."""
     params = eqx.filter(model, eqx.is_array)
@@ -110,8 +133,15 @@ def _print_final(
     print(f"Training complete in {_format_time(elapsed)} ({eps_per_sec:.0f} ep/s)")
     print(f"Final loss: {final_loss:.2e}")
     if final_residuals:
-        for name, val in final_residuals.items():
-            print(f"  {name}: {float(val):.2e}")
+        items = [
+            (_strip_eq_prefix(k), float(v))
+            for k, v in final_residuals.items()
+        ]
+        if len(items) <= 3:
+            for n, v in items:
+                print(f"  {n}: {v:.2e}")
+        else:
+            _print_residual_table(items)
     print("=" * w)
 
 
@@ -785,20 +815,56 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     log_dict[f"weights/{name}"] = float(state.loss_weights[i])
             logger.log_scalars(log_dict, step=ep_num)
 
+            # State, policy, and definition histograms
+            import numpy as np
+            hist_dict: Dict[str, Any] = {}
+            ep_states = state.episode_state  # [batch, n_states]
+
+            # State variable histograms
+            if model.state_names:
+                for i, name in enumerate(model.state_names):
+                    hist_dict[f"state/{name}"] = np.asarray(ep_states[:, i])
+
+            # Policy output histograms
+            policy_out = jax.vmap(state.params)(ep_states)  # [batch, n_policies]
+            if model.policy_names:
+                for i, name in enumerate(model.policy_names):
+                    hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
+
+            # Definition histograms (derived economic quantities)
+            if model.definitions_fn is not None:
+                defs = jax.vmap(
+                    lambda s, p: model.definitions_fn(s, p, model.constants)
+                )(ep_states, policy_out)
+                for name, vals in defs.items():
+                    hist_dict[f"derived/{name}"] = np.asarray(vals)
+
+            logger.log_histograms(hist_dict, step=ep_num)
+
         if config.verbose and ep_num % config.log_every == 0:
             elapsed = time.perf_counter() - t_start
             eps_done = ep_num - start_episode
             ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
             residuals = metrics.residuals or {}
-            residual_str = " | ".join(
-                f"{k}={float(v):.2e}" for k, v in residuals.items()
-            )
-            sep = " | " if residual_str else ""
+
+            # Summary line
             print(
                 f"  [{ep_num:>{ep_width}}/{total_episodes}] "
-                f"loss={loss_val:.2e}{sep}{residual_str} | "
-                f"grad={grad_val:.2e} | {ep_per_sec:.0f} ep/s"
+                f"loss={loss_val:.2e} | grad={grad_val:.2e} | {ep_per_sec:.0f} ep/s"
             )
+
+            # Residuals: inline for <=3 equations, columnar table for more
+            if residuals:
+                items = [
+                    (_strip_eq_prefix(k), float(v))
+                    for k, v in residuals.items()
+                ]
+                if len(items) <= 3:
+                    print("    " + "  ".join(
+                        f"{n}={v:.2e}" for n, v in items
+                    ))
+                else:
+                    _print_residual_table(items)
 
         # ---- Checkpointing with config snapshot + pruning ----
         if (

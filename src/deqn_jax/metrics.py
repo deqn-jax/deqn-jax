@@ -6,12 +6,15 @@ All backends are optional — NullLogger is used when nothing is configured.
 
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 
+import numpy as np
+
 
 @runtime_checkable
 class MetricLogger(Protocol):
     """Protocol for metric logging backends."""
 
     def log_scalars(self, metrics: Dict[str, float], step: int) -> None: ...
+    def log_histograms(self, arrays: Dict[str, np.ndarray], step: int) -> None: ...
     def flush(self) -> None: ...
     def close(self) -> None: ...
 
@@ -20,6 +23,9 @@ class NullLogger:
     """No-op logger used when no backend is configured."""
 
     def log_scalars(self, metrics: Dict[str, float], step: int) -> None:
+        pass
+
+    def log_histograms(self, arrays: Dict[str, np.ndarray], step: int) -> None:
         pass
 
     def flush(self) -> None:
@@ -46,6 +52,10 @@ class TensorBoardLogger:
         for key, value in metrics.items():
             self._writer.add_scalar(key, value, step)
 
+    def log_histograms(self, arrays: Dict[str, np.ndarray], step: int) -> None:
+        for key, arr in arrays.items():
+            self._writer.add_histogram(key, arr, step)
+
     def flush(self) -> None:
         self._writer.flush()
 
@@ -70,6 +80,10 @@ class WandbLogger:
     def log_scalars(self, metrics: Dict[str, float], step: int) -> None:
         self._wandb.log(metrics, step=step)
 
+    def log_histograms(self, arrays: Dict[str, np.ndarray], step: int) -> None:
+        histograms = {k: self._wandb.Histogram(v) for k, v in arrays.items()}
+        self._wandb.log(histograms, step=step)
+
     def flush(self) -> None:
         pass
 
@@ -86,6 +100,10 @@ class CompositeLogger:
     def log_scalars(self, metrics: Dict[str, float], step: int) -> None:
         for logger in self._loggers:
             logger.log_scalars(metrics, step)
+
+    def log_histograms(self, arrays: Dict[str, np.ndarray], step: int) -> None:
+        for logger in self._loggers:
+            logger.log_histograms(arrays, step)
 
     def flush(self) -> None:
         for logger in self._loggers:
