@@ -839,7 +839,11 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 for name, vals in defs.items():
                     hist_dict[f"derived/{name}"] = np.asarray(vals)
 
-            logger.log_histograms(hist_dict, step=ep_num)
+            # Filter out arrays with NaN/Inf (early training can produce these)
+            hist_dict = {k: v for k, v in hist_dict.items()
+                         if np.isfinite(v).all() and v.size > 0}
+            if hist_dict:
+                logger.log_histograms(hist_dict, step=ep_num)
 
         if config.verbose and ep_num % config.log_every == 0:
             elapsed = time.perf_counter() - t_start

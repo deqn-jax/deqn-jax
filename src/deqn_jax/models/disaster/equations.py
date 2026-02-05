@@ -12,7 +12,7 @@ EQUATION_NAMES = (
     "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
     "eq4_wage_phillips_K", "eq5_consumption_euler", "eq6_bond_euler",
     "eq7_investment_euler", "eq8_bank_participation", "eq9_entrepreneur_contract",
-    "eq10_marginal_cost", "eq11_resource_constraint", "eq12_capital_accumulation"
+    "eq10_marginal_cost", "eq11_resource_constraint", "eq12_leverage_definition"
 )
 
 
@@ -69,17 +69,15 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Financial frictions
     F_val = F_omega(p.omega_bar, c["sigma_omega"])
     G_val = G_omega(p.omega_bar, c["sigma_omega"])
+    Gamma_val = Gamma(p.omega_bar, c["sigma_omega"])
 
     # Capital and returns
     k = (1 - c["delta"]) * st.k_lag / st.mu_z + (1 - S_val) * p.i
     r_k = st.eps * c["alpha"] * (st.mu_z * p.h / st.k_lag) ** (1 - c["alpha"]) * p.s
     R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * p.q) / st.q_lag * p.pi + c["tau_k"] * c["delta"]
 
-    # Net worth
-    n = (c["gamma_e"] / (p.pi * st.mu_z)) * (
-        R_k * st.q_lag * st.k_lag - st.R_lag * st.q_lag * st.k_lag / st.L_lag
-        - c["mu_mon"] * G_val * R_k * st.q_lag * st.k_lag
-    ) + c["w_e"] + c["gamma_e"] * st.R_lag / (p.pi * st.mu_z) * st.q_lag * st.k_lag / st.L_lag
+    # Net worth: entrepreneur keeps (1-Gamma) share of gross return on capital
+    n = (c["gamma_e"] / (p.pi * st.mu_z)) * (1.0 - Gamma_val) * R_k * st.q_lag * st.k_lag + c["w_e"]
 
     # Output
     y_z = st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
@@ -99,7 +97,8 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
 
     return {
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
-        "S_val": S_val, "S_prime_val": S_prime_val, "F_val": F_val, "G_val": G_val,
+        "S_val": S_val, "S_prime_val": S_prime_val,
+        "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": K_p, "K_w": K_w, "i_ratio": i_ratio,
     }
@@ -179,7 +178,8 @@ def equations(
     entrepreneur_cons = c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (defs["n"] - c["w_e"])
     residuals["eq11_resource_constraint"] = defs["y_z"] - st.g - p.c - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost
 
-    # Eq 12: Capital accumulation
-    residuals["eq12_capital_accumulation"] = defs["k"] - (1 - c["delta"]) * st.k_lag / st.mu_z - (1 - defs["S_val"]) * p.i
+    # Eq 12: Leverage definition (balance sheet identity: L*n = q*k)
+    # Multiplied through by n to avoid division (equivalent to L = q*k/n)
+    residuals["eq12_leverage_definition"] = p.L * defs["n"] - p.q * defs["k"]
 
     return residuals
