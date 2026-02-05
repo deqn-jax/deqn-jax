@@ -36,8 +36,7 @@ logging = [
     "orbax-checkpoint>=0.5.0",
 ]
 wandb = ["wandb>=0.15.0"]
-kfac = ["kfac-jax>=0.0.6"]
-all = ["deqn-jax[logging,wandb,kfac]"]
+all = ["deqn-jax[logging,wandb]"]
 
 [project.scripts]
 deqn-jax = "deqn_jax.cli:main"

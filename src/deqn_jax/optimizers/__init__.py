@@ -6,7 +6,6 @@ Includes:
 - Multi-Adaptive Optimizer (per-equation moments)
 - Kronecker-factored Shampoo
 - L-BFGS via optax
-- K-FAC (fallback to NGD)
 - Gauss-Newton / Levenberg-Marquardt for residual minimization
 
 All standard/NGD/Shampoo/Lion/Muon/K-FAC optimizers are registered in the
@@ -24,8 +23,6 @@ from deqn_jax.optimizers import ngd as _ngd_mod  # noqa: F401
 from deqn_jax.optimizers import mao as _mao_mod  # noqa: F401
 from deqn_jax.optimizers import shampoo as _shampoo_mod  # noqa: F401
 from deqn_jax.optimizers import lbfgs as _lbfgs_mod  # noqa: F401
-from deqn_jax.optimizers import kfac as _kfac_mod  # noqa: F401
-
 from deqn_jax.optimizers.mao import MAOTransform, MAOState, _MAOFactory
 from deqn_jax.optimizers.ngd import ngd, NGDState
 from deqn_jax.optimizers.shampoo import shampoo, ShampooState

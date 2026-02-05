@@ -32,9 +32,6 @@ class OptimizerConfig:
     memory_size: int = 10
     # Muon
     ns_steps: int = 5
-    # K-FAC
-    kfac_damping: float = 1e-3
-    kfac_update_freq: int = 10
 
 
 @dataclass

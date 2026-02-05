@@ -47,7 +47,6 @@ src/deqn_jax/
     mao.py                # Multi-Adaptive Optimizer (custom class, per-equation moments)
     shampoo.py            # Kronecker-factored Shampoo (optax.GradientTransformation)
     lbfgs.py              # Thin wrapper around optax.lbfgs
-    kfac.py               # Falls back to NGD (full kfac-jax integration is future work)
     gauss_newton.py       # Gauss-Newton and Levenberg-Marquardt (custom classes)
 
   training/
@@ -71,7 +70,7 @@ The entire train step is one `@jax.jit` function. This is the core performance d
 
 Dispatched at construction time (before JIT), not inside JIT:
 
-- **STANDARD** (adam, sgd, adamw, lion, muon, ngd, shampoo, kfac): `jax.grad` -> `opt.update(grads, state, params)`
+- **STANDARD** (adam, sgd, adamw, lion, muon, ngd, shampoo): `jax.grad` -> `opt.update(grads, state, params)`
 - **MAO**: `jax.jacrev(per_eq_loss_vector)` -> per-equation Jacobian -> `mao.update(eq_jac, state, params)`
 - **LBFGS**: `optax.lbfgs` (GradientTransformationExtraArgs) -> needs `value`, `grad`, `value_fn` for line search
 

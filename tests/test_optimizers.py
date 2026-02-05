@@ -21,7 +21,7 @@ class TestRegistry:
         assert "lbfgs" in opts
         assert "lion" in opts
         assert "muon" in opts
-        assert "kfac" in opts
+        assert "kfac" not in opts
 
     def test_create_adam(self):
         from deqn_jax.optimizers import create_optimizer, OptimizerKind
