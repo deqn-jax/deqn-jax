@@ -1,0 +1,24 @@
+# NK-DSGE disaster model with MAO optimizer
+model: disaster
+episodes: 5000
+batch_size: 128
+episode_length: 50
+mc_samples: 3
+
+network:
+  type: mlp
+  hidden_sizes: [128, 128, 64]
+  activation: tanh
+
+optimizer:
+  name: mao
+  learning_rate: 5.0e-4
+  beta1: 0.9
+  beta2: 0.999
+
+warm_start: true
+loss_reweight: relobralo
+reweight_alpha: 0.9
+
+log_every: 100
+fp64: true

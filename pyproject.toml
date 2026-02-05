@@ -21,8 +21,8 @@ dependencies = [
     "jaxlib>=0.4.20",
     "equinox>=0.11.0",
     "optax>=0.2.0",
-    "jaxopt>=0.8.0",
     "numpy>=1.24.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,8 @@ logging = [
     "orbax-checkpoint>=0.5.0",
 ]
 wandb = ["wandb>=0.15.0"]
-all = ["deqn-jax[logging,wandb]"]
+kfac = ["kfac-jax>=0.0.6"]
+all = ["deqn-jax[logging,wandb,kfac]"]
 
 [project.scripts]
 deqn-jax = "deqn_jax.cli:main"

@@ -17,72 +17,74 @@ def main():
     train_parser.add_argument(
         "model",
         type=str,
-        choices=["brock_mirman", "disaster"],
-        help="Model to train",
+        nargs="?",
+        default=None,
+        help="Model to train (brock_mirman, disaster)",
     )
     train_parser.add_argument(
         "-n", "--episodes",
         type=int,
-        default=1000,
+        default=None,
         help="Number of training episodes (default: 1000)",
     )
     train_parser.add_argument(
         "--hidden",
         type=str,
-        default="64,64",
+        default=None,
         help="Hidden layer sizes, comma-separated (default: 64,64)",
     )
     train_parser.add_argument(
         "--lr", "--learning-rate",
         type=float,
-        default=1e-3,
+        default=None,
         help="Learning rate (default: 1e-3)",
     )
     train_parser.add_argument(
         "--batch-size",
         type=int,
-        default=64,
+        default=None,
         help="Batch size (default: 64)",
     )
     train_parser.add_argument(
         "--episode-length",
         type=int,
-        default=100,
+        default=None,
         help="Steps per episode (default: 100)",
     )
     train_parser.add_argument(
         "--mc-samples",
         type=int,
-        default=5,
+        default=None,
         help="Monte Carlo samples (default: 5)",
     )
     train_parser.add_argument(
         "-o", "--optimizer",
         type=str,
-        default="adam",
-        choices=["adam", "sgd", "adamw"],
-        help="Optimizer (default: adam)",
+        default=None,
+        help="Optimizer name (default: adam). Use 'deqn-jax optimizers' to list.",
     )
     train_parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=None,
         help="Random seed (default: 42)",
     )
     train_parser.add_argument(
         "--log-every",
         type=int,
-        default=100,
+        default=None,
         help="Log frequency (default: 100)",
     )
     train_parser.add_argument(
         "--warm-start",
         action="store_true",
+        default=None,
         help="Initialize from steady state using L-BFGS",
     )
     train_parser.add_argument(
         "--fp64",
         action="store_true",
+        default=None,
         help="Use float64 precision",
     )
     train_parser.add_argument(
@@ -91,7 +93,25 @@ def main():
         help="Suppress output",
     )
 
-    # New options
+    # Config options
+    train_parser.add_argument(
+        "-c", "--config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="YAML config file",
+    )
+    train_parser.add_argument(
+        "-s", "--set",
+        type=str,
+        action="append",
+        default=None,
+        dest="overrides",
+        metavar="KEY=VAL",
+        help="Override config (repeatable, dot-notation). E.g. --set optimizer.learning_rate=0.01",
+    )
+
+    # Optimizer-specific options
     train_parser.add_argument(
         "--grad-clip",
         type=float,
@@ -107,14 +127,14 @@ def main():
     train_parser.add_argument(
         "--loss-reweight",
         type=str,
-        default="none",
+        default=None,
         choices=["none", "lr_annealing", "relobralo"],
         help="Adaptive loss reweighting strategy (default: none)",
     )
     train_parser.add_argument(
         "--reweight-alpha",
         type=float,
-        default=0.9,
+        default=None,
         help="EMA decay for adaptive reweighting (default: 0.9)",
     )
     train_parser.add_argument(
@@ -145,7 +165,10 @@ def main():
     )
 
     # List command
-    list_parser = subparsers.add_parser("list", help="List available models")
+    subparsers.add_parser("list", help="List available models")
+
+    # Optimizers command
+    subparsers.add_parser("optimizers", help="List available optimizers")
 
     args = parser.parse_args()
 
@@ -153,6 +176,8 @@ def main():
         run_train(args)
     elif args.command == "list":
         run_list()
+    elif args.command == "optimizers":
+        run_optimizers()
     else:
         parser.print_help()
         sys.exit(1)
@@ -165,46 +190,87 @@ def run_train(args):
         import jax
         jax.config.update("jax_enable_x64", True)
 
-    from deqn_jax.training.trainer import train
+    from deqn_jax.config import load_config
+    from deqn_jax.training.trainer import train_from_config
 
-    # Parse hidden sizes
-    hidden_sizes = tuple(int(x) for x in args.hidden.split(","))
+    # Parse --set overrides
+    overrides = {}
+    if args.overrides:
+        for item in args.overrides:
+            if "=" not in item:
+                print(f"Error: --set values must be KEY=VAL, got '{item}'", file=sys.stderr)
+                sys.exit(1)
+            key, val = item.split("=", 1)
+            overrides[key] = val
 
-    # Parse loss weights
-    loss_weights = None
-    if args.loss_weights is not None:
-        loss_weights = [float(x) for x in args.loss_weights.split(",")]
+    # Build CLI kwargs (non-None values only)
+    cli_kwargs = {}
+    if args.model is not None:
+        cli_kwargs["model"] = args.model
+    if args.episodes is not None:
+        cli_kwargs["episodes"] = args.episodes
+    if args.hidden is not None:
+        cli_kwargs["network.hidden_sizes"] = tuple(int(x) for x in args.hidden.split(","))
+    if args.lr is not None:
+        cli_kwargs["optimizer.learning_rate"] = args.lr
+    if args.batch_size is not None:
+        cli_kwargs["batch_size"] = args.batch_size
+    if args.episode_length is not None:
+        cli_kwargs["episode_length"] = args.episode_length
+    if args.mc_samples is not None:
+        cli_kwargs["mc_samples"] = args.mc_samples
+    if args.optimizer is not None:
+        cli_kwargs["optimizer.name"] = args.optimizer
+    if args.seed is not None:
+        cli_kwargs["seed"] = args.seed
+    if args.log_every is not None:
+        cli_kwargs["log_every"] = args.log_every
+    if args.warm_start:
+        cli_kwargs["warm_start"] = True
+    if args.fp64:
+        cli_kwargs["fp64"] = True
+    if args.quiet:
+        cli_kwargs["verbose"] = False
+    if args.grad_clip is not None:
+        cli_kwargs["optimizer.grad_clip"] = args.grad_clip
+    if args.loss_reweight is not None:
+        cli_kwargs["loss_reweight"] = args.loss_reweight
+    if args.reweight_alpha is not None:
+        cli_kwargs["reweight_alpha"] = args.reweight_alpha
+    if args.tensorboard is not None:
+        cli_kwargs["tensorboard_dir"] = args.tensorboard
+    if args.wandb is not None:
+        cli_kwargs["wandb_project"] = args.wandb
+    if args.checkpoint_dir is not None:
+        cli_kwargs["checkpoint_dir"] = args.checkpoint_dir
+    if args.checkpoint_every is not None:
+        cli_kwargs["checkpoint_every"] = args.checkpoint_every
 
-    # Train
-    params, history = train(
-        model_name=args.model,
-        episodes=args.episodes,
-        hidden_sizes=hidden_sizes,
-        learning_rate=args.lr,
-        batch_size=args.batch_size,
-        episode_length=args.episode_length,
-        mc_samples=args.mc_samples,
-        optimizer=args.optimizer,
-        warm_start=args.warm_start,
-        seed=args.seed,
-        log_every=args.log_every,
-        verbose=not args.quiet,
-        grad_clip=args.grad_clip,
-        loss_weights=loss_weights,
-        loss_reweight=args.loss_reweight,
-        reweight_alpha=args.reweight_alpha,
-        tensorboard_dir=args.tensorboard,
-        wandb_project=args.wandb,
-        checkpoint_dir=args.checkpoint_dir,
-        checkpoint_every=args.checkpoint_every,
+    # Load config with priority: --set > CLI > YAML > defaults
+    config = load_config(
+        config_path=args.config,
+        overrides=overrides,
+        **cli_kwargs,
     )
+
+    # Parse loss_weights (special case -- list type)
+    if args.loss_weights is not None:
+        config = config.__class__(
+            **{**config.__dict__, "loss_weights": [float(x) for x in args.loss_weights.split(",")]}
+        )
+
+    # Validate model is set
+    if config.model is None or config.model == "brock_mirman" and args.model is None and args.config is None:
+        pass  # default is fine
+
+    train_from_config(config)
 
 
 def run_list():
     """List available models."""
     models = [
         ("brock_mirman", "Brock-Mirman (1972) optimal growth model"),
-        ("disaster", "NK-DSGE with financial frictions (coming soon)"),
+        ("disaster", "NK-DSGE with financial frictions"),
     ]
 
     print("Available models:")
@@ -213,6 +279,22 @@ def run_list():
         print(f"  {name:20s} - {desc}")
     print()
     print("Usage: deqn-jax train <model> [options]")
+
+
+def run_optimizers():
+    """List registered optimizers."""
+    from deqn_jax.optimizers import list_optimizers, OptimizerKind
+    from deqn_jax.optimizers.registry import _REGISTRY
+
+    print("Available optimizers:")
+    print()
+    for name in list_optimizers():
+        _, kind = _REGISTRY[name]
+        kind_str = f"({kind.value})"
+        print(f"  {name:12s} {kind_str}")
+    print()
+    print("Usage: deqn-jax train <model> -o <optimizer>")
+    print("   or: deqn-jax train --config config.yaml --set optimizer.name=<optimizer>")
 
 
 if __name__ == "__main__":

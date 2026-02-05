@@ -1,0 +1,26 @@
+# DEQN-JAX default configuration
+model: brock_mirman
+episodes: 1000
+batch_size: 64
+episode_length: 100
+mc_samples: 5
+seed: 42
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  grad_clip: null
+  weight_decay: 0.0
+
+warm_start: false
+loss_reweight: none
+reweight_alpha: 0.9
+
+log_every: 100
+verbose: true
+fp64: false

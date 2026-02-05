@@ -13,11 +13,60 @@ from typing import Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import jax.flatten_util
 from jax import Array
 import equinox as eqx
-import jaxopt
+import optax
 
 from deqn_jax.types import ModelSpec
+
+
+def _lbfgs_minimize(
+    loss_fn: Callable,
+    init_params,
+    max_iter: int = 100,
+    tol: float = 1e-6,
+    memory_size: int = 10,
+) -> Tuple:
+    """Run L-BFGS optimization on a pytree of parameters.
+
+    Uses optax.lbfgs with a flat-parameter loop.
+
+    Args:
+        loss_fn: Scalar loss function taking the pytree params
+        init_params: Initial parameter pytree
+        max_iter: Maximum iterations
+        tol: Convergence tolerance (on loss value)
+        memory_size: L-BFGS history size
+
+    Returns:
+        Tuple of (optimized_params, n_iters, final_loss)
+    """
+    flat, unravel = jax.flatten_util.ravel_pytree(init_params)
+
+    def flat_loss(x):
+        return loss_fn(unravel(x))
+
+    opt = optax.lbfgs(memory_size=memory_size)
+    opt_state = opt.init(flat)
+
+    @jax.jit
+    def step(x, opt_state):
+        val, g = jax.value_and_grad(flat_loss)(x)
+        updates, new_opt_state = opt.update(
+            g, opt_state, x, value=val, grad=g, value_fn=flat_loss,
+        )
+        new_x = optax.apply_updates(x, updates)
+        return new_x, new_opt_state, val
+
+    n_iters = 0
+    for i in range(max_iter):
+        flat, opt_state, val = step(flat, opt_state)
+        n_iters = i + 1
+        if float(val) < tol:
+            break
+
+    return unravel(flat), n_iters, float(val)
 
 
 def warm_start_network(
@@ -74,21 +123,13 @@ def warm_start_network(
         pred = jax.vmap(params)(states)
         return jnp.mean((pred - targets) ** 2)
 
-    # L-BFGS optimizer
-    solver = jaxopt.LBFGS(
-        fun=loss_fn,
-        maxiter=max_iter,
-        tol=tol,
+    # Run L-BFGS optimization
+    final_params, n_iters, final_loss = _lbfgs_minimize(
+        loss_fn, policy_net, max_iter=max_iter, tol=tol,
     )
 
-    # Run optimization
-    result = solver.run(policy_net)
-    final_params = result.params
-    final_state = result.state
-
     if verbose:
-        final_loss = loss_fn(final_params)
-        print(f"  Warm start complete: loss={float(final_loss):.2e}, iters={final_state.iter_num}")
+        print(f"  Warm start complete: loss={final_loss:.2e}, iters={n_iters}")
 
     return final_params
 
@@ -123,11 +164,11 @@ def warm_start_to_function(
         pred = jax.vmap(params)(sample_states)
         return jnp.mean((pred - targets) ** 2)
 
-    solver = jaxopt.LBFGS(fun=loss_fn, maxiter=max_iter, tol=tol)
-    result = solver.run(policy_net)
+    final_params, n_iters, final_loss = _lbfgs_minimize(
+        loss_fn, policy_net, max_iter=max_iter, tol=tol,
+    )
 
     if verbose:
-        final_loss = loss_fn(result.params)
-        print(f"Warm start: loss={float(final_loss):.2e}, iters={result.state.iter_num}")
+        print(f"Warm start: loss={final_loss:.2e}, iters={n_iters}")
 
-    return result.params
+    return final_params

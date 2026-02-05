@@ -8,8 +8,9 @@ from typing import Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import jax.flatten_util
 from jax import Array
-import jaxopt
+import optax
 
 from deqn_jax.types import ModelSpec
 
@@ -80,17 +81,33 @@ def solve_steady_state(
             total = total + jnp.sum(r ** 2)
         return total
 
-    # Solve
-    solver = jaxopt.LBFGS(fun=residual_fn, maxiter=max_iter, tol=tol)
-    result = solver.run(init_x)
+    # L-BFGS via optax
+    opt = optax.lbfgs(memory_size=10)
+    opt_state = opt.init(init_x)
 
-    ss_x = result.params
-    ss_state = ss_x[:n_states]
-    ss_policy = ss_x[n_states:]
+    @jax.jit
+    def step(x, opt_state):
+        val, g = jax.value_and_grad(residual_fn)(x)
+        updates, new_opt_state = opt.update(
+            g, opt_state, x, value=val, grad=g, value_fn=residual_fn,
+        )
+        new_x = optax.apply_updates(x, updates)
+        return new_x, new_opt_state, val
+
+    x = init_x
+    n_iters = 0
+    for i in range(max_iter):
+        x, opt_state, val = step(x, opt_state)
+        n_iters = i + 1
+        if float(val) < tol:
+            break
+
+    ss_state = x[:n_states]
+    ss_policy = x[n_states:]
 
     if verbose:
-        final_residual = residual_fn(ss_x)
-        print(f"Steady state solved: residual={float(final_residual):.2e}, iters={result.state.iter_num}")
+        final_residual = float(val)
+        print(f"Steady state solved: residual={final_residual:.2e}, iters={n_iters}")
         print(f"  State: {ss_state}")
         print(f"  Policy: {ss_policy}")
 
