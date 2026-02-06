@@ -4,8 +4,9 @@ Maps optimizer names to factory functions and optimizer kinds.
 The kind determines which train_step variant is used.
 """
 
+import copy
 from enum import Enum
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import optax
 
@@ -35,11 +36,55 @@ def register_optimizer(
     return decorator
 
 
-def create_optimizer(config) -> Tuple[Any, OptimizerKind]:
+def _build_lr_schedule(config, total_steps: int):
+    """Build optax LR schedule from config fields.
+
+    Returns either a float (constant) or an optax Schedule callable.
+    """
+    lr = config.learning_rate
+    schedule = getattr(config, "lr_schedule", "constant")
+    warmup = getattr(config, "lr_warmup", 0)
+    min_factor = getattr(config, "lr_min_factor", 0.0)
+
+    if schedule == "constant":
+        return lr
+
+    if schedule == "cosine":
+        end_value = lr * min_factor
+        if warmup > 0:
+            return optax.warmup_cosine_decay_schedule(
+                init_value=0.0,
+                peak_value=lr,
+                warmup_steps=warmup,
+                decay_steps=total_steps,
+                end_value=end_value,
+            )
+        else:
+            return optax.cosine_decay_schedule(
+                init_value=lr,
+                decay_steps=total_steps,
+                alpha=min_factor,
+            )
+
+    raise ValueError(f"Unknown lr_schedule '{schedule}'. Available: constant, cosine")
+
+
+def create_optimizer(
+    config,
+    total_steps: Optional[int] = None,
+) -> Tuple[Any, OptimizerKind]:
     """Create optimizer from config.
+
+    LR schedules are NOT applied here — they break XLA kernel fusion
+    and cause 5-6x slowdowns. Instead, the training loop periodically
+    recreates the optimizer with an updated constant LR. See
+    ``_build_lr_schedule`` for computing schedule values and
+    ``train_from_config`` for the periodic update logic.
 
     Args:
         config: OptimizerConfig with at least a ``name`` field.
+        total_steps: Unused (kept for API compat). Schedule is handled
+            by the training loop.
 
     Returns:
         Tuple of (optimizer, OptimizerKind)

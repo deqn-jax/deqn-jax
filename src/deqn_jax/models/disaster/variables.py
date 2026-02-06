@@ -10,8 +10,8 @@ SPEC = VariableSpec(
         "w_tilda_lag", "L_lag", "eps", "mu_ups", "g", "mu_z", "m_p"
     ),
     policy_names=(
-        "lambda_z", "i", "pi", "c", "w_tilda", "s", "omega_bar",
-        "h", "F_w", "F_p", "q", "L"
+        "lambda_z", "i", "pi", "c", "w_tilda", "omega_bar",
+        "h", "F_w", "F_p", "q"
     ),
 )
 
@@ -38,7 +38,7 @@ CONSTANTS = {
     "rho_mu_ups": 0.987, "sigma_mu_ups": 0.004,
     "rho_mu_z": 0.146, "sigma_mu_z": 0.00715,
     "rho_g": 0.94, "sigma_g": 0.023,
-    "sigma_mp": 0.49,
+    "sigma_mp": 0.0049,
 }
 
 STEADY_STATE = {
@@ -47,12 +47,12 @@ STEADY_STATE = {
     "i_lag": 0.794711, "R_lag": 1.017964, "w_tilda_lag": 1.920219, "L_lag": 1.965713,
     "eps": 1.0, "mu_ups": 1.0, "g": 0.616, "mu_z": 1.0041, "m_p": 0.0,
     "lambda_z": 0.601828, "i": 0.794711, "pi": 1.012286, "c": 1.593684,
-    "w_tilda": 1.920219, "s": 0.833043, "omega_bar": 0.488466, "h": 0.944029,
-    "F_w": 0.885310, "F_p": 4.735931, "q": 1.0, "L": 1.965713,
+    "w_tilda": 1.920219, "omega_bar": 0.488466, "h": 0.944029,
+    "F_w": 0.885310, "F_p": 4.735931, "q": 1.0,
 }
 
-POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 0.5, 1.0, 0.5, 0.1, 0.5, 0.1, 1.0, 0.5, 1.0])
-POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 3.0, 1.5, 1.5, 1.5, 3.0, 10.0, 2.0, 4.0])
+POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 0.5, 1.0, 0.1, 0.5, 0.1, 1.0, 0.5])
+POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 3.0, 1.5, 1.5, 3.0, 10.0, 2.0])
 
 N_SHOCKS = 5
 

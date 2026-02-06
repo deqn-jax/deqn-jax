@@ -8,6 +8,7 @@ Three step variants dispatched at construction time (before JIT):
 - LBFGS: optax.lbfgs (GradientTransformationExtraArgs) -- needs value + value_fn for line search
 """
 
+import math
 import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -25,7 +26,6 @@ from deqn_jax.training.loss import compute_loss, eq_losses_to_array
 from deqn_jax.training.episode import run_episode, sample_initial_states
 from deqn_jax.metrics import create_logger
 from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
-from deqn_jax.optimizers.mao import _MAOFactory
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +90,9 @@ def _print_header(
     grad_clip: Optional[float],
     loss_reweight: str,
     fp64: bool,
+    lr_schedule: str = "constant",
+    lr_warmup: int = 0,
+    lr_min_factor: float = 0.0,
 ):
     """Print rich training header."""
     eq_names = list(model_spec.equation_names or [])
@@ -106,7 +109,13 @@ def _print_header(
     print("DEQN-JAX Training")
     print("=" * w)
     print(f"  Model:           {model_spec.name}")
-    print(f"  Optimizer:       {optimizer} (lr={learning_rate:.0e})")
+    lr_str = f"lr={learning_rate:.0e}"
+    if lr_schedule != "constant":
+        lr_str += f", {lr_schedule}"
+        if lr_warmup > 0:
+            lr_str += f", warmup={lr_warmup}"
+        lr_str += f", min={learning_rate * lr_min_factor:.0e}"
+    print(f"  Optimizer:       {optimizer} ({lr_str})")
     print(f"  Precision:       {precision}")
     print(f"  Network:         MLP [{_network_shape_str(model_spec, hidden_sizes)}]")
     print(f"  Parameters:      {n_params:,}")
@@ -207,11 +216,15 @@ def create_train_state(
     activation = "tanh"
     activations = None
     init = "xavier_normal"
+    multi_head = False
+    skip_connections = False
     if network_config is not None:
         hidden_sizes = network_config.hidden_sizes
         activation = network_config.activation
         activations = network_config.activations
         init = network_config.init
+        multi_head = getattr(network_config, "multi_head", False)
+        skip_connections = getattr(network_config, "skip_connections", False)
 
     # Create policy network
     policy_net = create_mlp(
@@ -223,6 +236,8 @@ def create_train_state(
         init=init,
         policy_lower=model.policy_lower,
         policy_upper=model.policy_upper,
+        multi_head=multi_head,
+        skip_connections=skip_connections,
         key=net_key,
     )
 
@@ -241,7 +256,7 @@ def create_train_state(
 
     # Resolve MAO factory
     if kind == OptimizerKind.MAO:
-        if isinstance(opt, _MAOFactory):
+        if hasattr(opt, 'with_num_tasks'):
             opt = opt.with_num_tasks(n_equations)
         opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
     else:
@@ -372,7 +387,7 @@ def _make_standard_step(
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size,
         )
@@ -390,10 +405,118 @@ def _make_standard_step(
         grads_arrays = eqx.filter(grads, eqx.is_array)
 
         updates, new_opt_state = opt.update(grads_arrays, state.opt_state, params_arrays)
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
         grad_norm = optax.global_norm(grads_arrays)
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+
+        new_state = TrainState(
+            params=new_params,
+            opt_state=new_opt_state,
+            episode_state=final_state,
+            key=key,
+            step=state.step + 1,
+            episode=state.episode + 1,
+            loss_weights=new_weights,
+            reweight_state=new_rw,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
+    return train_step
+
+
+def _make_pcgrad_step(
+    model: ModelSpec,
+    opt: Any,
+    episode_length: int,
+    mc_samples: int,
+    batch_size: int,
+    loss_reweight: str = "none",
+    reweight_alpha: float = 0.9,
+):
+    """PCGrad train step: per-equation gradients with conflict projection.
+
+    When two equations have conflicting gradients (negative dot product),
+    project out the conflicting component. This prevents equations from
+    fighting over shared parameters (pi, q, etc.).
+
+    Reference: Yu et al. "Gradient Surgery for Multi-Task Learning" (NeurIPS 2020)
+    """
+    n_eq = len(model.equation_names) if model.equation_names else 1
+
+    @jax.jit
+    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+        train_states, final_state, loss_key, key = _run_episode_and_sample(
+            model, state, episode_length, batch_size,
+        )
+
+        # Per-equation loss vector for jacrev
+        def eq_loss_vector(params):
+            _, eq_losses = compute_loss(
+                model, params, train_states, loss_key, mc_samples,
+                weights=state.loss_weights,
+            )
+            return eq_losses_to_array(eq_losses)
+
+        # Also need total loss + eq_losses for logging
+        def total_loss_fn(params):
+            loss, eq_losses = compute_loss(
+                model, params, train_states, loss_key, mc_samples,
+                weights=state.loss_weights,
+            )
+            return loss, eq_losses
+
+        # Compute per-equation gradients via jacrev: each leaf [n_eq, *param_shape]
+        eq_jac = jax.jacrev(eq_loss_vector)(state.params)
+
+        # Flatten per-equation gradients to [n_eq, n_params]
+        params_arrays = eqx.filter(state.params, eqx.is_array)
+        flat_params, unflatten_fn = jax.flatten_util.ravel_pytree(params_arrays)
+        n_params = flat_params.shape[0]
+
+        # Extract and flatten each equation's gradient
+        eq_jac_arrays = eqx.filter(eq_jac, eqx.is_array)
+        flat_eq_grads = jnp.stack([
+            jax.flatten_util.ravel_pytree(
+                jax.tree.map(lambda x: x[i], eq_jac_arrays)
+            )[0]
+            for i in range(n_eq)
+        ])  # [n_eq, n_params]
+
+        # PCGrad: vectorized conflict projection
+        # Gram matrix of per-equation gradients
+        gram = flat_eq_grads @ flat_eq_grads.T  # [n_eq, n_eq]
+        norms_sq = jnp.diag(gram)  # [n_eq]
+
+        # Conflict coefficients: project out negative dot product components
+        # coeff_ij = dot(g_i, g_j) / ||g_j||^2 (only when dot < 0)
+        coeffs = jnp.where(gram < 0, gram / (norms_sq[None, :] + 1e-8), 0.0)
+        # Zero diagonal (don't project against self)
+        coeffs = coeffs.at[jnp.diag_indices(n_eq)].set(0.0)
+
+        # Project: g_i_new = g_i - sum_j coeff_ij * g_j
+        projected = flat_eq_grads - coeffs @ flat_eq_grads  # [n_eq, n_params]
+
+        # Sum projected gradients
+        final_flat_grad = jnp.sum(projected, axis=0)  # [n_params]
+
+        # Unflatten back to pytree matching params_arrays
+        grads_arrays = unflatten_fn(final_flat_grad)
+
+        # Standard optimizer update
+        updates, new_opt_state = opt.update(grads_arrays, state.opt_state, params_arrays)
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
+        new_params_arrays = optax.apply_updates(params_arrays, updates)
+        new_params = eqx.combine(new_params_arrays, state.params)
+
+        # Get loss and eq_losses for logging
+        loss, eq_losses = total_loss_fn(state.params)
+
+        grad_norm = jnp.sqrt(jnp.sum(final_flat_grad ** 2))
         new_weights, new_rw = _update_reweighting(
             eq_losses, state, loss_reweight, reweight_alpha, n_eq,
         )
@@ -421,12 +544,13 @@ def _make_mao_step(
     batch_size: int,
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
+    grad_clip: Optional[float] = None,
 ):
     """MAO train step: per-equation Jacobian -> mao.update(eq_jac, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size,
         )
@@ -461,6 +585,14 @@ def _make_mao_step(
 
         # MAO update
         updates, new_opt_state = mao_opt.update(eq_jac, state.opt_state, params_arrays)
+
+        # Grad clipping (MAO bypasses optax.chain, so clip here)
+        if grad_clip is not None:
+            update_norm = optax.global_norm(updates)
+            clip_scale = jnp.minimum(1.0, grad_clip / (update_norm + 1e-8))
+            updates = jax.tree.map(lambda u: clip_scale * u, updates)
+
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
@@ -496,7 +628,7 @@ def _make_lbfgs_step(
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size,
         )
@@ -532,6 +664,7 @@ def _make_lbfgs_step(
             grad=grads_arrays,
             value_fn=value_fn,
         )
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
@@ -567,6 +700,8 @@ def make_train_step(
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
     kind: OptimizerKind = OptimizerKind.STANDARD,
+    gradient_surgery: str = "none",
+    grad_clip: Optional[float] = None,
 ):
     """Create a JIT-compiled training step function.
 
@@ -581,6 +716,8 @@ def make_train_step(
         loss_reweight: Adaptive strategy
         reweight_alpha: EMA decay
         kind: OptimizerKind determining step variant
+        gradient_surgery: "none" or "pcgrad"
+        grad_clip: Global norm clipping for MAO (STANDARD handles via optax.chain)
 
     Returns:
         JIT-compiled train_step function
@@ -595,7 +732,9 @@ def make_train_step(
         reweight_alpha=reweight_alpha,
     )
 
-    if kind == OptimizerKind.MAO:
+    if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
+        return _make_pcgrad_step(**kwargs)
+    elif kind == OptimizerKind.MAO:
         return _make_mao_step(
             model=model,
             mao_opt=opt,
@@ -604,6 +743,7 @@ def make_train_step(
             batch_size=batch_size,
             loss_reweight=loss_reweight,
             reweight_alpha=reweight_alpha,
+            grad_clip=grad_clip,
         )
     elif kind == OptimizerKind.LBFGS:
         return _make_lbfgs_step(**kwargs)
@@ -632,6 +772,14 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     from deqn_jax.config import TrainConfig, OptimizerConfig
 
     model = load_model(config.model)
+
+    # Swap in rescaled equations if requested
+    if config.rescale_equations and model.name == "disaster":
+        from deqn_jax.models.disaster.equations_rescaled import equations as rescaled_eq
+        model = model._replace(equations_fn=rescaled_eq)
+        if config.verbose:
+            print("  Using rescaled Euler error equations")
+
     n_equations = len(model.equation_names) if model.equation_names else 1
 
     if config.loss_weights is not None and len(config.loss_weights) != n_equations:
@@ -644,6 +792,21 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     hidden_sizes = config.network.hidden_sizes
 
     key = jax.random.PRNGKey(config.seed)
+
+    # ---- Build LR schedule helper for logging ----
+    from deqn_jax.optimizers.registry import _build_lr_schedule
+    import copy as _copy
+
+    # When a schedule is active, the optimizer is created with lr=1.0.
+    # The actual LR is passed as a dynamic scalar to train_step each episode.
+    has_schedule = config.optimizer.lr_schedule != "constant"
+    if has_schedule:
+        total_for_schedule = config.episodes  # overridden below for resume
+        effective_opt_cfg = _copy.copy(config.optimizer)
+        effective_opt_cfg.learning_rate = 1.0
+        effective_opt_cfg.lr_schedule = "constant"
+    else:
+        effective_opt_cfg = config.optimizer
 
     # ---- Resume from checkpoint or create fresh state ----
     start_episode = 0
@@ -673,10 +836,13 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         start_episode = int(state.episode)
 
         # Check if optimizer changed
+        total_episodes = start_episode + config.episodes
+        if has_schedule:
+            total_for_schedule = total_episodes
         optimizer_changed = config.optimizer.name != orig_config.optimizer.name
         if optimizer_changed:
-            new_opt, new_kind = create_optimizer(config.optimizer)
-            if new_kind == OptimizerKind.MAO and isinstance(new_opt, _MAOFactory):
+            new_opt, new_kind = create_optimizer(effective_opt_cfg)
+            if new_kind == OptimizerKind.MAO and hasattr(new_opt, 'with_num_tasks'):
                 new_opt = new_opt.with_num_tasks(n_equations)
             new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
             state = state._replace(opt_state=new_opt_state)
@@ -696,7 +862,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             batch_size=config.batch_size,
             loss_weights=config.loss_weights,
             n_equations=n_equations,
-            optimizer_config=config.optimizer,
+            optimizer_config=effective_opt_cfg,
             network_config=config.network,
         )
 
@@ -730,14 +896,27 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             grad_clip=config.optimizer.grad_clip,
             loss_reweight=config.loss_reweight,
             fp64=fp64,
+            lr_schedule=config.optimizer.lr_schedule,
+            lr_warmup=config.optimizer.lr_warmup,
+            lr_min_factor=config.optimizer.lr_min_factor,
         )
 
+    # Build LR schedule function for computing per-episode LR (None if constant)
+    lr_schedule_fn = None
+    if has_schedule:
+        if config.resume:
+            total_for_schedule = start_episode + config.episodes
+        lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
+
     # ---- Create JIT-compiled train step ----
+    gradient_surgery = getattr(config, "gradient_surgery", "none")
     train_step = make_train_step(
         model, opt, config.episode_length, config.mc_samples, config.batch_size,
         loss_reweight=config.loss_reweight,
         reweight_alpha=config.reweight_alpha,
         kind=kind,
+        gradient_surgery=gradient_surgery,
+        grad_clip=config.optimizer.grad_clip,
     )
 
     # ---- Mid-training optimizer switch setup ----
@@ -745,6 +924,21 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     switched = False
     if config.switch_optimizer and config.switch_episode is None:
         raise ValueError("--switch-optimizer requires --switch-episode")
+
+    # ---- LR schedule: dynamic scaling via train_step argument ----
+    # All train_step variants accept (state, lr_scale). The optimizer uses
+    # lr=1.0 when a schedule is active; lr_scale carries the actual LR.
+    # When no schedule, lr_scale=1.0 (no-op, XLA optimizes it away).
+    current_lr = config.optimizer.learning_rate
+
+    # ---- NaN recovery setup ----
+    nan_rollback_enabled = config.checkpoint_dir is not None and config.checkpoint_every is not None
+    nan_lr_reduction = 0.75  # reduce LR by 25% on NaN
+    max_nan_rollbacks = 10  # max rollbacks before giving up
+    nan_rollback_count = 0
+    nan_lr_scale = 1.0      # cumulative LR reduction from NaN rollbacks
+    last_good_state = None  # snapshot for rollback (updated at checkpoints)
+    last_good_episode = start_episode
 
     # ---- Training loop ----
     total_episodes = start_episode + config.episodes
@@ -769,7 +963,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 grad_clip=config.optimizer.grad_clip,
             )
             new_opt, new_kind = create_optimizer(switch_cfg)
-            if new_kind == OptimizerKind.MAO and isinstance(new_opt, _MAOFactory):
+            # Disable schedule after mid-training switch (uses constant LR)
+            lr_schedule_fn = None
+            if new_kind == OptimizerKind.MAO and hasattr(new_opt, 'with_num_tasks'):
                 new_opt = new_opt.with_num_tasks(n_equations)
             new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
             state = state._replace(opt_state=new_opt_state)
@@ -779,16 +975,46 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 loss_reweight=config.loss_reweight,
                 reweight_alpha=config.reweight_alpha,
                 kind=kind,
+                gradient_surgery=gradient_surgery,
+                grad_clip=config.optimizer.grad_clip,
             )
             switched = True
             if config.verbose:
                 print(f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}")
 
-        state, metrics = train_step(state)
+        # Compute LR scale for this episode (Python-side, passed as dynamic arg)
+        if lr_schedule_fn is not None:
+            current_lr = float(lr_schedule_fn(ep_num)) * nan_lr_scale
+            lr_scale = jnp.array(current_lr)
+        else:
+            current_lr = config.optimizer.learning_rate * nan_lr_scale
+            lr_scale = jnp.array(nan_lr_scale)
+
+        state, metrics = train_step(state, lr_scale)
         last_metrics = metrics
 
         loss_val = float(metrics.loss)
         grad_val = float(metrics.grad_norm)
+
+        # ---- NaN detection + rollback ----
+        if math.isnan(loss_val) or math.isinf(loss_val):
+            if nan_rollback_enabled and last_good_state is not None and nan_rollback_count < max_nan_rollbacks:
+                nan_rollback_count += 1
+                nan_lr_scale *= nan_lr_reduction
+                effective_lr = config.optimizer.learning_rate * nan_lr_scale
+                if config.verbose:
+                    print(f"  >> NaN at episode {ep_num}! "
+                          f"Rolling back to ep {last_good_episode}, "
+                          f"reducing LR to {effective_lr:.1e} "
+                          f"(rollback {nan_rollback_count}/{max_nan_rollbacks})")
+                state = last_good_state
+                continue
+            elif nan_rollback_count >= max_nan_rollbacks:
+                if config.verbose:
+                    print(f"  >> NaN at episode {ep_num} after {max_nan_rollbacks} rollbacks. Stopping.")
+                break
+            # No checkpoint to roll back to — just continue (NaN will propagate)
+
         history["loss"].append(loss_val)
         history["grad_norm"].append(grad_val)
 
@@ -806,6 +1032,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 "train/param_norm": param_norm,
                 "train/ep_per_sec": ep_per_sec,
             }
+            log_dict["train/lr"] = current_lr
             if metrics.residuals:
                 for k, v in metrics.residuals.items():
                     log_dict[f"eq/{k}"] = float(v)
@@ -879,6 +1106,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             _save_checkpoint(state, config.checkpoint_dir, ep_num, config=config)
             if config.max_checkpoints is not None:
                 _prune_checkpoints(config.checkpoint_dir, config.max_checkpoints)
+            # Snapshot for NaN rollback
+            last_good_state = state
+            last_good_episode = ep_num
 
     elapsed = time.perf_counter() - t_start
 

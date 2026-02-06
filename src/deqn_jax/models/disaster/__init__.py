@@ -2,8 +2,8 @@
 
 A medium-scale New Keynesian model with:
 - 13 state variables (8 endogenous + 5 exogenous)
-- 12 policy variables
-- 12 equilibrium equations
+- 10 policy variables (s, L computed analytically)
+- 10 equilibrium equations
 - Financial frictions (costly state verification banking)
 """
 

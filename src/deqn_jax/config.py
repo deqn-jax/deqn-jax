@@ -32,6 +32,10 @@ class OptimizerConfig:
     memory_size: int = 10
     # Muon
     ns_steps: int = 5
+    # LR schedule
+    lr_schedule: str = "constant"   # "constant" or "cosine"
+    lr_warmup: int = 0              # warmup episodes before decay
+    lr_min_factor: float = 0.0      # min LR = learning_rate * lr_min_factor
 
 
 @dataclass
@@ -43,6 +47,8 @@ class NetworkConfig:
     activation: str = "tanh"
     activations: Optional[Tuple[str, ...]] = None  # per-layer override
     init: str = "default"
+    multi_head: bool = False  # separate output head per policy
+    skip_connections: bool = False  # residual connections between hidden layers
 
 
 @dataclass
@@ -81,6 +87,8 @@ class TrainConfig:
     checkpoint_every: Optional[int] = None
     max_checkpoints: Optional[int] = None
 
+    rescale_equations: bool = False
+    gradient_surgery: str = "none"  # "none" or "pcgrad"
     resume: Optional[str] = None
     switch_optimizer: Optional[str] = None
     switch_episode: Optional[int] = None

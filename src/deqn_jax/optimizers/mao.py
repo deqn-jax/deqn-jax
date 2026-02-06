@@ -104,8 +104,8 @@ class MAOTransform:
             v_hat = v_leaf / bc2
             # Per-equation update: [n_eq, *shape]
             per_eq = m_hat / (jnp.sqrt(v_hat) + eps)
-            # Sum across equations → [*shape]
-            return -self.learning_rate * jnp.sum(per_eq, axis=0)
+            # Average across equations → [*shape]
+            return -self.learning_rate * jnp.mean(per_eq, axis=0)
 
         updates = jax.tree.map(compute_update, new_m, new_v)
 

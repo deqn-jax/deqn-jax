@@ -12,7 +12,7 @@ EQUATION_NAMES = (
     "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
     "eq4_wage_phillips_K", "eq5_consumption_euler", "eq6_bond_euler",
     "eq7_investment_euler", "eq8_bank_participation", "eq9_entrepreneur_contract",
-    "eq10_marginal_cost", "eq11_resource_constraint", "eq12_leverage_definition"
+    "eq11_resource_constraint"
 )
 
 
@@ -73,11 +73,16 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
 
     # Capital and returns
     k = (1 - c["delta"]) * st.k_lag / st.mu_z + (1 - S_val) * p.i
-    r_k = st.eps * c["alpha"] * (st.mu_z * p.h / st.k_lag) ** (1 - c["alpha"]) * p.s
+    # Marginal cost — solved analytically from cost minimization (eliminates eq10)
+    s = (1.0 / st.eps) * (st.mu_z * p.h / st.k_lag) ** c["alpha"] * p.w_tilda / (1 - c["alpha"])
+    r_k = st.eps * c["alpha"] * (st.mu_z * p.h / st.k_lag) ** (1 - c["alpha"]) * s
     R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * p.q) / st.q_lag * p.pi + c["tau_k"] * c["delta"]
 
     # Net worth: entrepreneur keeps (1-Gamma) share of gross return on capital
     n = (c["gamma_e"] / (p.pi * st.mu_z)) * (1.0 - Gamma_val) * R_k * st.q_lag * st.k_lag + c["w_e"]
+
+    # Leverage — balance sheet identity (eliminates eq12)
+    L = p.q * k / (n + 1e-8)
 
     # Output
     y_z = st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
@@ -99,6 +104,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
         "S_val": S_val, "S_prime_val": S_prime_val,
         "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
+        "s": s, "L": L,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": K_p, "K_w": K_w, "i_ratio": i_ratio,
     }
@@ -127,7 +133,7 @@ def equations(
 
     # Eq 2: Price Phillips (K_p)
     eq2_expect = (defs_n["pi_tilda"] / p_n.pi) ** (c["lambda_f"] / (1 - c["lambda_f"])) * defs_n["K_p"]
-    residuals["eq2_price_phillips_K"] = p.lambda_z * c["lambda_f"] * defs["y_z"] * p.s + c["beta"] * c["xi_p"] * eq2_expect - defs["K_p"]
+    residuals["eq2_price_phillips_K"] = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_expect - defs["K_p"]
 
     # Eq 3: Wage Phillips (F_w)
     eq3_coef = st_n.mu_z ** (c["iota_mu"] / (1 - c["lambda_w"]) - 1) * c["mu_z_ss"] ** ((1 - c["iota_mu"]) / (1 - c["lambda_w"]))
@@ -170,16 +176,9 @@ def equations(
     bracket_term = 1 - Rk_over_R * (Gamma_next - c["mu_mon"] * G_next)
     residuals["eq9_entrepreneur_contract"] = Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
 
-    # Eq 10: Marginal cost
-    residuals["eq10_marginal_cost"] = p.s - (1 / st.eps) * (defs["r_k"] / c["alpha"]) ** c["alpha"] * (p.w_tilda / (1 - c["alpha"])) ** (1 - c["alpha"])
-
     # Eq 11: Resource constraint
     monitoring_cost = c["mu_mon"] * defs["G_val"] * defs["R_k"] * st.q_lag * st.k_lag / (st.mu_z * p.pi)
     entrepreneur_cons = c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (defs["n"] - c["w_e"])
     residuals["eq11_resource_constraint"] = defs["y_z"] - st.g - p.c - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost
-
-    # Eq 12: Leverage definition (balance sheet identity: L*n = q*k)
-    # Multiplied through by n to avoid division (equivalent to L = q*k/n)
-    residuals["eq12_leverage_definition"] = p.L * defs["n"] - p.q * defs["k"]
 
     return residuals

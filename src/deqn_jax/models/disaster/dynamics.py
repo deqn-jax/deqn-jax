@@ -29,7 +29,7 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     m_p_next = c["sigma_mp"] * mp_shock
 
     next_state = jnp.stack([
-        p.pi, defs["k"], p.c, p.q, p.i, defs["R"], p.w_tilda, p.L,
+        p.pi, defs["k"], p.c, p.q, p.i, defs["R"], p.w_tilda, defs["L"],
         eps_next, mu_ups_next, g_next, mu_z_next, m_p_next
     ], axis=1)
 

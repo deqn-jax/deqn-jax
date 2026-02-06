@@ -17,6 +17,7 @@ class TestRegistry:
         assert "adamw" in opts
         assert "ngd" in opts
         assert "mao" in opts
+        assert "mao_kfac" in opts
         assert "shampoo" in opts
         assert "lbfgs" in opts
         assert "lion" in opts
@@ -116,6 +117,77 @@ class TestMAO:
         assert mao.n_tasks == 5
 
 
+class TestMAOKFAC:
+    """Test MAO-KFAC optimizer."""
+
+    def test_init_and_update(self):
+        from deqn_jax.optimizers.mao_kfac import MAOKFACTransform
+        opt = MAOKFACTransform(learning_rate=1e-3, n_tasks=3, precond_update_freq=1)
+        params = {"w": jnp.ones((4, 2)), "b": jnp.ones(2)}
+        state = opt.init(params)
+
+        # Simulate per-equation Jacobian
+        eq_jac = jax.tree.map(
+            lambda p: jnp.ones((3,) + p.shape) * 0.1,
+            params,
+        )
+
+        updates, new_state = opt.update(eq_jac, state, params)
+        assert updates["w"].shape == (4, 2)
+        assert updates["b"].shape == (2,)
+        assert jnp.all(jnp.isfinite(updates["w"]))
+        assert jnp.all(jnp.isfinite(updates["b"]))
+
+    def test_factory(self):
+        from deqn_jax.optimizers.mao_kfac import _MAOKFACFactory, MAOKFACTransform
+        from deqn_jax.config import OptimizerConfig
+        factory = _MAOKFACFactory(OptimizerConfig(name="mao_kfac", learning_rate=1e-3))
+        opt = factory.with_num_tasks(5)
+        assert isinstance(opt, MAOKFACTransform)
+        assert opt.n_tasks == 5
+
+    def test_shared_R_per_eq_L(self):
+        """Verify shared R is same for all eqs, per-eq L differs."""
+        from deqn_jax.optimizers.mao_kfac import MAOKFACTransform
+        opt = MAOKFACTransform(learning_rate=1e-3, n_tasks=2, precond_update_freq=1)
+        params = {"w": jnp.ones((4, 3))}
+        state = opt.init(params)
+
+        # Two equations with different gradient structure
+        key = jax.random.PRNGKey(0)
+        j1 = jax.random.normal(key, (4, 3))
+        j2 = jax.random.normal(jax.random.PRNGKey(1), (4, 3))
+        eq_jac = {"w": jnp.stack([j1, j2])}  # [2, 4, 3]
+
+        _, new_state = opt.update(eq_jac, state, params)
+
+        # R is shared [3, 3]
+        assert new_state.shared_R["w"].shape == (3, 3)
+        # L is per-equation [2, 4, 4]
+        assert new_state.per_eq_L["w"].shape == (2, 4, 4)
+        # Per-eq L should differ between equations
+        assert not jnp.allclose(new_state.per_eq_L["w"][0], new_state.per_eq_L["w"][1])
+
+    def test_precond_update_freq(self):
+        """Cached inverses only update when count % freq == 0."""
+        from deqn_jax.optimizers.mao_kfac import MAOKFACTransform
+        opt = MAOKFACTransform(learning_rate=1e-3, n_tasks=2, precond_update_freq=3)
+        params = {"w": jnp.ones((3, 2))}
+        state = opt.init(params)
+
+        eq_jac = {"w": jnp.ones((2, 3, 2)) * 0.5}
+
+        # Steps 1 and 2: inverses should stay at identity
+        _, s1 = opt.update(eq_jac, state, params)
+        _, s2 = opt.update(eq_jac, s1, params)
+        assert jnp.allclose(s1.R_inv4["w"], state.R_inv4["w"])
+        assert jnp.allclose(s2.R_inv4["w"], state.R_inv4["w"])
+
+        # Step 3: inverses should update
+        _, s3 = opt.update(eq_jac, s2, params)
+        assert not jnp.allclose(s3.R_inv4["w"], state.R_inv4["w"])
+
+
 class TestShampoo:
     """Test Shampoo optimizer."""
 
@@ -186,6 +258,11 @@ class TestShortTraining:
 
     def test_lion(self):
         h = self._train_short("lion")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
+    def test_mao_kfac(self):
+        h = self._train_short("mao_kfac")
         assert len(h["loss"]) == 3
         assert all(jnp.isfinite(l) for l in h["loss"])
 

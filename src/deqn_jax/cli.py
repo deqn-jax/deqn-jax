@@ -88,6 +88,18 @@ def main():
         help="Use float64 precision",
     )
     train_parser.add_argument(
+        "--rescale-equations",
+        action="store_true",
+        default=None,
+        help="Use rescaled Euler error equations (unit-free residuals)",
+    )
+    train_parser.add_argument(
+        "--gradient-surgery",
+        choices=["none", "pcgrad"],
+        default=None,
+        help="Gradient surgery method for multi-equation conflict resolution",
+    )
+    train_parser.add_argument(
         "-q", "--quiet",
         action="store_true",
         help="Suppress output",
@@ -194,6 +206,25 @@ def main():
         default=None,
         help="Learning rate for switched optimizer",
     )
+    train_parser.add_argument(
+        "--lr-schedule",
+        type=str,
+        default=None,
+        choices=["constant", "cosine"],
+        help="LR schedule (default: constant)",
+    )
+    train_parser.add_argument(
+        "--lr-warmup",
+        type=int,
+        default=None,
+        help="Warmup episodes before LR decay (default: 0)",
+    )
+    train_parser.add_argument(
+        "--lr-min-factor",
+        type=float,
+        default=None,
+        help="Min LR as fraction of peak (default: 0.0)",
+    )
 
     # List command
     subparsers.add_parser("list", help="List available models")
@@ -204,6 +235,83 @@ def main():
 
     # Optimizers command
     subparsers.add_parser("optimizers", help="List available optimizers")
+
+    # IRF command
+    irf_parser = subparsers.add_parser("irf", help="Run impulse response functions")
+    irf_parser.add_argument(
+        "checkpoint",
+        type=str,
+        help="Path to checkpoint .eqx file",
+    )
+    irf_parser.add_argument(
+        "--shock", "-s",
+        type=str,
+        action="append",
+        dest="shocks",
+        help="Shock name (eps, mu_ups, mu_z, g, m_p). Repeatable. Default: all.",
+    )
+    irf_parser.add_argument(
+        "--shock-size",
+        type=float,
+        default=1.0,
+        help="Shock size in std devs (default: 1.0)",
+    )
+    irf_parser.add_argument(
+        "--horizon",
+        type=int,
+        default=40,
+        help="Periods after shock (default: 40)",
+    )
+    irf_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Config YAML (auto-detected from checkpoint dir if omitted)",
+    )
+    irf_parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=None,
+        help="Output directory (default: irf_results)",
+    )
+
+    # Evaluate command
+    eval_parser = subparsers.add_parser("evaluate", help="Evaluate trained model accuracy")
+    eval_parser.add_argument(
+        "checkpoint",
+        type=str,
+        help="Path to checkpoint .eqx file",
+    )
+    eval_parser.add_argument(
+        "--periods", "-n",
+        type=int,
+        default=10_000,
+        help="Simulation length (default: 10,000)",
+    )
+    eval_parser.add_argument(
+        "--seed",
+        type=int,
+        default=123,
+        help="Random seed (default: 123)",
+    )
+    eval_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Config YAML (auto-detected from checkpoint dir if omitted)",
+    )
+    eval_parser.add_argument(
+        "--label",
+        type=str,
+        default=None,
+        help="Label for output (default: checkpoint dir name)",
+    )
+    eval_parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=None,
+        help="Output directory for CSV results",
+    )
 
     # Check command
     subparsers.add_parser("check", help="Check installation")
@@ -222,6 +330,10 @@ def main():
         run_info(args)
     elif args.command == "optimizers":
         run_optimizers()
+    elif args.command == "irf":
+        run_irf_command(args)
+    elif args.command == "evaluate":
+        run_evaluate_command(args)
     elif args.command == "check":
         run_check()
     elif args.command == "init-config":
@@ -233,10 +345,18 @@ def main():
 
 def run_train(args):
     """Run training."""
-    # Set precision before importing JAX
+    # Set precision before importing JAX — check both CLI flag and config file
     if args.fp64:
         import jax
         jax.config.update("jax_enable_x64", True)
+    elif hasattr(args, "config") and args.config:
+        # Check if YAML config has fp64: true (before full config load)
+        import yaml
+        with open(args.config) as _f:
+            _raw = yaml.safe_load(_f) or {}
+        if _raw.get("fp64", False):
+            import jax
+            jax.config.update("jax_enable_x64", True)
 
     from deqn_jax.config import load_config
     from deqn_jax.training.trainer import train_from_config
@@ -277,6 +397,10 @@ def run_train(args):
         cli_kwargs["warm_start"] = True
     if args.fp64:
         cli_kwargs["fp64"] = True
+    if getattr(args, "rescale_equations", None):
+        cli_kwargs["rescale_equations"] = True
+    if getattr(args, "gradient_surgery", None) is not None:
+        cli_kwargs["gradient_surgery"] = args.gradient_surgery
     if args.quiet:
         cli_kwargs["verbose"] = False
     if args.grad_clip is not None:
@@ -303,6 +427,12 @@ def run_train(args):
         cli_kwargs["switch_episode"] = args.switch_episode
     if args.switch_lr is not None:
         cli_kwargs["switch_lr"] = args.switch_lr
+    if args.lr_schedule is not None:
+        cli_kwargs["optimizer.lr_schedule"] = args.lr_schedule
+    if args.lr_warmup is not None:
+        cli_kwargs["optimizer.lr_warmup"] = args.lr_warmup
+    if args.lr_min_factor is not None:
+        cli_kwargs["optimizer.lr_min_factor"] = args.lr_min_factor
 
     # Load config with priority: --set > CLI > YAML > defaults
     config = load_config(
@@ -322,6 +452,18 @@ def run_train(args):
         pass  # default is fine
 
     train_from_config(config)
+
+
+def run_irf_command(args):
+    """Run impulse response functions."""
+    from deqn_jax.irf import run_irf_cli
+    run_irf_cli(args)
+
+
+def run_evaluate_command(args):
+    """Run model evaluation suite."""
+    from deqn_jax.evaluate import run_evaluate_cli
+    run_evaluate_cli(args)
 
 
 def run_list():

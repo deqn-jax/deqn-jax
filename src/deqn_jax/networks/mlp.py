@@ -124,6 +124,177 @@ class MLP(eqx.Module):
             return jax.vmap(self._forward_single)(x)
 
 
+class ResMLP(eqx.Module):
+    """MLP with residual (skip) connections between hidden layers.
+
+    Each hidden layer computes: h_{i+1} = act(W_i @ h_i + b_i) + proj(h_i)
+    where proj is identity if sizes match, or a learned linear projection
+    if hidden sizes differ.
+
+    This improves gradient flow and lets the network learn corrections
+    rather than full mappings — helpful for multi-equation PINNs.
+    """
+
+    layers: list
+    skip_projs: list  # Linear projections for size mismatches (or None)
+    activations: tuple = eqx.field(static=True)
+    output_lower: Optional[Array]
+    output_upper: Optional[Array]
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_sizes: Sequence[int] = (64, 64),
+        activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
+        output_lower: Optional[Array] = None,
+        output_upper: Optional[Array] = None,
+        init: str = "default",
+        *,
+        key: Array,
+    ):
+        self.activations = tuple(activations)
+        self.output_lower = output_lower
+        self.output_upper = output_upper
+
+        sizes = [in_features] + list(hidden_sizes) + [out_features]
+        n_layers = len(sizes) - 1
+        use_custom_init = init != "default" and init in INIT_FNS
+
+        # Keys: layers + skip projections (separate split to not change MLP PRNG)
+        layer_keys = jax.random.split(key, n_layers)
+        skip_key = jax.random.fold_in(key, 999)
+        skip_keys = jax.random.split(skip_key, n_layers)
+
+        if use_custom_init:
+            init_key = jax.random.fold_in(key, 998)
+            init_keys = jax.random.split(init_key, n_layers)
+
+        self.layers = []
+        self.skip_projs = []
+        for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
+            layer = eqx.nn.Linear(in_size, out_size, key=layer_keys[i])
+            if use_custom_init:
+                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])
+            self.layers.append(layer)
+
+            # Skip connection for hidden layers (not the output layer)
+            if i < n_layers - 1:
+                if in_size == out_size:
+                    self.skip_projs.append(None)  # identity
+                else:
+                    self.skip_projs.append(
+                        eqx.nn.Linear(in_size, out_size, use_bias=False, key=skip_keys[i])
+                    )
+            else:
+                self.skip_projs.append(None)  # no skip for output layer
+
+    def _forward_single(self, x: Array) -> Array:
+        for i, layer in enumerate(self.layers[:-1]):
+            residual = x
+            x = self.activations[i](layer(x))
+            # Add skip connection
+            proj = self.skip_projs[i]
+            if proj is not None:
+                x = x + proj(residual)
+            else:
+                x = x + residual
+
+        # Output layer (no skip, no activation before bounds)
+        x = self.layers[-1](x)
+
+        if self.output_lower is not None and self.output_upper is not None:
+            x = self.output_lower + (self.output_upper - self.output_lower) * jax.nn.sigmoid(x)
+        elif self.output_lower is not None:
+            x = self.output_lower + jax.nn.softplus(x)
+        elif self.output_upper is not None:
+            x = self.output_upper - jax.nn.softplus(-x)
+
+        return x
+
+    def __call__(self, x: Array) -> Array:
+        if x.ndim == 1:
+            return self._forward_single(x)
+        else:
+            return jax.vmap(self._forward_single)(x)
+
+
+class MultiHeadMLP(eqx.Module):
+    """MLP with separate output heads per policy variable.
+
+    Shared trunk → per-policy linear heads. Gives each policy its own
+    output parameters, reducing gradient interference between equations
+    that depend on different policies.
+    """
+
+    trunk_layers: list
+    heads: list  # list of eqx.nn.Linear, one per output
+    activations: tuple = eqx.field(static=True)
+    output_lower: Optional[Array]
+    output_upper: Optional[Array]
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_sizes: Sequence[int] = (64, 64),
+        activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
+        output_lower: Optional[Array] = None,
+        output_upper: Optional[Array] = None,
+        init: str = "default",
+        *,
+        key: Array,
+    ):
+        self.activations = tuple(activations)
+        self.output_lower = output_lower
+        self.output_upper = output_upper
+
+        # Build trunk (hidden layers only, no output layer)
+        sizes = [in_features] + list(hidden_sizes)
+        n_trunk = len(sizes) - 1
+        use_custom_init = init != "default" and init in INIT_FNS
+
+        key, *trunk_keys = jax.random.split(key, n_trunk + 1)
+        if use_custom_init:
+            key, *init_keys = jax.random.split(key, n_trunk + 1)
+
+        self.trunk_layers = []
+        for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
+            layer = eqx.nn.Linear(in_size, out_size, key=trunk_keys[i])
+            if use_custom_init:
+                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])
+            self.trunk_layers.append(layer)
+
+        # Build per-policy output heads: each hidden_sizes[-1] → 1
+        head_keys = jax.random.split(key, out_features)
+        self.heads = [
+            eqx.nn.Linear(hidden_sizes[-1], 1, key=head_keys[i])
+            for i in range(out_features)
+        ]
+
+    def _forward_single(self, x: Array) -> Array:
+        for i, layer in enumerate(self.trunk_layers):
+            x = self.activations[i](layer(x))
+
+        # Each head produces one scalar, concat into [out_features]
+        raw = jnp.concatenate([head(x) for head in self.heads], axis=-1)
+
+        if self.output_lower is not None and self.output_upper is not None:
+            raw = self.output_lower + (self.output_upper - self.output_lower) * jax.nn.sigmoid(raw)
+        elif self.output_lower is not None:
+            raw = self.output_lower + jax.nn.softplus(raw)
+        elif self.output_upper is not None:
+            raw = self.output_upper - jax.nn.softplus(-raw)
+
+        return raw
+
+    def __call__(self, x: Array) -> Array:
+        if x.ndim == 1:
+            return self._forward_single(x)
+        else:
+            return jax.vmap(self._forward_single)(x)
+
+
 def create_mlp(
     n_states: int,
     n_policies: int,
@@ -133,9 +304,11 @@ def create_mlp(
     init: str = "default",
     policy_lower: Optional[Array] = None,
     policy_upper: Optional[Array] = None,
+    multi_head: bool = False,
+    skip_connections: bool = False,
     *,
     key: Array,
-) -> MLP:
+) -> eqx.Module:
     """Factory function to create MLP with common configurations.
 
     Args:
@@ -148,6 +321,7 @@ def create_mlp(
               "he_normal", "he_uniform", "lecun_normal", "default")
         policy_lower: Lower bounds for policy outputs
         policy_upper: Upper bounds for policy outputs
+        skip_connections: Use residual connections between hidden layers
         key: JAX PRNG key
 
     Returns:
@@ -167,7 +341,13 @@ def create_mlp(
         act_fn = _resolve_activation(activation)
         act_fns = tuple(act_fn for _ in range(n_hidden))
 
-    return MLP(
+    if multi_head:
+        cls = MultiHeadMLP
+    elif skip_connections:
+        cls = ResMLP
+    else:
+        cls = MLP
+    return cls(
         in_features=n_states,
         out_features=n_policies,
         hidden_sizes=hidden_sizes,

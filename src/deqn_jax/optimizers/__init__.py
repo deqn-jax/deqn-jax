@@ -23,7 +23,9 @@ from deqn_jax.optimizers import ngd as _ngd_mod  # noqa: F401
 from deqn_jax.optimizers import mao as _mao_mod  # noqa: F401
 from deqn_jax.optimizers import shampoo as _shampoo_mod  # noqa: F401
 from deqn_jax.optimizers import lbfgs as _lbfgs_mod  # noqa: F401
+from deqn_jax.optimizers import mao_kfac as _mao_kfac_mod  # noqa: F401
 from deqn_jax.optimizers.mao import MAOTransform, MAOState, _MAOFactory
+from deqn_jax.optimizers.mao_kfac import MAOKFACTransform, MAOKFACState, _MAOKFACFactory
 from deqn_jax.optimizers.ngd import ngd, NGDState
 from deqn_jax.optimizers.shampoo import shampoo, ShampooState
 
@@ -44,6 +46,8 @@ __all__ = [
     # Custom optimizers
     "MAOTransform",
     "MAOState",
+    "MAOKFACTransform",
+    "MAOKFACState",
     "ngd",
     "NGDState",
     "shampoo",
