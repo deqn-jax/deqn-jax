@@ -12,7 +12,6 @@ EQUATION_NAMES = (
     "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
     "eq4_wage_phillips_K", "eq5_consumption_euler", "eq6_bond_euler",
     "eq7_investment_euler", "eq8_bank_participation", "eq9_entrepreneur_contract",
-    "eq11_resource_constraint"
 )
 
 
@@ -86,7 +85,13 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
 
     # Output
     y_z = st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
-    y_gdp = st.g + p.c + p.i / st.mu_ups
+
+    # Consumption — solved analytically from resource constraint (eliminates eq11)
+    monitoring_cost = c["mu_mon"] * G_val * R_k * st.q_lag * st.k_lag / (st.mu_z * p.pi)
+    entrepreneur_cons = c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (n - c["w_e"])
+    cc = jnp.maximum(y_z - st.g - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost, 1e-4)
+
+    y_gdp = st.g + cc + p.i / st.mu_ups
 
     # Interest rate (Taylor rule)
     R = c["R_ss"] * (st.R_lag / c["R_ss"]) ** c["rho_p"] * (
@@ -104,7 +109,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
         "S_val": S_val, "S_prime_val": S_prime_val,
         "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
-        "s": s, "L": L,
+        "s": s, "L": L, "c": cc,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": K_p, "K_w": K_w, "i_ratio": i_ratio,
     }
@@ -145,9 +150,9 @@ def equations(
     eq4_ratio = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"]))
     residuals["eq4_wage_phillips_K"] = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"] - defs["K_w"]
 
-    # Eq 5: Consumption Euler
-    habit_now = p.c * st.mu_z - c["b"] * st.c_lag
-    habit_next = p_n.c * st_n.mu_z - c["b"] * p.c
+    # Eq 5: Consumption Euler (c from resource constraint via defs)
+    habit_now = defs["c"] * st.mu_z - c["b"] * st.c_lag
+    habit_next = defs_n["c"] * st_n.mu_z - c["b"] * defs["c"]
     residuals["eq5_consumption_euler"] = (1 + c["tau_c"]) * p.lambda_z - st.mu_z / habit_now + c["beta"] * c["b"] / habit_next
 
     # Eq 6: Bond Euler
@@ -175,10 +180,5 @@ def equations(
     ratio_term = Gamma_prime_next / (Gamma_prime_next - c["mu_mon"] * G_prime_next + 1e-8)
     bracket_term = 1 - Rk_over_R * (Gamma_next - c["mu_mon"] * G_next)
     residuals["eq9_entrepreneur_contract"] = Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
-
-    # Eq 11: Resource constraint
-    monitoring_cost = c["mu_mon"] * defs["G_val"] * defs["R_k"] * st.q_lag * st.k_lag / (st.mu_z * p.pi)
-    entrepreneur_cons = c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (defs["n"] - c["w_e"])
-    residuals["eq11_resource_constraint"] = defs["y_z"] - st.g - p.c - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost
 
     return residuals

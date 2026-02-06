@@ -10,7 +10,7 @@ SPEC = VariableSpec(
         "w_tilda_lag", "L_lag", "eps", "mu_ups", "g", "mu_z", "m_p"
     ),
     policy_names=(
-        "lambda_z", "i", "pi", "c", "w_tilda", "omega_bar",
+        "lambda_z", "i", "pi", "w_tilda", "omega_bar",
         "h", "F_w", "F_p", "q"
     ),
 )
@@ -46,13 +46,13 @@ STEADY_STATE = {
     "pi_lag": 1.012286, "k_lag": 27.421619, "c_lag": 1.593684, "q_lag": 1.0,
     "i_lag": 0.794711, "R_lag": 1.017964, "w_tilda_lag": 1.920219, "L_lag": 1.965713,
     "eps": 1.0, "mu_ups": 1.0, "g": 0.616, "mu_z": 1.0041, "m_p": 0.0,
-    "lambda_z": 0.601828, "i": 0.794711, "pi": 1.012286, "c": 1.593684,
+    "lambda_z": 0.601828, "i": 0.794711, "pi": 1.012286,
     "w_tilda": 1.920219, "omega_bar": 0.488466, "h": 0.944029,
     "F_w": 0.885310, "F_p": 4.735931, "q": 1.0,
 }
 
-POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 0.5, 1.0, 0.1, 0.5, 0.1, 1.0, 0.5])
-POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 3.0, 1.5, 1.5, 3.0, 10.0, 2.0])
+POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 1.0, 0.1, 0.5, 0.1, 1.0, 0.5])
+POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 1.5, 1.5, 3.0, 10.0, 2.0])
 
 N_SHOCKS = 5
 
