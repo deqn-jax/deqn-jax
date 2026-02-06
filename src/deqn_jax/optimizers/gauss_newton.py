@@ -87,28 +87,20 @@ class GaussNewton:
         else:
             J = jax.jacfwd(flat_residual_fn)(flat_params)
 
-        # Solve normal equations: (J^T J + λI) Δθ = -J^T r
-        JtJ = J.T @ J
-        Jtr = J.T @ r
+        # Ensure minimum damping for numerical stability
+        damping = jnp.maximum(state.damping, 1e-6)
 
-        if state.damping > 0:
-            JtJ = JtJ + state.damping * jnp.eye(n_params)
-
-        if self.solve_method == "cholesky":
-            # Cholesky (requires positive definite)
-            try:
-                L = jnp.linalg.cholesky(JtJ)
-                delta = jax.scipy.linalg.cho_solve((L, True), -Jtr)
-            except Exception:
-                delta, *_ = jnp.linalg.lstsq(JtJ, -Jtr, rcond=None)
-        elif self.solve_method == "svd":
-            # SVD (most robust)
-            U, s, Vt = jnp.linalg.svd(JtJ, full_matrices=False)
-            s_inv = jnp.where(s > 1e-10, 1.0 / s, 0.0)
-            delta = -Vt.T @ (s_inv * (U.T @ Jtr))
+        # Solve (J^T J + λI) δ = -J^T r
+        # When n_residuals < n_params, use dual formulation (Woodbury):
+        #   δ = -J^T (J J^T + λI)^{-1} r
+        # Solves (n_res, n_res) system instead of (n_params, n_params).
+        if n_residuals < n_params:
+            G = J @ J.T + damping * jnp.eye(n_residuals)
+            v = jnp.linalg.solve(G, r)
+            delta = -J.T @ v
         else:
-            # Least squares (good default)
-            delta, *_ = jnp.linalg.lstsq(JtJ, -Jtr, rcond=None)
+            JtJ = J.T @ J + damping * jnp.eye(n_params)
+            delta = jnp.linalg.solve(JtJ, -(J.T @ r))
 
         # Apply update with learning rate
         new_flat_params = flat_params + self.learning_rate * delta
@@ -191,10 +183,15 @@ class LevenbergMarquardt:
         else:
             J = jax.jacfwd(flat_residual_fn)(flat_params)
 
-        # Solve with current damping
-        JtJ = J.T @ J + state.damping * jnp.eye(n_params)
-        Jtr = J.T @ r
-        delta, *_ = jnp.linalg.lstsq(JtJ, -Jtr, rcond=None)
+        # Solve with current damping (dual formulation when underdetermined)
+        damping = jnp.maximum(state.damping, 1e-6)
+        if n_residuals < n_params:
+            G = J @ J.T + damping * jnp.eye(n_residuals)
+            v = jnp.linalg.solve(G, r)
+            delta = -J.T @ v
+        else:
+            JtJ = J.T @ J + damping * jnp.eye(n_params)
+            delta = jnp.linalg.solve(JtJ, -(J.T @ r))
 
         # Tentative update
         new_flat_params = flat_params + self.learning_rate * delta
@@ -202,7 +199,8 @@ class LevenbergMarquardt:
         new_loss = jnp.sum(new_r ** 2)
 
         # Gain ratio for damping adaptation
-        predicted = -2 * (J @ delta).T @ r - delta.T @ (J.T @ J) @ delta
+        Jdelta = J @ delta
+        predicted = -2 * Jdelta.T @ r - Jdelta.T @ Jdelta
         actual = current_loss - new_loss
         rho = jnp.where(jnp.abs(predicted) > 1e-10, actual / predicted, 1.0)
 
@@ -217,10 +215,11 @@ class LevenbergMarquardt:
             ),
         )
 
-        # Accept or reject step
+        # Accept or reject step (broadcast for pytree leaves)
         accept = new_loss < current_loss * 1.1
         final_params = jnp.where(accept, new_flat_params, flat_params)
         final_loss = jnp.where(accept, new_loss, current_loss)
+        new_damping = jnp.where(accept, new_damping, state.damping)
 
         new_state = GaussNewtonState(
             count=state.count + 1,

@@ -1,7 +1,12 @@
 """Command-line interface for DEQN-JAX."""
 
 import argparse
+import os
 import sys
+
+# JAX preallocates 75% of GPU VRAM by default — disable so multiple
+# runs can share one GPU and small models don't waste memory.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 
 def main():

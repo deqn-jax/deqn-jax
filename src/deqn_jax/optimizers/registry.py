@@ -17,6 +17,7 @@ class OptimizerKind(str, Enum):
     STANDARD = "standard"  # adam, sgd, adamw, lion, muon, ngd, shampoo, kfac
     MAO = "mao"  # per-equation Jacobian
     LBFGS = "lbfgs"  # extra args for line search
+    GN = "gn"  # Gauss-Newton / LM (needs residual_fn)
 
 
 # Registry: name -> (factory_fn(config) -> optimizer, kind)
@@ -153,4 +154,22 @@ def _muon(config):
     return optax.contrib.muon(
         learning_rate=config.learning_rate,
         ns_steps=config.ns_steps,
+    )
+
+
+@register_optimizer("gn", kind=OptimizerKind.GN)
+def _gn(config):
+    from deqn_jax.optimizers.gauss_newton import gauss_newton
+    return gauss_newton(
+        learning_rate=config.learning_rate,
+        damping=config.damping,
+    )
+
+
+@register_optimizer("lm", kind=OptimizerKind.GN)
+def _lm(config):
+    from deqn_jax.optimizers.gauss_newton import levenberg_marquardt
+    return levenberg_marquardt(
+        learning_rate=config.learning_rate,
+        initial_damping=config.damping,
     )

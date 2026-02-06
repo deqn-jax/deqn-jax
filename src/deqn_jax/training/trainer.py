@@ -22,7 +22,7 @@ import optax
 
 from deqn_jax.types import ModelSpec, TrainState, Metrics, ReweightState, make_reweight_state
 from deqn_jax.networks import create_mlp
-from deqn_jax.training.loss import compute_loss, eq_losses_to_array
+from deqn_jax.training.loss import compute_loss, compute_residuals, eq_losses_to_array, sample_antithetic_shocks
 from deqn_jax.training.episode import run_episode, sample_initial_states
 from deqn_jax.metrics import create_logger
 from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
@@ -254,10 +254,12 @@ def create_train_state(
         )
         opt, kind = create_optimizer(opt_cfg)
 
-    # Resolve MAO factory
+    # Resolve MAO factory and init optimizer state
     if kind == OptimizerKind.MAO:
         if hasattr(opt, 'with_num_tasks'):
             opt = opt.with_num_tasks(n_equations)
+        opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
+    elif kind == OptimizerKind.GN:
         opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
     else:
         opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
@@ -687,6 +689,76 @@ def _make_lbfgs_step(
     return train_step
 
 
+def _make_gn_step(
+    model: ModelSpec,
+    opt: Any,
+    episode_length: int,
+    mc_samples: int,
+    batch_size: int,
+    loss_reweight: str = "none",
+    reweight_alpha: float = 0.9,
+):
+    """Gauss-Newton / Levenberg-Marquardt train step.
+
+    GN uses the residual Jacobian J directly: update = -(J^T J)^{-1} J^T r.
+    This gives quadratic convergence near the solution for least-squares.
+    """
+    n_eq = len(model.equation_names) if model.equation_names else 1
+
+    @jax.jit
+    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+        train_states, final_state, loss_key, key = _run_episode_and_sample(
+            model, state, episode_length, batch_size,
+        )
+
+        # Residual function: params -> [n_eq] mean residuals
+        def residual_fn(params):
+            shocks = sample_antithetic_shocks(loss_key, mc_samples, batch_size, model.n_shocks)
+
+            def sample_residuals(shock):
+                return compute_residuals(model, params, train_states, shock)
+
+            all_residuals = jax.vmap(sample_residuals)(shocks)
+            # all_residuals: Dict[str, [n_samples, batch]]
+            # Mean over samples and batch -> [n_eq] scalar per equation
+            return jnp.stack([
+                jnp.mean(r) for r in all_residuals.values()
+            ])
+
+        # Also get loss + eq_losses for logging
+        loss, eq_losses = compute_loss(
+            model, state.params, train_states, loss_key, mc_samples,
+            weights=state.loss_weights,
+        )
+
+        # GN update: optimizer handles Jacobian computation internally
+        new_params, new_opt_state = opt.update(residual_fn, state.params, state.opt_state)
+
+        # Compute grad norm from residual gradient for logging
+        def scalar_loss(p):
+            r = residual_fn(p)
+            return jnp.sum(r ** 2)
+        grad_norm = optax.global_norm(eqx.filter(jax.grad(scalar_loss)(state.params), eqx.is_array))
+
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+
+        new_state = TrainState(
+            params=new_params,
+            opt_state=new_opt_state,
+            episode_state=final_state,
+            key=key,
+            step=state.step + 1,
+            episode=state.episode + 1,
+            loss_weights=new_weights,
+            reweight_state=new_rw,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
+    return train_step
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -747,6 +819,8 @@ def make_train_step(
         )
     elif kind == OptimizerKind.LBFGS:
         return _make_lbfgs_step(**kwargs)
+    elif kind == OptimizerKind.GN:
+        return _make_gn_step(**kwargs)
     else:
         return _make_standard_step(**kwargs)
 
