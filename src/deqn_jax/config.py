@@ -49,6 +49,9 @@ class NetworkConfig:
     init: str = "default"
     multi_head: bool = False  # separate output head per policy
     skip_connections: bool = False  # residual connections between hidden layers
+    history_len: int = 1  # 1=Markovian (MLP), >1=sequence (LSTM/Transformer)
+    num_heads: int = 4  # Transformer attention heads
+    n_layers: int = 2  # Transformer/LSTM depth (separate from hidden_sizes for Transformer)
 
 
 @dataclass
@@ -73,6 +76,8 @@ class TrainConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
 
     warm_start: bool = False
+    warm_start_linearize: bool = False  # Use linearized (Blanchard-Kahn) warm start
+    warm_start_dynare: Optional[str] = None  # Path to Dynare results dir (ghx/ghu CSVs)
     loss_weights: Optional[List[float]] = None
     loss_reweight: str = "none"
     reweight_alpha: float = 0.9
@@ -93,6 +98,15 @@ class TrainConfig:
     switch_optimizer: Optional[str] = None
     switch_episode: Optional[int] = None
     switch_lr: Optional[float] = None
+
+    early_stop_patience: Optional[int] = None  # Stop if no improvement for N episodes
+    early_stop_min_delta: float = 1e-6  # Minimum improvement to count as progress
+
+    curriculum_episodes: int = 0  # Ramp shock_scale from curriculum_start to 1.0 over N episodes
+    curriculum_start: float = 0.1  # Initial shock scale for curriculum
+
+    expectation_type: str = "mc"  # "mc" or "quadrature" (Gauss-Hermite)
+    n_quadrature_points: int = 3  # Points per dimension (3^5=243 nodes for 5 shocks)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TrainConfig":

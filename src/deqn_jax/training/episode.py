@@ -133,6 +133,72 @@ def sample_initial_states(
     )
 
 
+def run_episode_with_history(
+    model: ModelSpec,
+    policy_fn: Callable[[Array], Array],
+    init_state: Array,
+    key: Array,
+    episode_length: int = 100,
+    history_len: int = 10,
+) -> Tuple[Array, Array]:
+    """Run episode with history-aware policy (LSTM/Transformer).
+
+    Carries a sliding history window [B, H, D] through the episode.
+    At each step: policy = policy_fn(history), then shift_history.
+
+    History is initialized as constant (init_state repeated H times).
+
+    Args:
+        model: Model specification
+        policy_fn: Policy network taking [B, H, D] -> [B, P]
+        init_state: Initial state [batch, n_states]
+        key: PRNG key
+        episode_length: Number of steps in episode
+        history_len: History window size
+
+    Returns:
+        Tuple of:
+            trajectory: States visited [episode_length, batch, n_states]
+            final_state: Last state [batch, n_states]
+    """
+    from deqn_jax.training.history import make_constant_history, shift_history
+
+    batch_size = init_state.shape[0]
+
+    # Initialize history: repeat init_state across time axis
+    init_history = make_constant_history(init_state, history_len)  # [B, H, D]
+
+    class HistoryCarry(Tuple):
+        pass
+
+    def scan_fn(carry, _):
+        state, history, key = carry
+        key, step_key = jax.random.split(key)
+
+        # Get policy from history window
+        policy = policy_fn(history)
+
+        # Sample shock and step
+        shock = jax.random.normal(step_key, (batch_size, model.n_shocks))
+        next_state = model.step_fn(state, policy, shock, model.constants)
+
+        # Shift history
+        next_history = shift_history(history, next_state)
+
+        return (next_state, next_history, key), state  # output current state
+
+    init_carry = (init_state, init_history, key)
+
+    (final_state, _, _), trajectory = lax.scan(
+        scan_fn,
+        init_carry,
+        None,
+        length=episode_length,
+    )
+
+    return trajectory, final_state
+
+
 def simulate_trajectory(
     model: ModelSpec,
     policy_fn: Callable[[Array], Array],

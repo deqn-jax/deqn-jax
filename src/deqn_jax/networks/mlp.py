@@ -7,33 +7,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-
-ACTIVATION_FNS = {
-    "tanh": jax.nn.tanh,
-    "relu": jax.nn.relu,
-    "gelu": jax.nn.gelu,
-    "silu": jax.nn.silu,
-    "softplus": jax.nn.softplus,
-}
-
-INIT_FNS = {
-    "xavier_normal": jax.nn.initializers.glorot_normal(),
-    "xavier_uniform": jax.nn.initializers.glorot_uniform(),
-    "he_normal": jax.nn.initializers.he_normal(),
-    "he_uniform": jax.nn.initializers.he_uniform(),
-    "lecun_normal": jax.nn.initializers.lecun_normal(),
-}
-
-
-def _resolve_activation(name: str) -> Callable:
-    """Resolve activation name to callable."""
-    return ACTIVATION_FNS.get(name, jax.nn.tanh)
-
-
-def _apply_init(layer: eqx.nn.Linear, init_fn: Callable, key: Array) -> eqx.nn.Linear:
-    """Re-initialize a Linear layer's weights using the given initializer."""
-    new_weight = init_fn(key, layer.weight.shape)
-    return eqx.tree_at(lambda l: l.weight, layer, new_weight)
+from deqn_jax.networks.common import (
+    ACTIVATION_FNS,
+    INIT_FNS,
+    _apply_bounds,
+    _apply_init,
+    _resolve_activation,
+    _sanitize_upper,
+)
 
 
 class MLP(eqx.Module):
@@ -47,12 +28,17 @@ class MLP(eqx.Module):
         activations: Per-layer activation functions (one per hidden layer)
         output_lower: Lower bounds for outputs [n_outputs]
         output_upper: Upper bounds for outputs [n_outputs]
+        input_shift: Input normalization shift (subtracted) [n_inputs]
+        input_scale: Input normalization scale (divided) [n_inputs]
     """
 
     layers: list
     activations: tuple = eqx.field(static=True)
     output_lower: Optional[Array]
-    output_upper: Optional[Array]
+    output_upper: Optional[Array]  # inf replaced with safe finite values
+    _has_upper: Optional[tuple] = eqx.field(static=True)  # per-output sigmoid mask
+    input_shift: Optional[Array]
+    input_scale: Optional[Array]
 
     def __init__(
         self,
@@ -62,13 +48,19 @@ class MLP(eqx.Module):
         activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
         output_lower: Optional[Array] = None,
         output_upper: Optional[Array] = None,
+        input_shift: Optional[Array] = None,
+        input_scale: Optional[Array] = None,
         init: str = "default",
         *,
         key: Array,
     ):
         self.activations = tuple(activations)
         self.output_lower = output_lower
-        self.output_upper = output_upper
+        safe_upper, mask = _sanitize_upper(output_upper, output_lower)
+        self.output_upper = safe_upper
+        self._has_upper = mask
+        self.input_shift = input_shift
+        self.input_scale = input_scale
 
         # Build layers
         sizes = [in_features] + list(hidden_sizes) + [out_features]
@@ -92,6 +84,10 @@ class MLP(eqx.Module):
 
     def _forward_single(self, x: Array) -> Array:
         """Forward pass for single input [in_features]."""
+        # Input normalization (frozen)
+        if self.input_shift is not None:
+            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(self.input_scale)
+
         # Forward through hidden layers with per-layer activation
         for i, layer in enumerate(self.layers[:-1]):
             x = self.activations[i](layer(x))
@@ -99,13 +95,7 @@ class MLP(eqx.Module):
         # Output layer (no activation before bounds)
         x = self.layers[-1](x)
 
-        # Apply output bounds if specified
-        if self.output_lower is not None and self.output_upper is not None:
-            x = self.output_lower + (self.output_upper - self.output_lower) * jax.nn.sigmoid(x)
-        elif self.output_lower is not None:
-            x = self.output_lower + jax.nn.softplus(x)
-        elif self.output_upper is not None:
-            x = self.output_upper - jax.nn.softplus(-x)
+        x = _apply_bounds(x, self.output_lower, self.output_upper, self._has_upper)
 
         return x
 
@@ -140,6 +130,9 @@ class ResMLP(eqx.Module):
     activations: tuple = eqx.field(static=True)
     output_lower: Optional[Array]
     output_upper: Optional[Array]
+    _has_upper: Optional[tuple] = eqx.field(static=True)
+    input_shift: Optional[Array]
+    input_scale: Optional[Array]
 
     def __init__(
         self,
@@ -149,13 +142,19 @@ class ResMLP(eqx.Module):
         activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
         output_lower: Optional[Array] = None,
         output_upper: Optional[Array] = None,
+        input_shift: Optional[Array] = None,
+        input_scale: Optional[Array] = None,
         init: str = "default",
         *,
         key: Array,
     ):
         self.activations = tuple(activations)
         self.output_lower = output_lower
-        self.output_upper = output_upper
+        safe_upper, mask = _sanitize_upper(output_upper, output_lower)
+        self.output_upper = safe_upper
+        self._has_upper = mask
+        self.input_shift = input_shift
+        self.input_scale = input_scale
 
         sizes = [in_features] + list(hidden_sizes) + [out_features]
         n_layers = len(sizes) - 1
@@ -190,6 +189,9 @@ class ResMLP(eqx.Module):
                 self.skip_projs.append(None)  # no skip for output layer
 
     def _forward_single(self, x: Array) -> Array:
+        if self.input_shift is not None:
+            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(self.input_scale)
+
         for i, layer in enumerate(self.layers[:-1]):
             residual = x
             x = self.activations[i](layer(x))
@@ -203,12 +205,7 @@ class ResMLP(eqx.Module):
         # Output layer (no skip, no activation before bounds)
         x = self.layers[-1](x)
 
-        if self.output_lower is not None and self.output_upper is not None:
-            x = self.output_lower + (self.output_upper - self.output_lower) * jax.nn.sigmoid(x)
-        elif self.output_lower is not None:
-            x = self.output_lower + jax.nn.softplus(x)
-        elif self.output_upper is not None:
-            x = self.output_upper - jax.nn.softplus(-x)
+        x = _apply_bounds(x, self.output_lower, self.output_upper, self._has_upper)
 
         return x
 
@@ -232,6 +229,9 @@ class MultiHeadMLP(eqx.Module):
     activations: tuple = eqx.field(static=True)
     output_lower: Optional[Array]
     output_upper: Optional[Array]
+    _has_upper: Optional[tuple] = eqx.field(static=True)
+    input_shift: Optional[Array]
+    input_scale: Optional[Array]
 
     def __init__(
         self,
@@ -241,13 +241,19 @@ class MultiHeadMLP(eqx.Module):
         activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
         output_lower: Optional[Array] = None,
         output_upper: Optional[Array] = None,
+        input_shift: Optional[Array] = None,
+        input_scale: Optional[Array] = None,
         init: str = "default",
         *,
         key: Array,
     ):
         self.activations = tuple(activations)
         self.output_lower = output_lower
-        self.output_upper = output_upper
+        safe_upper, mask = _sanitize_upper(output_upper, output_lower)
+        self.output_upper = safe_upper
+        self._has_upper = mask
+        self.input_shift = input_shift
+        self.input_scale = input_scale
 
         # Build trunk (hidden layers only, no output layer)
         sizes = [in_features] + list(hidden_sizes)
@@ -273,18 +279,16 @@ class MultiHeadMLP(eqx.Module):
         ]
 
     def _forward_single(self, x: Array) -> Array:
+        if self.input_shift is not None:
+            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(self.input_scale)
+
         for i, layer in enumerate(self.trunk_layers):
             x = self.activations[i](layer(x))
 
         # Each head produces one scalar, concat into [out_features]
         raw = jnp.concatenate([head(x) for head in self.heads], axis=-1)
 
-        if self.output_lower is not None and self.output_upper is not None:
-            raw = self.output_lower + (self.output_upper - self.output_lower) * jax.nn.sigmoid(raw)
-        elif self.output_lower is not None:
-            raw = self.output_lower + jax.nn.softplus(raw)
-        elif self.output_upper is not None:
-            raw = self.output_upper - jax.nn.softplus(-raw)
+        raw = _apply_bounds(raw, self.output_lower, self.output_upper, self._has_upper)
 
         return raw
 
@@ -306,6 +310,8 @@ def create_mlp(
     policy_upper: Optional[Array] = None,
     multi_head: bool = False,
     skip_connections: bool = False,
+    input_shift: Optional[Array] = None,
+    input_scale: Optional[Array] = None,
     *,
     key: Array,
 ) -> eqx.Module:
@@ -354,6 +360,8 @@ def create_mlp(
         activations=act_fns,
         output_lower=policy_lower,
         output_upper=policy_upper,
+        input_shift=input_shift,
+        input_scale=input_scale,
         init=init,
         key=key,
     )

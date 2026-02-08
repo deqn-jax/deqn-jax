@@ -21,9 +21,10 @@ import equinox as eqx
 import optax
 
 from deqn_jax.types import ModelSpec, TrainState, Metrics, ReweightState, make_reweight_state
-from deqn_jax.networks import create_mlp
-from deqn_jax.training.loss import compute_loss, compute_residuals, eq_losses_to_array, sample_antithetic_shocks
-from deqn_jax.training.episode import run_episode, sample_initial_states
+from deqn_jax.networks import create_mlp, create_lstm, create_transformer
+from deqn_jax.training.loss import compute_loss, compute_residuals, eq_losses_to_array, sample_antithetic_shocks, gauss_hermite_nd
+from deqn_jax.training.episode import run_episode, run_episode_with_history, sample_initial_states
+from deqn_jax.training.history import get_history_len, make_constant_history, build_history_windows
 from deqn_jax.metrics import create_logger
 from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
 
@@ -55,6 +56,79 @@ def _print_residual_table(items: list, n_cols: int = 3):
         print("    " + "   ".join(parts))
 
 
+def _eq4_diagnostics(
+    model: ModelSpec,
+    policy_fn,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq4 (wage_phillips_K) diagnostic quantities.
+
+    Runs a zero-shock forward step to get next-period definitions,
+    then decomposes the eq4 residual into its constituent terms.
+
+    Returns scalar statistics (mean/std) for TensorBoard and console logging.
+    """
+    import numpy as np
+    c = model.constants
+    batch_size = states.shape[0]
+
+    # Next state with zero shock (mean scenario)
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c)
+    next_policies = jax.vmap(policy_fn)(next_states)
+    defs_n = jax.vmap(
+        lambda s, p: model.definitions_fn(s, p, c)
+    )(next_states, next_policies)
+
+    # eq4 ratio base: pi_w_tilda' * mu_z_ss / pi_w'
+    ratio_base = defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]
+    exponent = c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
+    eq4_ratio = ratio_base ** exponent
+
+    # Three terms of eq4
+    sigma_L = c["sigma_L"]
+    # h is a policy variable — extract index from policy_names
+    h_idx = list(model.policy_names).index("h") if "h" in model.policy_names else None
+    if h_idx is not None:
+        h = policy_out[:, h_idx]
+        h_term = h ** (1 + sigma_L)
+    else:
+        h_term = jnp.zeros(batch_size)
+
+    expect_term = c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"]
+    K_w = defs["K_w"]
+    eq4_rhs = h_term + expect_term
+    # Log-space residual (matches equations.py)
+    log_residual = jnp.log(jnp.maximum(eq4_rhs, 1e-8)) - jnp.log(jnp.maximum(K_w, 1e-8))
+
+    # K_w_inner: check how many hit the soft floor zone
+    xi_w = c["xi_w"]
+    lambda_w = c["lambda_w"]
+    K_w_inner_ratio = (defs["pi_w_tilda"] / defs["pi_w"] * c["mu_z_ss"]) ** (1 / (1 - lambda_w))
+    K_w_inner = (1 - xi_w * K_w_inner_ratio) / (1 - xi_w)
+    floor_frac = float(np.mean(np.asarray(K_w_inner) < 0.02))
+
+    rb = np.asarray(ratio_base)
+    lr = np.asarray(log_residual)
+    return {
+        "ratio_base_mean": float(np.mean(rb)),
+        "ratio_base_std": float(np.std(rb)),
+        "ratio_base_min": float(np.min(rb)),
+        "ratio_base_max": float(np.max(rb)),
+        "eq4_ratio_mean": float(np.mean(np.asarray(eq4_ratio))),
+        "K_w_mean": float(np.mean(np.asarray(K_w))),
+        "K_w_n_mean": float(np.mean(np.asarray(defs_n["K_w"]))),
+        "h_term_mean": float(np.mean(np.asarray(h_term))),
+        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+        "K_w_inner_floor_frac": floor_frac,
+        "exponent": float(exponent),
+    }
+
+
 def _count_params(model: eqx.Module) -> int:
     """Count trainable parameters in an Equinox model."""
     params = eqx.filter(model, eqx.is_array)
@@ -62,8 +136,10 @@ def _count_params(model: eqx.Module) -> int:
     return sum(x.size for x in leaves)
 
 
-def _network_shape_str(model_spec: ModelSpec, hidden_sizes: Tuple[int, ...]) -> str:
+def _network_shape_str(model_spec: ModelSpec, hidden_sizes) -> str:
     """Format network shape as e.g. '2 -> 64 -> 64 -> 1'."""
+    if isinstance(hidden_sizes, int):
+        hidden_sizes = (hidden_sizes,)
     sizes = [model_spec.n_states] + list(hidden_sizes) + [model_spec.n_policies]
     return " \u2192 ".join(str(s) for s in sizes)
 
@@ -117,10 +193,10 @@ def _print_header(
         lr_str += f", min={learning_rate * lr_min_factor:.0e}"
     print(f"  Optimizer:       {optimizer} ({lr_str})")
     print(f"  Precision:       {precision}")
-    print(f"  Network:         MLP [{_network_shape_str(model_spec, hidden_sizes)}]")
+    print(f"  Network:         {_network_shape_str(model_spec, hidden_sizes)}")
     print(f"  Parameters:      {n_params:,}")
     print(f"  Batch size:      {batch_size}")
-    print(f"  MC samples:      {mc_samples}")
+    print(f"  Expectations:    {mc_samples} MC samples")
     print(f"  Warm start:      {ws_str}")
     if grad_clip:
         print(f"  Grad clip:       {clip_str}")
@@ -218,6 +294,10 @@ def create_train_state(
     init = "xavier_normal"
     multi_head = False
     skip_connections = False
+    net_type = "mlp"
+    history_len = 1
+    num_heads = 4
+    n_layers = 2
     if network_config is not None:
         hidden_sizes = network_config.hidden_sizes
         activation = network_config.activation
@@ -225,21 +305,68 @@ def create_train_state(
         init = network_config.init
         multi_head = getattr(network_config, "multi_head", False)
         skip_connections = getattr(network_config, "skip_connections", False)
+        net_type = getattr(network_config, "type", "mlp")
+        history_len = getattr(network_config, "history_len", 1)
+        num_heads = getattr(network_config, "num_heads", 4)
+        n_layers = getattr(network_config, "n_layers", 2)
 
-    # Create policy network
-    policy_net = create_mlp(
-        n_states=model.n_states,
-        n_policies=model.n_policies,
-        hidden_sizes=hidden_sizes,
-        activation=activation,
-        activations=activations,
-        init=init,
-        policy_lower=model.policy_lower,
-        policy_upper=model.policy_upper,
-        multi_head=multi_head,
-        skip_connections=skip_connections,
-        key=net_key,
-    )
+    # Compute input normalization from steady state
+    input_shift = None
+    input_scale = None
+    if model.steady_state_fn is not None:
+        ss_state, _ = model.steady_state_fn(model.constants)
+        input_shift = ss_state
+        input_scale = jnp.maximum(jnp.abs(ss_state), 0.01)
+
+    # Create policy network based on type
+    if net_type == "lstm":
+        policy_net = create_lstm(
+            n_states=model.n_states,
+            n_policies=model.n_policies,
+            hidden_sizes=hidden_sizes,
+            history_len=history_len,
+            policy_lower=model.policy_lower,
+            policy_upper=model.policy_upper,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            key=net_key,
+        )
+    elif net_type == "transformer":
+        # For Transformer, hidden_sizes is a single value (hidden_dim)
+        # Handle case where hidden_sizes is a single int (from --set override)
+        if isinstance(hidden_sizes, int):
+            hidden_dim = hidden_sizes
+        else:
+            hidden_dim = hidden_sizes[0] if hidden_sizes else 64
+        policy_net = create_transformer(
+            n_states=model.n_states,
+            n_policies=model.n_policies,
+            hidden_dim=hidden_dim,
+            n_layers=n_layers,
+            num_heads=num_heads,
+            history_len=history_len,
+            policy_lower=model.policy_lower,
+            policy_upper=model.policy_upper,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            key=net_key,
+        )
+    else:
+        policy_net = create_mlp(
+            n_states=model.n_states,
+            n_policies=model.n_policies,
+            hidden_sizes=hidden_sizes,
+            activation=activation,
+            activations=activations,
+            init=init,
+            policy_lower=model.policy_lower,
+            policy_upper=model.policy_upper,
+            multi_head=multi_head,
+            skip_connections=skip_connections,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            key=net_key,
+        )
 
     # Create optimizer via registry or legacy path
     if optimizer_config is not None:
@@ -332,25 +459,47 @@ def _update_weights_relobralo(
 # Common episode + batch logic (shared by all step variants)
 # ---------------------------------------------------------------------------
 
-def _run_episode_and_sample(model, state, episode_length, batch_size):
-    """Run episode and sample training batch. Returns (train_states, keys)."""
+def _run_episode_and_sample(model, state, episode_length, batch_size, history_len=1):
+    """Run episode and sample training batch.
+
+    For history_len=1 (MLP): returns [batch, n_states]
+    For history_len>1 (LSTM/Transformer): returns [batch, H, n_states]
+
+    history_len is captured in closure and resolves at trace time.
+    """
     key = state.key
     key, episode_key, loss_key, shuffle_key = jax.random.split(key, 4)
 
-    trajectory, final_state = run_episode(
-        model,
-        state.params,
-        state.episode_state,
-        episode_key,
-        episode_length,
-    )
+    if history_len > 1:
+        # Sequence path: run episode with history, build windows
+        trajectory, final_state = run_episode_with_history(
+            model,
+            state.params,
+            state.episode_state,
+            episode_key,
+            episode_length,
+            history_len,
+        )
+        # Build sliding windows from trajectory: [(T-H+1)*B, H, D]
+        all_windows = build_history_windows(trajectory, history_len)
+        n_windows = all_windows.shape[0]
+        indices = jax.random.permutation(shuffle_key, n_windows)[:batch_size]
+        train_batch = all_windows[indices]  # [batch, H, D]
+    else:
+        # MLP path (unchanged)
+        trajectory, final_state = run_episode(
+            model,
+            state.params,
+            state.episode_state,
+            episode_key,
+            episode_length,
+        )
+        all_states = trajectory.reshape(-1, model.n_states)
+        n_states = all_states.shape[0]
+        indices = jax.random.permutation(shuffle_key, n_states)[:batch_size]
+        train_batch = all_states[indices]  # [batch, D]
 
-    all_states = trajectory.reshape(-1, model.n_states)
-    n_states = all_states.shape[0]
-    indices = jax.random.permutation(shuffle_key, n_states)[:batch_size]
-    train_states = all_states[indices]
-
-    return train_states, final_state, loss_key, key
+    return train_batch, final_state, loss_key, key
 
 
 def _update_reweighting(eq_losses, state, loss_reweight, reweight_alpha, n_eq):
@@ -384,20 +533,24 @@ def _make_standard_step(
     batch_size: int,
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
 ):
     """Standard train step: jax.grad + opt.update(grads, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size,
+            model, state, episode_length, batch_size, history_len,
         )
 
         def loss_fn(params):
             loss, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
-                weights=state.loss_weights,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return loss, eq_losses
 
@@ -439,6 +592,9 @@ def _make_pcgrad_step(
     batch_size: int,
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
 ):
     """PCGrad train step: per-equation gradients with conflict projection.
 
@@ -451,16 +607,17 @@ def _make_pcgrad_step(
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size,
+            model, state, episode_length, batch_size, history_len,
         )
 
         # Per-equation loss vector for jacrev
         def eq_loss_vector(params):
             _, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
-                weights=state.loss_weights,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return eq_losses_to_array(eq_losses)
 
@@ -468,7 +625,8 @@ def _make_pcgrad_step(
         def total_loss_fn(params):
             loss, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
-                weights=state.loss_weights,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return loss, eq_losses
 
@@ -547,14 +705,17 @@ def _make_mao_step(
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
     grad_clip: Optional[float] = None,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
 ):
     """MAO train step: per-equation Jacobian -> mao.update(eq_jac, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size,
+            model, state, episode_length, batch_size, history_len,
         )
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
@@ -566,6 +727,7 @@ def _make_mao_step(
             _, eq_losses = compute_loss(
                 model, full_params, train_states, loss_key, mc_samples,
                 weights=None,  # MAO handles weighting internally
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return eq_losses_to_array(eq_losses)
 
@@ -576,7 +738,8 @@ def _make_mao_step(
         def total_loss_fn(params):
             loss, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
-                weights=state.loss_weights,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return loss, eq_losses
 
@@ -625,14 +788,17 @@ def _make_lbfgs_step(
     batch_size: int,
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
 ):
     """L-BFGS train step: passes value + value_fn for line search."""
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size,
+            model, state, episode_length, batch_size, history_len,
         )
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
@@ -641,7 +807,8 @@ def _make_lbfgs_step(
         def loss_fn(params):
             loss, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
-                weights=state.loss_weights,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return loss, eq_losses
 
@@ -654,7 +821,8 @@ def _make_lbfgs_step(
             full_params = eqx.combine(p_arrays, params_static)
             v, _ = compute_loss(
                 model, full_params, train_states, loss_key, mc_samples,
-                weights=state.loss_weights,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
             )
             return v
 
@@ -697,6 +865,9 @@ def _make_gn_step(
     batch_size: int,
     loss_reweight: str = "none",
     reweight_alpha: float = 0.9,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
 ):
     """Gauss-Newton / Levenberg-Marquardt train step.
 
@@ -706,9 +877,9 @@ def _make_gn_step(
     n_eq = len(model.equation_names) if model.equation_names else 1
 
     @jax.jit
-    def train_step(state: TrainState, lr_scale: Array) -> Tuple[TrainState, Metrics]:
+    def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size,
+            model, state, episode_length, batch_size, history_len,
         )
 
         # Residual function: params -> [n_eq] mean residuals
@@ -728,7 +899,8 @@ def _make_gn_step(
         # Also get loss + eq_losses for logging
         loss, eq_losses = compute_loss(
             model, state.params, train_states, loss_key, mc_samples,
-            weights=state.loss_weights,
+            weights=state.loss_weights, shock_scale=shock_scale,
+            quad_nodes=quad_nodes, quad_weights=quad_weights,
         )
 
         # GN update: optimizer handles Jacobian computation internally
@@ -774,6 +946,9 @@ def make_train_step(
     kind: OptimizerKind = OptimizerKind.STANDARD,
     gradient_surgery: str = "none",
     grad_clip: Optional[float] = None,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
 ):
     """Create a JIT-compiled training step function.
 
@@ -790,6 +965,9 @@ def make_train_step(
         kind: OptimizerKind determining step variant
         gradient_surgery: "none" or "pcgrad"
         grad_clip: Global norm clipping for MAO (STANDARD handles via optax.chain)
+        quad_nodes: Quadrature nodes [n_nodes, shock_dim] (None -> use MC)
+        quad_weights: Quadrature weights [n_nodes] (None -> use MC)
+        history_len: History window size (1=MLP, >1=LSTM/Transformer)
 
     Returns:
         JIT-compiled train_step function
@@ -802,6 +980,9 @@ def make_train_step(
         batch_size=batch_size,
         loss_reweight=loss_reweight,
         reweight_alpha=reweight_alpha,
+        quad_nodes=quad_nodes,
+        quad_weights=quad_weights,
+        history_len=history_len,
     )
 
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
@@ -816,6 +997,9 @@ def make_train_step(
             loss_reweight=loss_reweight,
             reweight_alpha=reweight_alpha,
             grad_clip=grad_clip,
+            quad_nodes=quad_nodes,
+            quad_weights=quad_weights,
+            history_len=history_len,
         )
     elif kind == OptimizerKind.LBFGS:
         return _make_lbfgs_step(**kwargs)
@@ -846,13 +1030,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     from deqn_jax.config import TrainConfig, OptimizerConfig
 
     model = load_model(config.model)
-
-    # Swap in rescaled equations if requested
-    if config.rescale_equations and model.name == "disaster":
-        from deqn_jax.models.disaster.equations_rescaled import equations as rescaled_eq
-        model = model._replace(equations_fn=rescaled_eq)
-        if config.verbose:
-            print("  Using rescaled Euler error equations")
 
     n_equations = len(model.equation_names) if model.equation_names else 1
 
@@ -942,10 +1119,48 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
 
         # Warm start from steady state (only for fresh training)
         if config.warm_start:
-            from deqn_jax.training.warm_start import warm_start_network
-            state = state._replace(
-                params=warm_start_network(state.params, model, verbose=config.verbose)
-            )
+            _hl = get_history_len(state.params)
+            if _hl > 1:
+                # Sequence net warm start: fit to constant-SS policy
+                # using warm_start_to_function with history wrapping
+                from deqn_jax.training.warm_start import warm_start_to_function
+                if model.steady_state_fn is not None:
+                    ss_state, ss_policy = model.steady_state_fn(model.constants)
+                    ws_key = jax.random.PRNGKey(0)
+                    noise = jax.random.uniform(ws_key, (256, model.n_states), minval=-0.2, maxval=0.2)
+                    sample_states = ss_state * (1 + noise)
+                    # Build constant history windows for each sample state
+                    sample_history = make_constant_history(sample_states, _hl)  # [256, H, D]
+                    target_fn = lambda h: ss_policy  # constant target
+                    # Custom loss for sequence net
+                    targets = jnp.tile(ss_policy, (256, 1))
+                    def _ws_loss(params):
+                        pred = jax.vmap(params)(sample_history)
+                        return jnp.mean((pred - targets) ** 2)
+                    from deqn_jax.training.warm_start import _lbfgs_minimize
+                    final_params, n_iters, final_loss = _lbfgs_minimize(
+                        _ws_loss, state.params, max_iter=100, tol=1e-6,
+                    )
+                    if config.verbose:
+                        print(f"  Warm start (sequence net, constant-SS): loss={final_loss:.2e}, iters={n_iters}")
+                    state = state._replace(params=final_params)
+            elif config.warm_start_dynare:
+                from deqn_jax.training.warm_start import warm_start_from_dynare
+                state = state._replace(
+                    params=warm_start_from_dynare(
+                        state.params, model,
+                        dynare_dir=config.warm_start_dynare,
+                        verbose=config.verbose,
+                    )
+                )
+            else:
+                from deqn_jax.training.warm_start import warm_start_network
+                state = state._replace(
+                    params=warm_start_network(
+                        state.params, model, verbose=config.verbose,
+                        linearize=config.warm_start_linearize,
+                    )
+                )
 
     # ---- Metric logger ----
     wandb_config = config.to_dict() if config.wandb_project else None
@@ -982,6 +1197,26 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             total_for_schedule = start_episode + config.episodes
         lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
 
+    # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
+    quad_nodes_jax = None
+    quad_weights_jax = None
+    exp_type = getattr(config, "expectation_type", "mc")
+    if exp_type in ("quadrature", "gh", "gauss_hermite"):
+        n_qp = getattr(config, "n_quadrature_points", 3)
+        quad = gauss_hermite_nd(n_qp, model.n_shocks)
+        if quad is not None:
+            quad_nodes_jax = jnp.array(quad[0])
+            quad_weights_jax = jnp.array(quad[1])
+            if config.verbose:
+                print(f"  Quadrature: {n_qp}^{model.n_shocks} = {quad[0].shape[0]} nodes (Gauss-Hermite)")
+        else:
+            n_total = n_qp ** model.n_shocks
+            if config.verbose:
+                print(f"  Quadrature: {n_total} nodes exceeds limit, falling back to MC")
+
+    # ---- Determine history length from network (Python-level, before JIT) ----
+    history_len = get_history_len(state.params)
+
     # ---- Create JIT-compiled train step ----
     gradient_surgery = getattr(config, "gradient_surgery", "none")
     train_step = make_train_step(
@@ -991,6 +1226,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         kind=kind,
         gradient_surgery=gradient_surgery,
         grad_clip=config.optimizer.grad_clip,
+        quad_nodes=quad_nodes_jax,
+        quad_weights=quad_weights_jax,
+        history_len=history_len,
     )
 
     # ---- Mid-training optimizer switch setup ----
@@ -1021,6 +1259,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     history: Dict[str, list] = {"loss": [], "grad_norm": []}
     t_start = time.perf_counter()
     last_metrics = None
+    best_loss = float("inf")
+    patience_counter = 0
 
     for ep_num in range(start_episode + 1, total_episodes + 1):
         # Mid-training optimizer switch
@@ -1051,8 +1291,14 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 kind=kind,
                 gradient_surgery=gradient_surgery,
                 grad_clip=config.optimizer.grad_clip,
+                quad_nodes=quad_nodes_jax,
+                quad_weights=quad_weights_jax,
+                history_len=history_len,
             )
             switched = True
+            # Reset early stopping after optimizer switch
+            best_loss = float("inf")
+            patience_counter = 0
             if config.verbose:
                 print(f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}")
 
@@ -1064,7 +1310,15 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             current_lr = config.optimizer.learning_rate * nan_lr_scale
             lr_scale = jnp.array(nan_lr_scale)
 
-        state, metrics = train_step(state, lr_scale)
+        # Curriculum: ramp shock_scale from start to 1.0
+        if config.curriculum_episodes > 0 and ep_num < config.curriculum_episodes:
+            t = ep_num / config.curriculum_episodes
+            shock_scale_val = config.curriculum_start + (1.0 - config.curriculum_start) * t
+        else:
+            shock_scale_val = 1.0
+        shock_scale = jnp.array(shock_scale_val)
+
+        state, metrics = train_step(state, lr_scale, shock_scale)
         last_metrics = metrics
 
         loss_val = float(metrics.loss)
@@ -1088,6 +1342,24 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     print(f"  >> NaN at episode {ep_num} after {max_nan_rollbacks} rollbacks. Stopping.")
                 break
             # No checkpoint to roll back to — just continue (NaN will propagate)
+
+        # ---- Early stopping (only after optimizer switch, or if no switch configured) ----
+        early_stop_active = (
+            config.early_stop_patience is not None
+            and (switched or config.switch_optimizer is None)
+        )
+        if early_stop_active and not math.isnan(loss_val):
+            if loss_val < best_loss - config.early_stop_min_delta:
+                best_loss = loss_val
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            if patience_counter >= config.early_stop_patience:
+                if config.verbose:
+                    print(f"  >> Early stopping at episode {ep_num}: "
+                          f"no improvement for {config.early_stop_patience} episodes "
+                          f"(best={best_loss:.2e})")
+                break
 
         history["loss"].append(loss_val)
         history["grad_norm"].append(grad_val)
@@ -1114,7 +1386,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             if config.loss_reweight != "none" and model.equation_names:
                 for i, name in enumerate(model.equation_names):
                     log_dict[f"weights/{name}"] = float(state.loss_weights[i])
-            logger.log_scalars(log_dict, step=ep_num)
 
             # State, policy, and definition histograms
             import numpy as np
@@ -1127,18 +1398,40 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     hist_dict[f"state/{name}"] = np.asarray(ep_states[:, i])
 
             # Policy output histograms
-            policy_out = jax.vmap(state.params)(ep_states)  # [batch, n_policies]
+            # For sequence nets, approximate with constant history at current state
+            if history_len > 1:
+                ep_history = make_constant_history(ep_states, history_len)
+                policy_out = jax.vmap(state.params)(ep_history)
+            else:
+                policy_out = jax.vmap(state.params)(ep_states)  # [batch, n_policies]
             if model.policy_names:
                 for i, name in enumerate(model.policy_names):
                     hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
 
             # Definition histograms (derived economic quantities)
+            eq4_diag = None
             if model.definitions_fn is not None:
                 defs = jax.vmap(
                     lambda s, p: model.definitions_fn(s, p, model.constants)
                 )(ep_states, policy_out)
                 for name, vals in defs.items():
                     hist_dict[f"derived/{name}"] = np.asarray(vals)
+
+                # eq4 (wage_phillips_K) diagnostics: compute next-period quantities
+                if "K_w" in defs and "pi_w_tilda" in defs and "pi_w" in defs:
+                    # Wrap policy_fn for sequence nets (use constant history)
+                    if history_len > 1:
+                        _diag_policy_fn = lambda s: state.params(make_constant_history(s[None], history_len)[0])
+                    else:
+                        _diag_policy_fn = state.params
+                    eq4_diag = _eq4_diagnostics(
+                        model, _diag_policy_fn, ep_states, policy_out, defs,
+                    )
+                    for dk, dv in eq4_diag.items():
+                        log_dict[f"eq4_diag/{dk}"] = float(dv)
+
+            # Log all scalars (including eq4 diagnostics)
+            logger.log_scalars(log_dict, step=ep_num)
 
             # Filter out arrays with NaN/Inf (early training can produce these)
             hist_dict = {k: v for k, v in hist_dict.items()
@@ -1170,6 +1463,16 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     ))
                 else:
                     _print_residual_table(items)
+
+            # eq4 diagnostic line (when available)
+            if eq4_diag is not None:
+                print(
+                    f"    eq4: ratio={eq4_diag['ratio_base_mean']:.4f}±{eq4_diag['ratio_base_std']:.4f}"
+                    f"  log_r={eq4_diag['log_residual_mean']:.3f}±{eq4_diag['log_residual_std']:.3f}"
+                    f"  K_w={eq4_diag['K_w_mean']:.3f}"
+                    f"  h²={eq4_diag['h_term_mean']:.3f}"
+                    f"  floor%={eq4_diag['K_w_inner_floor_frac']:.1%}"
+                )
 
         # ---- Checkpointing with config snapshot + pruning ----
         if (
