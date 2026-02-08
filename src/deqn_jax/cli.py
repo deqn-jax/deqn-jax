@@ -459,14 +459,32 @@ def run_train(args):
     train_from_config(config)
 
 
+def _enable_fp64_from_config(args):
+    """Enable fp64 if checkpoint config requires it."""
+    import yaml
+    from pathlib import Path
+    config_path = getattr(args, "config", None)
+    if config_path is None:
+        ckpt_dir = Path(args.checkpoint).parent
+        config_path = str(ckpt_dir / "config.yaml")
+    if Path(config_path).exists():
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        if cfg.get("fp64", False):
+            import jax
+            jax.config.update("jax_enable_x64", True)
+
+
 def run_irf_command(args):
     """Run impulse response functions."""
+    _enable_fp64_from_config(args)
     from deqn_jax.irf import run_irf_cli
     run_irf_cli(args)
 
 
 def run_evaluate_command(args):
     """Run model evaluation suite."""
+    _enable_fp64_from_config(args)
     from deqn_jax.evaluate import run_evaluate_cli
     run_evaluate_cli(args)
 

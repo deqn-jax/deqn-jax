@@ -2,6 +2,7 @@
 
 from typing import Dict
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import erf
@@ -47,6 +48,17 @@ def S_adj(ratio: Array, mu_z_ss: float, kappa: float) -> Array:
 
 def S_adj_prime(ratio: Array, mu_z_ss: float, kappa: float) -> Array:
     return kappa * (ratio - mu_z_ss)
+
+
+def _soft_floor(x: Array, eps: float, sharpness: float = 10.0) -> Array:
+    """Smooth approximation of max(x, eps) with non-vanishing gradients.
+
+    Uses scaled softplus: eps + softplus(sharpness*(x - eps)) / sharpness
+    - x >> eps: result ≈ x (error ~ exp(-sharpness*(x-eps))/sharpness)
+    - x << eps: result ≈ eps (gradient = sigmoid(sharpness*(x-eps)) → 0 smoothly)
+    - x = eps: result = eps + ln(2)/sharpness, gradient = 0.5
+    """
+    return eps + jax.nn.softplus(sharpness * (x - eps)) / sharpness
 
 
 def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array]:
@@ -98,12 +110,12 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         (p.pi / c["pi_ss"]) ** c["alpha_pi"] * (y_gdp / c["y_ss"]) ** c["alpha_y"]
     ) ** (1 - c["rho_p"]) * jnp.exp(st.m_p)
 
-    # Phillips curve auxiliaries (with numerical floor)
+    # Phillips curve auxiliaries (soft floor preserves gradient signal)
     K_p_inner = (1 - c["xi_p"] * (pi_tilda / p.pi) ** (1 / (1 - c["lambda_f"]))) / (1 - c["xi_p"])
-    K_p = p.F_p * jnp.maximum(K_p_inner, 0.01) ** (1 - c["lambda_f"])
+    K_p = p.F_p * _soft_floor(K_p_inner, 0.01) ** (1 - c["lambda_f"])
 
     K_w_inner = (1 - c["xi_w"] * (pi_w_tilda / pi_w * c["mu_z_ss"]) ** (1 / (1 - c["lambda_w"]))) / (1 - c["xi_w"])
-    K_w = (1 / c["psi_L"]) * jnp.maximum(K_w_inner, 0.01) ** (1 - c["lambda_w"] * (1 + c["sigma_L"])) * p.w_tilda * p.F_w
+    K_w = (1 / c["psi_L"]) * _soft_floor(K_w_inner, 0.01) ** (1 - c["lambda_w"] * (1 + c["sigma_L"])) * p.w_tilda * p.F_w
 
     return {
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
@@ -136,9 +148,10 @@ def equations(
     eq1_expect = (defs_n["pi_tilda"] / p_n.pi) ** (1 / (1 - c["lambda_f"])) * p_n.F_p
     residuals["eq1_price_phillips_F"] = p.lambda_z * defs["y_z"] + c["beta"] * c["xi_p"] * eq1_expect - p.F_p
 
-    # Eq 2: Price Phillips (K_p)
+    # Eq 2: Price Phillips (K_p) — log-space: log(rhs/K_p), auto-normalized gradient
     eq2_expect = (defs_n["pi_tilda"] / p_n.pi) ** (c["lambda_f"] / (1 - c["lambda_f"])) * defs_n["K_p"]
-    residuals["eq2_price_phillips_K"] = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_expect - defs["K_p"]
+    eq2_rhs = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_expect
+    residuals["eq2_price_phillips_K"] = jnp.log(jnp.maximum(eq2_rhs, 1e-8)) - jnp.log(jnp.maximum(defs["K_p"], 1e-8))
 
     # Eq 3: Wage Phillips (F_w)
     eq3_coef = st_n.mu_z ** (c["iota_mu"] / (1 - c["lambda_w"]) - 1) * c["mu_z_ss"] ** ((1 - c["iota_mu"]) / (1 - c["lambda_w"]))
@@ -146,13 +159,15 @@ def equations(
                  (1 / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"])) * (1 / p_n.pi) * p_n.F_w
     residuals["eq3_wage_phillips_F"] = p.h * (1 - c["tau_l"]) / c["lambda_w"] * p.lambda_z + c["beta"] * c["xi_w"] * eq3_expect - p.F_w
 
-    # Eq 4: Wage Phillips (K_w)
+    # Eq 4: Wage Phillips (K_w) — log-space: log(rhs/K_w), auto-normalized gradient
     eq4_ratio = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"]))
-    residuals["eq4_wage_phillips_K"] = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"] - defs["K_w"]
+    eq4_rhs = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"]
+    residuals["eq4_wage_phillips_K"] = jnp.log(jnp.maximum(eq4_rhs, 1e-8)) - jnp.log(jnp.maximum(defs["K_w"], 1e-8))
 
     # Eq 5: Consumption Euler (c from resource constraint via defs)
-    habit_now = defs["c"] * st.mu_z - c["b"] * st.c_lag
-    habit_next = defs_n["c"] * st_n.mu_z - c["b"] * defs["c"]
+    # Floor habit to avoid 1/0 singularity (c can hit analytical floor in bad states)
+    habit_now = jnp.maximum(defs["c"] * st.mu_z - c["b"] * st.c_lag, 1e-2)
+    habit_next = jnp.maximum(defs_n["c"] * st_n.mu_z - c["b"] * defs["c"], 1e-2)
     residuals["eq5_consumption_euler"] = (1 + c["tau_c"]) * p.lambda_z - st.mu_z / habit_now + c["beta"] * c["b"] / habit_next
 
     # Eq 6: Bond Euler

@@ -30,5 +30,5 @@ MODEL = ModelSpec(
     init_state_fn=init_state,
     definitions_fn=definitions,
     policy_lower=POLICY_LOWER,
-    policy_upper=POLICY_UPPER,
+    policy_upper=POLICY_UPPER,  # None → softplus bounding (no gradient death)
 )

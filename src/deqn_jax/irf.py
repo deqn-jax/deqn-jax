@@ -191,6 +191,10 @@ def load_policy_from_checkpoint(
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
+    # Enable fp64 if checkpoint was trained with it
+    if cfg.get("fp64", False):
+        jax.config.update("jax_enable_x64", True)
+
     model = load_model(cfg["model"])
 
     # Extract network config
@@ -230,6 +234,20 @@ def load_policy_from_checkpoint(
     loss_weights = cfg.get("loss_weights", None)
 
     opt_cfg_dict = cfg.get("optimizer", {"name": "adam"})
+    # If checkpoint was saved after optimizer switch, use the switched optimizer
+    switch_opt = cfg.get("switch_optimizer", None)
+    switch_ep = cfg.get("switch_episode", 0)
+    # Extract episode number from checkpoint filename (e.g. checkpoint_010000.eqx)
+    ckpt_ep = 0
+    try:
+        ckpt_ep = int(Path(checkpoint_path).stem.split("_")[-1])
+    except (ValueError, IndexError):
+        pass
+    if switch_opt and ckpt_ep >= switch_ep:
+        opt_cfg_dict = dict(opt_cfg_dict)
+        opt_cfg_dict["name"] = switch_opt
+        if cfg.get("switch_lr") is not None:
+            opt_cfg_dict["learning_rate"] = cfg["switch_lr"]
     opt_cfg = OptimizerConfig(**{
         k: v for k, v in opt_cfg_dict.items()
         if k in OptimizerConfig.__dataclass_fields__
@@ -257,6 +275,22 @@ def load_policy_from_checkpoint(
 
     state = eqx.tree_deserialise_leaves(checkpoint_path, template_state)
     policy_net = state.params
+
+    # Restore correct bounds (old checkpoints may have drifted bounds
+    # due to a bug where output_lower/output_upper were trainable)
+    if model.policy_lower is not None and hasattr(policy_net, 'output_lower'):
+        if model.policy_upper is not None:
+            policy_net = eqx.tree_at(
+                lambda net: (net.output_lower, net.output_upper),
+                policy_net,
+                (model.policy_lower, model.policy_upper),
+            )
+        else:
+            policy_net = eqx.tree_at(
+                lambda net: net.output_lower,
+                policy_net,
+                model.policy_lower,
+            )
 
     return policy_net, model
 

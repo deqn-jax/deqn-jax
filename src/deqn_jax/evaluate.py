@@ -65,6 +65,21 @@ def euler_equation_errors(
     eq_names = list(model.equation_names) if model.equation_names else []
     n_eq = len(eq_names)
 
+    # JIT-compile the simulation step for speed
+    @eqx.filter_jit
+    def _sim_step(state, shock):
+        policy = policy_net(state)
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(state, policy, shock, constants)
+        next_policy = policy_net(next_state)
+        if next_policy.ndim == 1:
+            next_policy = next_policy[None, :]
+        residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
+        row = jnp.stack([residuals[name][0] if residuals[name].ndim > 0
+                        else residuals[name] for name in eq_names])
+        return next_state, row, state[0]
+
     all_residuals = []
     all_states = []
 
@@ -72,23 +87,11 @@ def euler_equation_errors(
         key, shock_key = jax.random.split(key)
         shock = jax.random.normal(shock_key, (1, n_shocks))
 
-        policy = policy_net(state)
-        if policy.ndim == 1:
-            policy = policy[None, :]
+        next_state, row, st = _sim_step(state, shock)
 
-        # Step forward
-        next_state = model.step_fn(state, policy, shock, constants)
-        next_policy = policy_net(next_state)
-        if next_policy.ndim == 1:
-            next_policy = next_policy[None, :]
-
-        # Compute Euler residuals
-        if t >= burn_in and model.equations_fn is not None:
-            residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
-            row = jnp.array([float(residuals[name][0]) if residuals[name].ndim > 0
-                            else float(residuals[name]) for name in eq_names])
+        if t >= burn_in:
             all_residuals.append(row)
-            all_states.append(state[0])
+            all_states.append(st)
 
         state = next_state
 
@@ -228,6 +231,14 @@ def simulated_moments(
     state_names = list(model.state_names)
     policy_names = list(model.policy_names)
 
+    @eqx.filter_jit
+    def _sim_step(state, shock):
+        policy = policy_net(state)
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(state, policy, shock, constants)
+        return next_state, state[0], policy[0]
+
     all_states = []
     all_policies = []
 
@@ -235,15 +246,13 @@ def simulated_moments(
         key, shock_key = jax.random.split(key)
         shock = jax.random.normal(shock_key, (1, n_shocks))
 
-        policy = policy_net(state)
-        if policy.ndim == 1:
-            policy = policy[None, :]
+        next_state, st, pol = _sim_step(state, shock)
 
         if t >= burn_in:
-            all_states.append(state[0])
-            all_policies.append(policy[0])
+            all_states.append(st)
+            all_policies.append(pol)
 
-        state = model.step_fn(state, policy, shock, constants)
+        state = next_state
 
     states = jnp.stack(all_states)    # [T, n_states]
     policies = jnp.stack(all_policies)  # [T, n_policies]
@@ -258,7 +267,7 @@ def simulated_moments(
             "min": float(jnp.min(col)),
             "max": float(jnp.max(col)),
             "ss": ss_val,
-            "mean_dev_pct": float((jnp.mean(col) - ss_val) / max(abs(ss_val), 1e-8) * 100),
+            "mean_dev_pct": float((jnp.mean(col) - ss_val) / abs(ss_val) * 100) if abs(ss_val) > 0.01 else 0.0,
         }
 
     for i, name in enumerate(policy_names):
@@ -270,7 +279,7 @@ def simulated_moments(
             "min": float(jnp.min(col)),
             "max": float(jnp.max(col)),
             "ss": ss_val,
-            "mean_dev_pct": float((jnp.mean(col) - ss_val) / max(abs(ss_val), 1e-8) * 100),
+            "mean_dev_pct": float((jnp.mean(col) - ss_val) / abs(ss_val) * 100) if abs(ss_val) > 0.01 else 0.0,
         }
 
     return moments
@@ -322,6 +331,16 @@ def stability_check(
     policy_lower = model.policy_lower
     policy_upper = model.policy_upper
 
+    margin = 0.01 * (policy_upper - policy_lower) if (policy_lower is not None and policy_upper is not None) else None
+
+    @eqx.filter_jit
+    def _sim_step(state, shock):
+        policy = policy_net(state)
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(state, policy, shock, constants)
+        return next_state, policy
+
     bound_hits = 0
     total_outputs = 0
     has_nan = False
@@ -330,9 +349,7 @@ def stability_check(
         key, shock_key = jax.random.split(key)
         shock = jax.random.normal(shock_key, (1, n_shocks))
 
-        policy = policy_net(state)
-        if policy.ndim == 1:
-            policy = policy[None, :]
+        next_state, policy = _sim_step(state, shock)
 
         # Check NaN
         if jnp.any(jnp.isnan(policy)) or jnp.any(jnp.isnan(state)):
@@ -340,15 +357,14 @@ def stability_check(
             break
 
         # Check bound hitting (within 1% of bounds)
-        if policy_lower is not None and policy_upper is not None:
+        if margin is not None:
             p = policy[0]
-            margin = 0.01 * (policy_upper - policy_lower)
             near_lower = jnp.sum(p < policy_lower + margin)
             near_upper = jnp.sum(p > policy_upper - margin)
             bound_hits += int(near_lower + near_upper)
             total_outputs += len(policy_names)
 
-        state = model.step_fn(state, policy, shock, constants)
+        state = next_state
 
     # Check final state deviation from SS
     final_state = state[0] if state.ndim == 2 else state

@@ -51,8 +51,16 @@ STEADY_STATE = {
     "F_w": 0.885310, "F_p": 4.735931, "q": 1.0,
 }
 
-POLICY_LOWER = jnp.array([0.1, 0.3, 0.9, 1.0, 0.1, 0.5, 0.1, 1.0, 0.5])
-POLICY_UPPER = jnp.array([2.0, 2.0, 1.2, 3.0, 1.5, 1.5, 3.0, 10.0, 2.0])
+# Per-variable bounding — tight to prevent pathological local minima.
+# Lower bounds raised close to SS; upper bounds on omega_bar/pi to prevent blowup.
+# v62 showed 5/9 policies collapse to old loose bounds, omega_bar at 23x SS.
+#
+# Policy:     lambda_z  i     pi    w_tilda  omega_bar  h     F_w   F_p   q
+# SS:         0.602     0.795 1.012 1.920    0.489      0.944 0.885 4.736 1.000
+# Bounding:   softplus  soft  sigm  softplus sigmoid    soft  soft  soft  softplus
+POLICY_LOWER = jnp.array([0.2, 0.4,  0.95, 1.0, 0.15, 0.6, 0.3, 2.0, 0.5])
+_inf = float("inf")
+POLICY_UPPER = jnp.array([_inf, _inf, 1.1,  _inf, 1.5,  _inf, _inf, _inf, _inf])
 
 N_SHOCKS = 5
 
