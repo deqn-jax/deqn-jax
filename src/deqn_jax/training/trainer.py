@@ -169,6 +169,8 @@ def _print_header(
     lr_schedule: str = "constant",
     lr_warmup: int = 0,
     lr_min_factor: float = 0.0,
+    net_type: str = "mlp",
+    history_len: int = 1,
 ):
     """Print rich training header."""
     eq_names = list(model_spec.equation_names or [])
@@ -185,15 +187,19 @@ def _print_header(
     print("DEQN-JAX Training")
     print("=" * w)
     print(f"  Model:           {model_spec.name}")
+    learning_rate = float(learning_rate)
     lr_str = f"lr={learning_rate:.0e}"
     if lr_schedule != "constant":
         lr_str += f", {lr_schedule}"
         if lr_warmup > 0:
             lr_str += f", warmup={lr_warmup}"
-        lr_str += f", min={learning_rate * lr_min_factor:.0e}"
+        lr_str += f", min={learning_rate * float(lr_min_factor):.0e}"
     print(f"  Optimizer:       {optimizer} ({lr_str})")
     print(f"  Precision:       {precision}")
-    print(f"  Network:         {_network_shape_str(model_spec, hidden_sizes)}")
+    net_str = _network_shape_str(model_spec, hidden_sizes)
+    if net_type != "mlp":
+        net_str = f"{net_type.upper()} {net_str} (H={history_len})"
+    print(f"  Network:         {net_str}")
     print(f"  Parameters:      {n_params:,}")
     print(f"  Batch size:      {batch_size}")
     print(f"  Expectations:    {mc_samples} MC samples")
@@ -1188,6 +1194,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             lr_schedule=config.optimizer.lr_schedule,
             lr_warmup=config.optimizer.lr_warmup,
             lr_min_factor=config.optimizer.lr_min_factor,
+            net_type=getattr(config.network, "type", "mlp") if config.network else "mlp",
+            history_len=get_history_len(state.params),
         )
 
     # Build LR schedule function for computing per-episode LR (None if constant)

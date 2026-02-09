@@ -42,10 +42,10 @@ def _build_lr_schedule(config, total_steps: int):
 
     Returns either a float (constant) or an optax Schedule callable.
     """
-    lr = config.learning_rate
+    lr = float(config.learning_rate)
     schedule = getattr(config, "lr_schedule", "constant")
-    warmup = getattr(config, "lr_warmup", 0)
-    min_factor = getattr(config, "lr_min_factor", 0.0)
+    warmup = int(getattr(config, "lr_warmup", 0))
+    min_factor = float(getattr(config, "lr_min_factor", 0.0))
 
     if schedule == "constant":
         return lr
