@@ -1332,9 +1332,15 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         if config.verbose:
             print("  Building composite loss (linearize + ergodic cov)...")
         P, Q = linearize_model(model, verbose=config.verbose)
-        comp_data = prepare_composite_data(model, P, Q, verbose=config.verbose)
 
         comp_cfg = config.composite_loss
+        comp_data = prepare_composite_data(
+            model, P, Q,
+            n_anchor_points=comp_cfg.n_anchor_points,
+            anchor_sigma=comp_cfg.anchor_sigma,
+            seed=config.seed,
+            verbose=config.verbose,
+        )
         custom_loss_fn = make_composite_loss(
             model,
             comp_data,
@@ -1342,8 +1348,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             jac_weight=comp_cfg.jac_weight,
             barrier_weight=comp_cfg.barrier_weight,
             newton_weight=comp_cfg.newton_weight,
-            n_anchor_points=comp_cfg.n_anchor_points,
-            anchor_sigma=comp_cfg.anchor_sigma,
             leverage_mult=comp_cfg.leverage_mult,
         )
         if config.verbose:

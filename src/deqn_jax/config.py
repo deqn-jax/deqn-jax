@@ -51,14 +51,19 @@ class OptimizerConfig:
 
 @dataclass
 class CompositeLossConfig:
-    """Composite loss configuration (anchor + Jacobian + barrier + Newton terms)."""
+    """Composite loss configuration (anchor + Jacobian + barrier + Newton terms).
 
-    anchor_weight: float = 1.0
-    jac_weight: float = 0.1
+    Anchor and Jacobian losses decay with shock_scale during curriculum
+    (most useful near SS, fade as stochastic domain expands).
+    Barrier and Newton losses don't decay (always useful for feasibility).
+    """
+
+    anchor_weight: float = 0.1
+    jac_weight: float = 0.01
     barrier_weight: float = 0.01
     newton_weight: float = 0.01
-    n_anchor_points: int = 64
-    anchor_sigma: float = 1.0
+    n_anchor_points: int = 64  # Fixed sample points near SS
+    anchor_sigma: float = 1.0  # Spread of anchor points (in ergodic std devs)
     leverage_mult: float = 5.0
 
     def __post_init__(self):

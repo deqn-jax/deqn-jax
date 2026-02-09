@@ -29,26 +29,41 @@ class CompositeData(NamedTuple):
         ss_policy: Steady state policy [n_policies]
         ergodic_cov_chol: Cholesky of ergodic covariance [n_states, n_states]
         ss_leverage: Steady-state leverage scalar
+        anchor_points: Pre-sampled states near SS [n_anchor, n_states]
+        anchor_deviations: anchor_points - ss_state [n_anchor, n_states]
+        anchor_lin_policy: Linear policy at anchor points [n_anchor, n_policies]
     """
     P: Array
     ss_state: Array
     ss_policy: Array
     ergodic_cov_chol: Array
     ss_leverage: float
+    anchor_points: Array
+    anchor_deviations: Array
+    anchor_lin_policy: Array
 
 
 def prepare_composite_data(
     model: ModelSpec,
     P: Array,
     Q: Array,
+    n_anchor_points: int = 64,
+    anchor_sigma: float = 1.0,
+    seed: int = 12345,
     verbose: bool = True,
 ) -> CompositeData:
     """Build CompositeData from linearization results.
+
+    Pre-computes anchor sample points from the ergodic distribution so the
+    anchor loss is deterministic (no per-step randomness = no gradient noise).
 
     Args:
         model: Model specification
         P: Policy rule matrix from linearize_model
         Q: Transition matrix from linearize_model
+        n_anchor_points: Number of fixed sample points near SS
+        anchor_sigma: Scale factor for sampling spread
+        seed: RNG seed for anchor point sampling
         verbose: Print diagnostic info
     """
     from deqn_jax.training.linearize import compute_ergodic_covariance
@@ -60,12 +75,20 @@ def prepare_composite_data(
     n = ergodic_cov.shape[0]
     ergodic_cov_chol = jnp.linalg.cholesky(ergodic_cov + 1e-8 * jnp.eye(n))
 
+    # Pre-sample anchor points: x = ss + sigma * L @ z, z ~ N(0, I)
+    key = jax.random.PRNGKey(seed)
+    z = jax.random.normal(key, (n_anchor_points, ss_state.shape[0]))
+    deviations = anchor_sigma * z @ ergodic_cov_chol.T
+    anchor_points = ss_state + deviations
+    anchor_lin_policy = ss_policy + deviations @ P.T
+
     # Compute SS leverage
     ss_defs = model.definitions_fn(ss_state, ss_policy, model.constants)
     ss_leverage = float(ss_defs["L"])
 
     if verbose:
         print(f"  Composite loss: SS leverage = {ss_leverage:.4f}")
+        print(f"  Anchor: {n_anchor_points} fixed points, sigma={anchor_sigma}")
 
     return CompositeData(
         P=P,
@@ -73,34 +96,23 @@ def prepare_composite_data(
         ss_policy=ss_policy,
         ergodic_cov_chol=ergodic_cov_chol,
         ss_leverage=ss_leverage,
+        anchor_points=anchor_points,
+        anchor_deviations=deviations,
+        anchor_lin_policy=anchor_lin_policy,
     )
 
 
 def _anchor_loss(
     policy_fn: Callable[[Array], Array],
-    key: Array,
     data: CompositeData,
-    n_points: int,
-    sigma: float,
 ) -> Array:
-    """Anchor loss: ||f_net(x) - f_lin(x)||^2 for x ~ N(ss, sigma^2 * Sigma).
+    """Anchor loss: ||f_net(x) - f_lin(x)||^2 at pre-sampled points near SS.
 
-    Penalizes deviation of the neural network policy from the linearized
-    (Blanchard-Kahn) policy near the steady state. This anchors the net
-    to the correct local behavior.
+    Uses fixed sample points (precomputed in prepare_composite_data) so the
+    anchor loss is deterministic — no per-step random sampling noise in gradients.
     """
-    # Sample points near SS: x = ss + sigma * L @ z, z ~ N(0, I)
-    z = jax.random.normal(key, (n_points, data.ss_state.shape[0]))
-    deviations = sigma * z @ data.ergodic_cov_chol.T  # [n_points, n_states]
-    sample_states = data.ss_state + deviations
-
-    # Neural network policy at sampled points
-    net_policy = jax.vmap(policy_fn)(sample_states)  # [n_points, n_policies]
-
-    # Linear policy: p = ss_policy + P @ (s - ss_state)
-    lin_policy = data.ss_policy + deviations @ data.P.T  # [n_points, n_policies]
-
-    return jnp.mean((net_policy - lin_policy) ** 2)
+    net_policy = jax.vmap(policy_fn)(data.anchor_points)  # [n_anchor, n_policies]
+    return jnp.mean((net_policy - data.anchor_lin_policy) ** 2)
 
 
 def _jac_loss(
@@ -130,9 +142,9 @@ def _barrier_losses(
     """
     losses = {}
 
-    # Net worth barrier: -log(n) penalizes n approaching zero
+    # Net worth barrier: max(0, -log(n))^2 — only penalizes n < 1 (approaching zero)
     n = defs["n"]
-    losses["aux_barrier_n"] = jnp.mean(-jnp.log(jnp.maximum(n, 1e-8)))
+    losses["aux_barrier_n"] = jnp.mean(jnp.maximum(0.0, -jnp.log(jnp.maximum(n, 1e-8))) ** 2)
 
     # Leverage penalty: (L - L_ss)^2 / L_ss^2 when L > leverage_mult * L_ss
     L = defs["L"]
@@ -140,9 +152,9 @@ def _barrier_losses(
     excess = jnp.maximum(L - L_threshold, 0.0)
     losses["aux_barrier_L"] = jnp.mean((excess / data.ss_leverage) ** 2)
 
-    # Consumption floor: -log(c) penalizes c approaching zero
+    # Consumption barrier: max(0, -log(c))^2 — only penalizes c < 1
     c = defs["c"]
-    losses["aux_barrier_c"] = jnp.mean(-jnp.log(jnp.maximum(c, 1e-8)))
+    losses["aux_barrier_c"] = jnp.mean(jnp.maximum(0.0, -jnp.log(jnp.maximum(c, 1e-8))) ** 2)
 
     return losses
 
@@ -173,12 +185,10 @@ def _newton_losses(
 def make_composite_loss(
     model: ModelSpec,
     data: CompositeData,
-    anchor_weight: float = 1.0,
-    jac_weight: float = 0.1,
+    anchor_weight: float = 0.1,
+    jac_weight: float = 0.01,
     barrier_weight: float = 0.01,
     newton_weight: float = 0.01,
-    n_anchor_points: int = 64,
-    anchor_sigma: float = 1.0,
     leverage_mult: float = 5.0,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
@@ -186,6 +196,12 @@ def make_composite_loss(
     Returns a function with the same signature as compute_loss():
         (model, policy_fn, states, key, mc_samples, weights, shock_scale,
          quad_nodes, quad_weights) -> (total_loss, eq_losses_dict)
+
+    Anchor and Jacobian losses decay with shock_scale: weight *= max(0, 1 - shock_scale).
+    During curriculum (shock_scale ramps 0.1 → 1.0), they fade from 90% → 0%.
+    This is the right coupling: anchor is most useful near SS (low shock_scale),
+    and should vanish once the network trains on the full stochastic domain.
+    Barrier and Newton losses don't decay (always useful for feasibility).
 
     Auxiliary loss entries are keyed with "aux_" prefix.
     """
@@ -208,11 +224,11 @@ def make_composite_loss(
             quad_nodes=quad_nodes, quad_weights=quad_weights,
         )
 
-        # Split key for anchor sampling
-        key, anchor_key = jax.random.split(key)
+        # Anchor + jac decay: fade as curriculum progresses (shock_scale → 1)
+        aux_decay = jnp.maximum(0.0, 1.0 - shock_scale)
 
         # 2. Anchor loss: net should match linearized policy near SS
-        anchor = _anchor_loss(policy_fn, anchor_key, data, n_anchor_points, anchor_sigma)
+        anchor = _anchor_loss(policy_fn, data)
         eq_losses["aux_anchor"] = anchor
 
         # 3. Jacobian loss: net Jacobian at SS should match P
@@ -220,6 +236,8 @@ def make_composite_loss(
         eq_losses["aux_jac"] = jac
 
         # 4. Barrier + Newton losses from training batch definitions
+        # TODO: redundant vmap — base loss already evaluates definitions() internally.
+        # Fixing this requires changing compute_loss to return intermediate defs.
         defs = jax.vmap(
             lambda s: model_.definitions_fn(s, policy_fn(s), model_.constants)
         )(states)
@@ -230,10 +248,10 @@ def make_composite_loss(
         newtons = _newton_losses(defs)
         eq_losses.update(newtons)
 
-        # 5. Weighted total
+        # 5. Weighted total (anchor/jac decay with curriculum, barriers/newton don't)
         total = base_loss
-        total = total + anchor_weight * anchor
-        total = total + jac_weight * jac
+        total = total + aux_decay * anchor_weight * anchor
+        total = total + aux_decay * jac_weight * jac
         for k, v in barriers.items():
             total = total + barrier_weight * v
         for k, v in newtons.items():
