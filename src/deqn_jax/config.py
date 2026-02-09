@@ -37,6 +37,12 @@ class OptimizerConfig:
     lr_warmup: int = 0              # warmup episodes before decay
     lr_min_factor: float = 0.0      # min LR = learning_rate * lr_min_factor
 
+    VALID_NAMES = frozenset({
+        "adam", "sgd", "adamw", "lion", "muon",
+        "ngd", "shampoo", "lbfgs", "mao", "mao_kfac", "gn", "lm",
+    })
+    VALID_LR_SCHEDULES = frozenset({"constant", "cosine"})
+
     def __post_init__(self):
         """Coerce YAML string values to proper numeric types."""
         self.learning_rate = float(self.learning_rate)
@@ -47,6 +53,48 @@ class OptimizerConfig:
         self.beta2 = float(self.beta2)
         self.epsilon = float(self.epsilon)
         self.lr_min_factor = float(self.lr_min_factor)
+        self.validate()
+
+    def validate(self):
+        """Validate optimizer configuration values."""
+        if self.name not in self.VALID_NAMES:
+            raise ValueError(
+                f"Unknown optimizer '{self.name}'. "
+                f"Valid: {sorted(self.VALID_NAMES)}"
+            )
+        if self.learning_rate <= 0:
+            raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
+        if self.grad_clip is not None and self.grad_clip <= 0:
+            raise ValueError(f"grad_clip must be > 0, got {self.grad_clip}")
+        if self.weight_decay < 0:
+            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
+        if not (0 < self.beta1 < 1):
+            raise ValueError(f"beta1 must be in (0, 1), got {self.beta1}")
+        if not (0 < self.beta2 < 1):
+            raise ValueError(f"beta2 must be in (0, 1), got {self.beta2}")
+        if self.epsilon <= 0:
+            raise ValueError(f"epsilon must be > 0, got {self.epsilon}")
+        if self.damping <= 0:
+            raise ValueError(f"damping must be > 0, got {self.damping}")
+        if not (0 < self.decay < 1):
+            raise ValueError(f"decay must be in (0, 1), got {self.decay}")
+        if self.block_size <= 0:
+            raise ValueError(f"block_size must be > 0, got {self.block_size}")
+        if self.precond_update_freq <= 0:
+            raise ValueError(f"precond_update_freq must be > 0, got {self.precond_update_freq}")
+        if self.memory_size <= 0:
+            raise ValueError(f"memory_size must be > 0, got {self.memory_size}")
+        if self.ns_steps <= 0:
+            raise ValueError(f"ns_steps must be > 0, got {self.ns_steps}")
+        if self.lr_schedule not in self.VALID_LR_SCHEDULES:
+            raise ValueError(
+                f"Unknown lr_schedule '{self.lr_schedule}'. "
+                f"Valid: {sorted(self.VALID_LR_SCHEDULES)}"
+            )
+        if self.lr_warmup < 0:
+            raise ValueError(f"lr_warmup must be >= 0, got {self.lr_warmup}")
+        if not (0 <= self.lr_min_factor <= 1):
+            raise ValueError(f"lr_min_factor must be in [0, 1], got {self.lr_min_factor}")
 
 
 @dataclass
@@ -75,11 +123,32 @@ class CompositeLossConfig:
         self.n_anchor_points = int(self.n_anchor_points)
         self.anchor_sigma = float(self.anchor_sigma)
         self.leverage_mult = float(self.leverage_mult)
+        self.validate()
+
+    def validate(self):
+        """Validate composite loss configuration values."""
+        for name in ("anchor_weight", "jac_weight", "barrier_weight", "newton_weight"):
+            val = getattr(self, name)
+            if val < 0:
+                raise ValueError(f"{name} must be >= 0, got {val}")
+        if self.n_anchor_points <= 0:
+            raise ValueError(f"n_anchor_points must be > 0, got {self.n_anchor_points}")
+        if self.anchor_sigma <= 0:
+            raise ValueError(f"anchor_sigma must be > 0, got {self.anchor_sigma}")
+        if self.leverage_mult <= 0:
+            raise ValueError(f"leverage_mult must be > 0, got {self.leverage_mult}")
 
 
 @dataclass
 class NetworkConfig:
     """Neural network configuration."""
+
+    VALID_TYPES = frozenset({"mlp", "lstm", "transformer"})
+    VALID_ACTIVATIONS = frozenset({"tanh", "relu", "gelu", "silu", "softplus"})
+    VALID_INITS = frozenset({
+        "default", "xavier_normal", "xavier_uniform",
+        "he_normal", "he_uniform", "lecun_normal",
+    })
 
     type: str = "mlp"
     hidden_sizes: Tuple[int, ...] = (64, 64)
@@ -91,6 +160,47 @@ class NetworkConfig:
     history_len: int = 1  # 1=Markovian (MLP), >1=sequence (LSTM/Transformer)
     num_heads: int = 4  # Transformer attention heads
     n_layers: int = 2  # Transformer/LSTM depth (separate from hidden_sizes for Transformer)
+
+    def __post_init__(self):
+        """Coerce and validate network configuration."""
+        if isinstance(self.hidden_sizes, list):
+            self.hidden_sizes = tuple(self.hidden_sizes)
+        if isinstance(self.activations, list):
+            self.activations = tuple(self.activations)
+        self.validate()
+
+    def validate(self):
+        """Validate network configuration values."""
+        if self.type not in self.VALID_TYPES:
+            raise ValueError(
+                f"Unknown network type '{self.type}'. "
+                f"Valid: {sorted(self.VALID_TYPES)}"
+            )
+        if self.activation not in self.VALID_ACTIVATIONS:
+            raise ValueError(
+                f"Unknown activation '{self.activation}'. "
+                f"Valid: {sorted(self.VALID_ACTIVATIONS)}"
+            )
+        if self.init not in self.VALID_INITS:
+            raise ValueError(
+                f"Unknown init '{self.init}'. "
+                f"Valid: {sorted(self.VALID_INITS)}"
+            )
+        if not self.hidden_sizes:
+            raise ValueError("hidden_sizes must be non-empty")
+        if any(s <= 0 for s in self.hidden_sizes):
+            raise ValueError(f"All hidden_sizes must be > 0, got {self.hidden_sizes}")
+        if self.activations is not None and len(self.activations) != len(self.hidden_sizes):
+            raise ValueError(
+                f"activations length ({len(self.activations)}) must match "
+                f"hidden_sizes length ({len(self.hidden_sizes)})"
+            )
+        if self.history_len < 1:
+            raise ValueError(f"history_len must be >= 1, got {self.history_len}")
+        if self.num_heads <= 0:
+            raise ValueError(f"num_heads must be > 0, got {self.num_heads}")
+        if self.n_layers <= 0:
+            raise ValueError(f"n_layers must be > 0, got {self.n_layers}")
 
 
 @dataclass
@@ -150,6 +260,11 @@ class TrainConfig:
     expectation_type: str = "mc"  # "mc" or "quadrature" (Gauss-Hermite)
     n_quadrature_points: int = 3  # Points per dimension (3^5=243 nodes for 5 shocks)
 
+    VALID_LOSS_TYPES = frozenset({"mse", "composite"})
+    VALID_LOSS_REWEIGHTS = frozenset({"none", "lr_annealing", "relobralo"})
+    VALID_GRADIENT_SURGERY = frozenset({"none", "pcgrad"})
+    VALID_EXPECTATION_TYPES = frozenset({"mc", "quadrature", "gh", "gauss_hermite"})
+
     def __post_init__(self):
         """Coerce YAML string values to proper numeric types."""
         if self.switch_lr is not None:
@@ -158,6 +273,66 @@ class TrainConfig:
             self.switch_episode = int(self.switch_episode)
         self.curriculum_start = float(self.curriculum_start)
         self.early_stop_min_delta = float(self.early_stop_min_delta)
+        self.validate()
+
+    def validate(self):
+        """Validate training configuration values."""
+        if not self.model or not isinstance(self.model, str):
+            raise ValueError(f"model must be a non-empty string, got {self.model!r}")
+        if self.episodes <= 0:
+            raise ValueError(f"episodes must be > 0, got {self.episodes}")
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be > 0, got {self.batch_size}")
+        if self.episode_length <= 0:
+            raise ValueError(f"episode_length must be > 0, got {self.episode_length}")
+        if self.mc_samples <= 0:
+            raise ValueError(f"mc_samples must be > 0, got {self.mc_samples}")
+        if self.seed < 0:
+            raise ValueError(f"seed must be >= 0, got {self.seed}")
+        if self.loss_type not in self.VALID_LOSS_TYPES:
+            raise ValueError(
+                f"Unknown loss_type '{self.loss_type}'. "
+                f"Valid: {sorted(self.VALID_LOSS_TYPES)}"
+            )
+        if self.loss_reweight not in self.VALID_LOSS_REWEIGHTS:
+            raise ValueError(
+                f"Unknown loss_reweight '{self.loss_reweight}'. "
+                f"Valid: {sorted(self.VALID_LOSS_REWEIGHTS)}"
+            )
+        if not (0 < self.reweight_alpha < 1):
+            raise ValueError(f"reweight_alpha must be in (0, 1), got {self.reweight_alpha}")
+        if self.gradient_surgery not in self.VALID_GRADIENT_SURGERY:
+            raise ValueError(
+                f"Unknown gradient_surgery '{self.gradient_surgery}'. "
+                f"Valid: {sorted(self.VALID_GRADIENT_SURGERY)}"
+            )
+        if self.expectation_type not in self.VALID_EXPECTATION_TYPES:
+            raise ValueError(
+                f"Unknown expectation_type '{self.expectation_type}'. "
+                f"Valid: {sorted(self.VALID_EXPECTATION_TYPES)}"
+            )
+        if self.n_quadrature_points <= 0:
+            raise ValueError(f"n_quadrature_points must be > 0, got {self.n_quadrature_points}")
+        if self.log_every <= 0:
+            raise ValueError(f"log_every must be > 0, got {self.log_every}")
+        if self.curriculum_episodes < 0:
+            raise ValueError(f"curriculum_episodes must be >= 0, got {self.curriculum_episodes}")
+        if self.curriculum_episodes > 0 and not (0 < self.curriculum_start <= 1):
+            raise ValueError(
+                f"curriculum_start must be in (0, 1] when curriculum is active, "
+                f"got {self.curriculum_start}"
+            )
+        if self.early_stop_min_delta < 0:
+            raise ValueError(f"early_stop_min_delta must be >= 0, got {self.early_stop_min_delta}")
+        if self.switch_optimizer is not None and self.switch_episode is None:
+            raise ValueError(
+                "switch_episode must be set when switch_optimizer is specified"
+            )
+        if self.loss_weights is not None:
+            if any(w < 0 for w in self.loss_weights):
+                raise ValueError(
+                    f"All loss_weights must be >= 0, got {self.loss_weights}"
+                )
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TrainConfig":
