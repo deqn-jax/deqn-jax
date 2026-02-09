@@ -1,0 +1,720 @@
+
+\input{../preamble.tex}
+%\usepackage{array}
+
+\begin{document}
+
+
+\section{Variables}
+Code color: \textcolor{brown}{brown = definitions} ; \textcolor{green}{green = states variables} ; \textcolor{orange}{orange = current's period controls} ; \textcolor{blue}{blue = next's period controls} ; \textcolor{magenta}{magenta = next's period exogenous variables}
+
+\begin{enumerate}
+	\item The set of endogenous state variables has the following elements:
+
+	$\textcolor{green}{\pi_{t-1}}$, $\textcolor{green}{k_{t-1}}$, $\textcolor{green}{c_{t-1}}$, $\textcolor{green}{q_{t-1}}$, $\textcolor{green}{i_{t-1}}$, $\textcolor{green}{R_{t-1}}$, $\textcolor{green}{\tilde{w}_{t-1}}$, $\textcolor{green}{L_{t-1}}$
+
+	\item The set of exogenous state variables has the following elements:
+	 $\textcolor{green}{\epsilon_t}$, , $\textcolor{green}{\mu_{\Upsilon,t}}$, $\textcolor{green}{g_t}$,  $\textcolor{green}{\epsilon_t^p}$, $\textcolor{green}{\mu_{z,t}}$
+
+
+	\item The set of control variables has the following elements:
+           $ \textcolor{orange}{\lambda_{z,t}} $,
+           $ \textcolor{orange}{i_t} $,
+           $ \textcolor{orange}{\pi_t}  $,
+           $ \textcolor{orange}{c_t} $,
+           $ \textcolor{orange}{\tilde{w}_t} $,
+           $ \textcolor{orange}{s_t} $,
+           $ \textcolor{orange}{\bar{\omega}_t} $,
+           $ \textcolor{orange}{h_t} $,
+           $ \textcolor{orange}{F_{w,t}} $,
+           $\textcolor{orange}{F_{p,t}} $,
+           $\textcolor{orange}{q_t} $,
+           $\textcolor{orange}{L_t} $,
+
+	\item The set of parameters: see last page. 
+ 
+\end{enumerate}
+
+Code representations:
+
+\begin{itemize}
+    \item $ \textcolor{orange}{\lambda_{z,t}} $: \texttt{lambda\_y} 
+    \item $ \textcolor{orange}{i_t} $: \texttt{i\_y}
+    \item $ \textcolor{orange}{\pi_t}  $: \texttt{pi\_y}
+    \item $ \textcolor{orange}{c_t} $: \texttt{c\_y}
+    \item $ \textcolor{orange}{\tilde{w}_t} $: \texttt{w\_tilda\_y}
+    \item $ \textcolor{orange}{s_t} $: \texttt{s\_y}
+    \item $ \textcolor{orange}{\bar{\omega}_t} $: \texttt{omega\_bar\_y}
+    \item $ \textcolor{orange}{h_t} $: \texttt{h\_y}
+    \item $ \textcolor{orange}{F_{w,t}} $: \texttt{F\_w\_y}
+    \item $\textcolor{orange}{F_{p,t}} $: \texttt{F\_p\_y}
+    \item $\textcolor{orange}{q_t} $: \texttt{q\_y}
+    \item $\textcolor{orange}{L_t} $: \texttt{L\_y}
+\end{itemize}
+
+\begin{itemize}
+    \item $\textcolor{green}{\epsilon_t}$,  \texttt{eps\_x}
+    \item $\textcolor{green}{\mu_{\Upsilon,t}}$, \texttt{mu\_ups\_x}
+    \item $\textcolor{green}{g_t}$,  \texttt{g\_x}
+    % \item $\textcolor{green}{\epsilon_t^p}$, \texttt{}
+    \item $\textcolor{green}{\mu_{z,t}}$\texttt{mu\_x}
+    \item $\textcolor{green}{\pi_{t-1}}$: \texttt{pi\_x} 
+    \item $\textcolor{green}{k_{t-1}}$: \texttt{k\_x} 
+    \item $\textcolor{green}{c_{t-1}}$: \texttt{c\_x} 
+    \item $\textcolor{green}{q_{t-1}}$: \texttt{q\_x} 
+    \item $\textcolor{green}{i_{t-1}}$: \texttt{i\_x} 
+    \item $\textcolor{green}{R_{t-1}}$: \texttt{R\_x} 
+    \item $\textcolor{green}{\tilde{w}_{t-1}}$: \texttt{w\_tilda\_x} 
+    \item $\textcolor{green}{L_{t-1}}$:\texttt{L\_x} 
+\end{itemize}
+
+\begin{itemize}
+    \item 
+\end{itemize}
+
+\section{Variable domain of definition}
+\begin{itemize}
+    \item $ \textcolor{orange}{\lambda_{z,t}} $:  $>0$ (Lagrange multiplier on hh's budget constraint)
+    \item $ \textcolor{orange}{i_t} $: $>0$
+    \item $ \textcolor{orange}{\pi_t}  $: $>0$
+    \item $ \textcolor{orange}{c_t} $: $>0$
+    \item $ \textcolor{orange}{\tilde{w}_t} $: $>0$
+    \item $ \textcolor{orange}{s_t} $: $>0$
+    \item $ \textcolor{orange}{\bar{\omega}_t} $: $>0$
+    \item $ \textcolor{orange}{h_t} $: $>0$
+    \item $ \textcolor{orange}{F_{w,t}} $: $>0$
+    \item $\textcolor{orange}{F_{p,t}} $: $>0$
+    \item $\textcolor{orange}{q_t} $: $>0$
+    \item $\textcolor{orange}{L_t} $: $>0$
+\end{itemize}
+
+\begin{itemize}
+    \item $ \textcolor{orange}{\textcolor{brown}{K_{p,t}}} $: $>0$
+    \item $ \textcolor{brown}{K_{w,t}} $: $>0$
+    \item $  \textcolor{brown}{y_{z,t}} $: $>0$
+    \item $  \textcolor{brown}{k_t} $: $>0$
+    \item $ \textcolor{brown}{R_t^k} $: $>0$
+    \item $  \textcolor{brown}{r_{t}^k} $: $>0$
+    \item $ \textcolor{brown}{n_{t}}  $: $>0$
+    \item $ \textcolor{brown}{R_t} $: $>1$ (interest rate should not go in negative territory in this model)
+    \item $ \textcolor{brown}{y_{t}^{GDP}} $: $>0$
+    \item $ \textcolor{brown}{\tilde{\pi}_t} $: $>0$
+    \item $ \textcolor{brown}{\tilde{\pi}_{w,t}} $:  $>0$
+    \item $ \textcolor{brown}{\pi_{w,t}} $: $>0$ 
+    \item $ \textcolor{brown}{S\left(\frac{i_t}{i_{t-1}} \right)}$: $>0$
+    \item $ \textcolor{brown}{S'\left(  \frac{ i_t}{i_{t-1}}\right)}$: $>0$
+    \item $ \textcolor{brown}{F_{t-1}(\bar{\omega}_t, \sigma)} $: $>0$ (mathematically it can go to zero, but we should avoid it (depends on $\bar{\omega}$) 
+    \item $ \textcolor{brown}{G_{t-1}(\bar{\omega}_t, \sigma)}$: $>=0$
+    \item $ \textcolor{brown}{G_{t}^{'}(\textcolor{brown}{\bar{\omega}_{t+1}}, \sigma) }$: $>0$
+    \item $ \textcolor{brown}{\Gamma_t(}\textcolor{brown}{\bar{\omega}_{t+1}},\textcolor{brown}{\sigma)}$: $>0$
+    \item $ \textcolor{brown}{\Gamma_t^{'}(}\textcolor{brown}{\bar{\omega}_{t+1}},\textcolor{brown}{\sigma)}$: $>0$
+\end{itemize}
+
+\newpage
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Equilibrium equations}
+
+\setcounter{equation}{0}
+\bigskip
+% eq. 1
+\begin{equation}
+	 \textcolor{orange}{\lambda_{z,t}} \textcolor{brown}{y_{z,t}} + \beta \xi_p \mathds{E}_t\left[\left(\frac{\textcolor{brown}{\tilde{\pi}_{t+1}}}{\textcolor{blue}{\pi_{t+1}}}\right)^{\frac{1}{1-\lambda_f}} \textcolor{blue}{F_{p,t+1}}	\right] - \textcolor{orange}{F_{p,t}} = 0
+\end{equation}
+
+% eq. 2
+\begin{equation}
+ \textcolor{orange}{\lambda_{z,t}} \lambda_f \textcolor{brown}{y_{z,t}} \textcolor{orange}{s_t} + \beta \xi_p  \mathds{E}_t\left[ \left(\frac{\textcolor{brown}{\tilde{\pi}_{t+1}}}{\textcolor{blue}{\pi_{t+1}}}\right)^{\frac{\lambda_f}{1-\lambda_f}}\textcolor{brown}{K_{p,t+1}} \right] - \textcolor{orange}{\textcolor{brown}{K_{p,t}}}	 = 0
+\end{equation}
+
+% eq. 3
+\begin{equation}
+  \label{eqs:FOCwage_i_1}
+   \frac{\textcolor{orange}{h_t}(1-\tau_l)}{\lambda_w}\textcolor{orange}{\lambda_{z,t}}
+              +  \beta \xi_w\mathds{E}_t \left[ \textcolor{magenta}{\mu_{z,t+1}}^{\frac{\iota_{\mu}}{1-\lambda_w}-1} \mu_z^{\frac{1-\iota_{\mu}}{1-\lambda_w}} (\textcolor{brown}{\tilde{\pi}_{w,t+1}})^{\frac{1}{1-\lambda_w}}
+              \left(\frac{1}{\textcolor{brown}{\pi_{w,t+1}}}\right)^{\frac{\lambda_w}{1-\lambda_w}}
+              \frac{1}{\textcolor{blue}{\pi_{t+1}}} \textcolor{blue}{F_{w,t+1}} \right]  -  \textcolor{orange}{F_{w,t}} = 0
+\end{equation}
+
+% eq. 4
+\begin{equation}
+  \label{eqs:FOCwage_i_2}
+        \textcolor{orange}{h_t}^{1+\sigma_L}
+            +  \beta\xi_w \mathds{E}_t \left[
+              \left( \frac{\textcolor{brown}{\tilde{\pi}_{w,t+1}}\mu_z^{\iota_{\mu}}\mu_z^{1-\iota_{\mu}}}
+              {\textcolor{brown}{\pi_{w,t+1}}}  \right)^{\frac{\lambda_w}{1-\lambda_w}(1+\sigma_L)}
+              \textcolor{brown}{K_{w,t+1}}\right] - \textcolor{brown}{K_{w,t}} = 0
+\end{equation}
+
+% eq. 5 
+\begin{equation}
+		(1+\tau_c)\textcolor{orange}{\lambda_{z,t}}-\frac{\textcolor{green}{\mu_{z,t}}}{\textcolor{orange}{c_t}\textcolor{green}{\mu_{z,t}}-b \textcolor{green}{c_{t-1}}} +  \beta b
+ 		\mathds{E}_t \left[ \frac{1}{\textcolor{blue}{\textcolor{blue}{\textcolor{blue}{\textcolor{blue}{\textcolor{blue}{\textcolor{blue}{c_{t+1}}}}}}}\textcolor{magenta}{\mu_{z,t+1}}-b \textcolor{orange}{\textcolor{orange}{c_t}} }\right] = 0
+ \end{equation}
+
+% eq. 6 
+\begin{equation}
+		- \textcolor{orange}{\lambda_{z,t}} + \textcolor{brown}{R_t} \beta
+					 \mathds{E}_t\left[
+					 \frac{\textcolor{blue}{\lambda_{z,t+1}}}{\textcolor{blue}{\pi_{t+1}}\textcolor{magenta}{\mu_{z,t+1}}}
+					 \right]= 0
+\end{equation}
+
+% eq. 7
+\begin{equation}
+  \begin{split}
+  0 = & \textcolor{orange}{\lambda_{z,t}} \textcolor{orange}{q_t}  \left[
+      1-\textcolor{brown}{S\left(}\frac{ \textcolor{green}{\mu_{z,t}} \textcolor{orange}{i_t}}{\textcolor{green}{i_{t-1}}} \textcolor{brown}{\right)} - \frac{  \textcolor{green}{\mu_{z,t}} \textcolor{orange}{i_t}}{\textcolor{green}{i_{t-1}}} \textcolor{brown}{S'\left(}  \frac{ \textcolor{green}{\mu_{z,t}} \textcolor{orange}{i_t}}{\textcolor{green}{i_{t-1}}}\textcolor{brown}{\right)}
+     \right]
+        - \frac{\textcolor{orange}{\lambda_{z,t}}}{\textcolor{green}{\mu_{\Upsilon,t}}}\\
+      & + \beta \mathds{E}_t \left[
+      \textcolor{blue}{\lambda_{z,t+1}} \textcolor{blue}{q_{t+1}}  \textcolor{magenta}{\mu_{z,t+1}}
+      \left(\frac{ \textcolor{blue}{i_{t+1}}}{\textcolor{orange}{i_t}}\right)^2
+      \textcolor{brown}{S'\left(} \frac{ \textcolor{magenta}{\mu_{z,t+1}} \textcolor{blue}{i_{t+1}}}{\textcolor{orange}{i_t}} \textcolor{brown}{\right)}
+      \right]
+    \end{split}
+\end{equation}
+
+% eq. 8
+\begin{equation}
+			  \textcolor{green}{L_{t-1}} \frac{\textcolor{brown}{R_t^k}}{\textcolor{green}{R_{t-1}}} \left[
+					\textcolor{orange}{\bar{\omega_t}}\textcolor{brown}{F_{t-1}(\bar{\omega_t},\sigma)} + (1 - \mu) \textcolor{brown}{G_{t-1}(\bar{\omega_t},\sigma)}
+					\right]
+				- \textcolor{green}{L_{t-1}} + 1 	 = 0
+\end{equation}
+
+% eq. 9
+\begin{equation}
+    \begin{split}
+&	 \mathds{E}_t  \Bigg[ \frac{\textcolor{blue}{R_{t+1}^k}}{\textcolor{brown}{R_t}}\left(1-\textcolor{brown}{\Gamma_t(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}\right) \\
+&\quad\quad	 -
+	 \frac{\textcolor{brown}{\Gamma_t^{'}(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}}{\textcolor{brown}{\Gamma_t^{'}(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}-\mu \textcolor{brown}{G_t^{'}(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}}
+	 \left[\frac{\textcolor{blue}{R_{t+1}^k}}{\textcolor{brown}{R_t}} \left(
+	 		\textcolor{brown}{\Gamma_t(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}
+			- \mu \textcolor{brown}{G_t(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}
+	 \right)
+	 	-1
+	 \right]	\Bigg]=0
+    \end{split}
+\end{equation}
+
+
+%\begin{equation}\tag{eq. 6}
+%  \textcolor{orange}{\textcolor{brown}{R_t}^k}=r^k exp(\sigma^a(u_t-1))
+%\end{equation}
+
+% eq. 10
+\begin{equation}
+	\textcolor{orange}{s_t} = \frac{1}{\textcolor{green}{\epsilon_t}} \left(\frac{\textcolor{brown}{r_t^k}}{\alpha} \right)^{\alpha}
+				\left(\frac{\textcolor{orange}{\tilde{w}_t}}{1-\alpha}\right)^{1-\alpha}
+\end{equation}
+
+% eq. 11
+\begin{equation}
+	\textcolor{brown}{y_{z,t}} =\textcolor{green}{g_t} + \textcolor{orange}{c_t} + \frac{\textcolor{orange}{i_t}}{\textcolor{green}{\mu_{\Upsilon,t}}} 
+				 + \Theta \frac{(1 - \gamma)}{\gamma} (\textcolor{brown}{n_t} -   w^e) + \frac{\mu \textcolor{brown}{G_{t-1}(\bar{\omega_t},\sigma)}\textcolor{brown}{R_t^k} \textcolor{green}{q_{t-1}}\textcolor{green}{k_{t-1}}}{\textcolor{green}{\mu_{z,t}}\textcolor{orange}{\pi_t}}
+\end{equation}
+
+% eq. 12
+\begin{equation}
+	\textcolor{brown}{k_{t}}= (1-\delta)\frac{\textcolor{green}{k_{t-1}}}{ \textcolor{green}{\mu_{z,t}}} + \left(1 - \textcolor{brown}{S\left(}\frac{\textcolor{green}{\mu_{z,t}} \textcolor{orange}{i_t} }{\textcolor{green}{i_{t-1}}} \right)\textcolor{brown}{\right)}\textcolor{orange}{i_t}
+\end{equation}
+
+
+\begin{equation*}
+	\textcolor{orange}{\textcolor{brown}{K_{p,t}}} =
+	\textcolor{orange}{F_{p,t}} \left[ \frac{1-\xi_p(\frac{\textcolor{brown}{\tilde{\pi}_t}}{\textcolor{orange}{\pi_t}})^{\frac{1}{1-\lambda_f}}}{1-\xi_p}\right]^{1-\lambda_f}
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{K_{w,t}} =
+	 \frac{1}{\psi_L}  \left[
+                  \frac{  1-\xi_w \left(\frac{\textcolor{brown}{\tilde{\pi}_{w,t}}}{\textcolor{brown}{\pi_{w,t}}}\mu_z^{\iota_{\mu}}\mu_z^{1-\iota_{\mu}}\right)^{\frac{1}{1-\lambda_w}}  }{ 1-\xi_w }
+                  \right]^{1-\lambda_w(1+\sigma_L)}
+                  \textcolor{orange}{\tilde{w}_t} \textcolor{orange}{F_{w,t}}
+\end{equation*}
+
+\begin{equation*}
+	 \textcolor{brown}{y_{z,t}} =\textcolor{green}{\epsilon_t} \left(\frac{  \textcolor{green}{k_{t-1}}}{ \textcolor{green}{\mu_{z,t}}}\right)^{\alpha}
+					\textcolor{orange}{L_t}^{1-\alpha} - \Phi
+\end{equation*}
+
+
+\begin{equation*}
+	 \textcolor{brown}{k_t} = \frac{\textcolor{orange}{L_t} \textcolor{brown}{n_t}}{\textcolor{orange}{q_t}}
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{R_t^k}
+		= \frac{(1-\tau_k) \textcolor{brown}{r_{t}^k} + (1-\delta) \textcolor{orange}{q_t}}{ \textcolor{green}{q_{t-1}}}\textcolor{orange}{\pi_t} + \tau_k \delta 
+\end{equation*}
+
+
+\begin{equation*}
+  \textcolor{brown}{r_{t}^k}= \textcolor{green}{\epsilon_t} \alpha \left(\frac{  \textcolor{green}{\mu_{z,t}}  \textcolor{orange}{l_t}}{\textcolor{green}{k_{t-1}}}\right)^{1-\alpha} \textcolor{orange}{s_t}
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{n_{t}} = \frac{\gamma}{\textcolor{orange}{\pi_t} \textcolor{green}{\mu_{z,t}}} \left[
+	\textcolor{brown}{R_t^k} - \textcolor{green}{R_{t-1}} - \mu \textcolor{brown}{G_{t-1}(\bar{\omega}_t, \sigma})\textcolor{brown}{R_t^k}\textcolor{green}{q_{t-1}}\textcolor{green}{k_{t-1}}
+	\right] + w^e + \gamma \frac{\textcolor{green}{R_{t-1}}}{\textcolor{orange}{\pi_t} \textcolor{green}{\mu_{z,t}}}\frac{\textcolor{green}{q_{t-1}} \textcolor{green}{k_{t-1}}}{\textcolor{green}{L_{t-1}}}
+\end{equation*}
+
+\begin{equation*}
+	\frac{\textcolor{brown}{R_t}}{R}
+	=  \left(\frac{\textcolor{green}{R_{t-1}}}{R}\right)^{\rho_p}
+			 \left[\left(\frac{\textcolor{orange}{\pi_t}}{\pi}\right)^{\alpha_{\pi}}
+			 \left(\frac{\textcolor{brown}{y_{t}^{GDP}}}{y}\right)^{\alpha_{y}}
+	\right]^{(1-\rho_p)}
+  \exp(\textcolor{green}{m_{t}^{p}})
+\end{equation*}
+
+\begin{equation*}
+    \textcolor{brown}{y_{t}^{GDP}} =\textcolor{green}{g_t} + \textcolor{orange}{c_t} + \frac{\textcolor{orange}{i_t}}{\textcolor{green}{\mu_{\Upsilon,t}}} 
+\end{equation*}
+
+
+
+% the pis
+\begin{equation*}
+	\textcolor{brown}{\tilde{\pi}_t} = \pi_{ss}^{\iota} \textcolor{green}{\pi_{t-1}}^{1-\iota}
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{\tilde{\pi}_{w,t}} = \pi_{ss}^{\iota_w} \textcolor{green}{\pi_{t-1}}^{1-\iota_w}
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{\pi_{w,t}} = \textcolor{orange}{\pi_t} \frac{\textcolor{orange}{\tilde{w}_t}}{\textcolor{green}{\tilde{w}_{t-1}}}
+\end{equation*}
+
+\begin{equation*}
+\textcolor{brown}{S\left(\frac{i_t}{i_{t-1}} \right)}
+		= \frac{\kappa}{2} \left(  \textcolor{green}{\mu_{z,t}} \frac{\textcolor{orange}{i_t}}{\textcolor{green}{i_{t-1}}}-\mu_{z}  \right)^2
+\end{equation*}
+
+\begin{equation*}
+\textcolor{brown}{S'\left(  \frac{ i_t}{i_{t-1}}\right)} = \kappa \left(  \textcolor{green}{\mu_{z,t}} \frac{\textcolor{orange}{i_t}}{\textcolor{green}{i_{t-1}}}-\mu_{z}  \right)
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{F_{t-1}(\bar{\omega}_t, \sigma)} = \Phi \left(
+							\frac{\log(\textcolor{orange}{\bar{\omega}_t})+\sigma^2/2}{\sigma}
+					\right)
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{G_{t-1}(\bar{\omega}_t, \sigma)} = \Phi \left(
+							\frac{\log(\textcolor{orange}{\bar{\omega}_t})-\sigma^2/2}{\sigma}
+					\right)
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{brown}{G_{t}^{'}(\textcolor{blue}{\bar{\omega}_{t+1}}, \sigma) }= \phi \left(
+							\frac{\log(\textcolor{orange}{\textcolor{blue}{\bar{\omega}_{t+1}}})+\sigma^2/2}{\sigma}
+					\right) \frac{1}{\sigma}
+\end{equation*}
+
+\begin{equation*}
+\textcolor{brown}{\Gamma_t(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}
+ = 
+ \textcolor{blue}{\bar{\omega}_{t+1}} \left(1- \textcolor{brown}{F_{t}(\textcolor{blue}{\bar{\omega}_{t+1}}, \sigma)} \right) + \textcolor{brown}{G_{t}(\textcolor{blue}{\bar{\omega}_{t+1}}, \sigma)}
+\end{equation*}
+
+\begin{equation*}
+\textcolor{brown}{\Gamma_t^{'}(}\textcolor{blue}{\bar{\omega}_{t+1}},\sigma\textcolor{brown}{)}
+ = \left(1- \textcolor{brown}{F_{t}(\textcolor{blue}{\bar{\omega}_{t+1}}, \sigma)} \right) 
+\end{equation*}
+
+
+
+
+
+\section{Laws of motion}
+\subsection{Exogenous states}
+
+\begin{equation*}
+	log(\textcolor{green}{\epsilon_{t}}) =  \rho_{\epsilon} log(\epsilon_{t-1})
+											 + \sigma_{\epsilon}\epsilon_t^{\epsilon}
+\end{equation*}
+
+\begin{equation*}
+	log(\textcolor{green}{\mu_{\Upsilon,t}}) =  \rho_{\mu_{\Upsilon}} log(\mu_{\Upsilon,t-1})
+											 + \sigma_{\mu_{\Upsilon}} \epsilon_t^{\mu_{\Upsilon}}
+\end{equation*}
+
+\begin{equation*}
+	log(\textcolor{green}{\mu_{z,t}}) =  \rho_{\mu_{z}} log(\mu_{z,t-1})
+										+ (1-\rho_{\mu_{z}}) log(\mu_{z})
+											 + \sigma_{\mu_{z}}\epsilon_t^{\mu_{z}}
+\end{equation*}
+
+\begin{equation*}
+	log(\textcolor{green}{g_{t}}) =  \rho_{g} log(g_{t-1})
+										+ (1-\rho_{g}) log(g_{ss})
+											 + \sigma_{g}\epsilon_t^{g}
+\end{equation*}
+
+\begin{equation*}
+	\textcolor{green}{m_{t}^p} = \sigma_{p}\epsilon_t^{p}
+\end{equation*}
+
+
+\subsubsection{Endogenous states}
+\begin{equation*}
+    \textcolor{brown}{k_t} \rightarrow k_{t-1}
+\end{equation*}
+
+\begin{equation*}
+    \textcolor{orange}{i_t} \rightarrow i_{t-1}
+\end{equation*}
+
+\begin{equation*}
+    \textcolor{orange}{q_t} \rightarrow q_{t-1}
+\end{equation*}
+
+\begin{equation*}
+    \textcolor{orange}{L_t} \rightarrow L_{t-1}
+\end{equation*}
+
+\begin{equation*}
+    \textcolor{orange}{c_t} \rightarrow c_{t-1}
+\end{equation*}
+
+\begin{equation*}
+    \textcolor{orange}{\tilde{w}_t} \rightarrow \tilde{w}_{t-1}
+\end{equation*}
+
+
+\begin{equation*}
+    \textcolor{orange}{\pi_t} \rightarrow \pi_{t-1}
+\end{equation*}
+
+
+\begin{equation*}
+    \textcolor{brown}{R_t} \rightarrow R_{t-1}
+\end{equation*}
+
+
+
+
+
+
+\newpage
+
+%\renewcommand{\arraystretch}{1}
+\renewcommand{\baselinestretch}{1}
+\begin{table}[h!]
+    \centering
+	\caption{Parameters calibration (quarterly frequency)}
+	\label{tab: calibration}
+{\scalebox{1}[1]{   
+\begin{tabular}{lcll}
+	\toprule
+	 Parameter &  & Value & Source \\\midrule
+ Discount rate 	&	 $\beta$ 	&	0.9985	&	CMR calibration 	\\
+ Steady-state inflation 	&	 $\pi^*$ = \pi	&	1.006	&	CMR calibration \\ 
+ Steady-state government spending	&	 $g$  	&	0.616 	&	CMR calibration	\\[3pt]
+ %Steady state value of interest rate  	&	 $R$ 	&	0.01147	&		\\
+ Consumption habit parameter 	&	 $b$ 	&	0.74	&	CMR estimation 	\\
+ Inverse Frisch elasticity of labor 	&	 $\sigma_L$ 	&	1	&  CMR calibration	\\
+ Disutility weight on labor 	&	 $\psi_L$ 	&	0.7705	&	CMR calibration 	\\[3pt]
+ Capital share in production  	&	 $\alpha$ 	&	0.4	&	CMR calibration 	\\
+ %Trend of investment-specific 	&	 $\Upsilon$ 	&	1	&	CMR: $0.41\%$	\\
+ Depreciation rate on capital 	&	 $\delta$ 	&	0.025	&	CMR calibration 	\\
+ Capital adjustment cost 	&	 $\kappa$ 	&	2	&		CMR: 10.78	\\
+ Fixed cost of production	&	 $\Phi$  	&	0.606	&	CMR steady state	\\[3pt]
+ Markup on prices 	&	 $\lambda_f$ 	&	1.2	&	CMR calibration 	\\
+ Markup on wages  	&	 $\lambda_w$ 	&	1.2	&	CMR: 1.05	\\
+ Calvo price stickiness 	&	 $\xi_p$ 	&	0.6	&		CMR: 0.74	\\
+ Calvo wage stickiness 	&	 $\xi_w$ 	&	0.6	&	CMR: 0.81	\\[3pt]
+ Price indexing weight on $\pi^*$ 	&	 $\iota$  	&	0.9	&	CMR calibration 	\\
+ Wage indexing weight on $\pi^*$ 	&	 $\iota_{w}$ 	&	0.49	&	CMR calibration 	\\
+ Wage indexing weight on $\mu_z$ 	&	 $\iota_{\mu}$ 	&	0.94	&	CMR calibration 	\\[3pt]
+ Policy smoothing parameter 	&	 $\rho_p$ 	&	0.85	&	CMR estimation	\\
+ Policy weight on inflation 	&	 $\alpha_{\pi}$  	&	1.5	&	CMR: 2.4	\\
+ Policy weight on GDP  	&	 $\alpha_{y}$  	&	0.36	&	CMR estimation	\\[3pt]
+ Tax rate on consumption 	&	 $\tau_c$ 	&	0.047	&	CMR calibration 	\\
+ Tax rate on capital income 	&	 $\tau_k$ 	&	0.32	&	CMR calibration 	\\
+ Tax rate on labor income 	&	 $\tau_l$ 	&	0.24	&	CMR calibration 	\\[3pt]
+ Consumption of entrepreneurs 	&	 $\Theta$ 	&	0.005	&	CMR steady state	\\
+ Fraction of surviving entrepreneurs 	&	 $\gamma$ 	&	0.985	&	CMR calibration 	\\
+ Transfer received by entrepreneurs	&	 $w^e$ 	&	0.005	&	CMR calibration 	\\
+ Cross-section dispersion of capital quality 	&	 $\sigma$ 	&	0.26822	&	CMR steady state	\\
+ Monitoring cost	&	 $\mu$ 	&	0.22	&	CMR calibration 	\\[3pt]
+ Persistence productivity shock  	&	 $\rho_{\varepsilon}$  	&	0.809	&CMR estimation		\\
+ Persistence technology growth  	&	 $\rho_{z}$ 	&	0.146	&	CMR estimation	\\
+ Persistence investment technology 	&	 $\rho_{\Upsilon}$ 	&	0.987	&	CMR estimation	\\
+ Persistence government spending shock 	&	 $\rho_{g}$ 	&	 0.94  	&	CMR estimation	\\[3pt]
+ Std. dev.  productivity shock 	&	 $\sigma_{\varepsilon}$  	&	0.0046	&CMR estimation		\\
+ Std. dev.  technology growth  	&	 $\sigma_{z}$  	&	0.00715	&	CMR estimation	\\
+ Std. dev.  investment technology 	&	 $\sigma_{\Upsilon}$  	&	0.0040	&	CMR estimation	\\
+ Std. dev. monetary policy shock    	&	 $\sigma_{p}$ 	&	 0.49 	&	CMR estimation	\\
+ Std. dev. government spending shock 	&	 $\sigma_{g}$ 	&	 0.023  	&	CMR estimation	\\[3pt]
+ Probability of disaster  	&	 $p$ 	&	 1\% 	&	Own calibration	\\
+ Magnitude of disaster  	&	 $\theta$ 	&	 15\% 	&	Own calibration		\\
+ Fraction of capital stock immobilized  	&	 $\theta$ 	&	 15\% 	&	Own calibration		\\
+ Risk entrepreneurs credit crisis 	&	 $\sigma_d$ 	&	0.54	&	$2 \times \sigma $	 \\
+ Adj. Growth rate 	&	 $\mu_z$ 	&	1.0041	&	CMR calibration	 \\
+ Steady state Interest rate  	&	 $R$ 	&	1.011678	&	Steady state	 \\
+Steady state output	&	 $y$ 	&	3.0308	&	Steady state	 \\
+ \bottomrule
+\end{tabular}
+}}
+\end{table}
+
+
+\FloatBarrier
+
+\newpage
+
+\begin{table}[ht]
+\centering
+\begin{minipage}[b]{0.45\linewidth}
+\centering
+\caption{Deterministic solution}
+\begin{tabular}{ll}
+\toprule
+Variable & Value \\
+\midrule
+$ \textcolor{orange}{\lambda_{z}} $ & 0.59945 \\
+$ \textcolor{orange}{i} $ & 0.79853 \\
+$ \textcolor{orange}{\pi} $ & 1.006 \\
+$ \textcolor{orange}{c} $ & 1.6 \\
+$ \textcolor{orange}{\tilde{w}} $ & 1.9224 \\
+$ \textcolor{orange}{s} $ & 0.83333 \\
+$ \textcolor{orange}{\bar{\omega}} $ & 0.48848 \\
+$ \textcolor{orange}{h} $ & 0.94596 \\
+$ \textcolor{orange}{F_{w}} $ & 0.89465 \\
+$ \textcolor{orange}{F_{p}} $ & 4.5318 \\
+$ \textcolor{orange}{q} $ & 1 \\
+$ \textcolor{orange}{L} $ & 1.9658 \\
+$ \textcolor{orange}{K_{p}} $ & 4.5318 \\
+$ \textcolor{brown}{K_{w}} $ & 2.2321 \\
+$ \textcolor{brown}{y_{z}} $ & 3.0308 \\
+$ \textcolor{brown}{k} $ & 27.531 \\
+$ \textcolor{brown}{R^k} $ & 1.019108 \\
+$ \textcolor{brown}{r^k} $ & 0.044216 \\
+$ \textcolor{brown}{n}  $ & 14.0053 \\
+$ \textcolor{brown}{R} $ & 1.011678 \\
+\bottomrule
+\end{tabular}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.45\linewidth}
+\centering
+\caption{Steady State Values}
+\begin{tabular}{ll}
+\toprule
+Variable & Value \\
+\midrule
+$ \textcolor{green}{\pi_{t-1}} $ &  1.006 \\
+$ \textcolor{green}{k_{t-1}} $ & 27.531 \\
+$\textcolor{green}{c_{t-1}}$ & 1.6 \\
+$\textcolor{green}{q_{t-1}}$ & 1.0 \\
+$\textcolor{green}{i_{t-1}}$ & 0.79853 \\
+$\textcolor{green}{R_{t-1}}$ & 1.011678 \\
+$\textcolor{green}{\tilde{w}_{t-1}}$ & 1.9224 \\
+$\textcolor{green}{L_{t-1}}$ & 1.9658 \\
+$\textcolor{green}{\epsilon_t}$ & 1.0 \\
+$\textcolor{green}{\mu_{\Upsilon,t}}$ & 1.0  \\
+$\textcolor{green}{g_t}$ &  0.616  \\
+$\textcolor{green}{\epsilon_t^p}$ & 1.0  \\
+$\textcolor{green}{\mu_{z,t}}$ &  1.0041 \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+\end{table}
+
+
+ \FloatBarrier
+
+
+\newpage
+
+\section{Analytical Eliminations}
+
+Four equilibrium equations are static (no expectations) and can be solved
+analytically for their target variable. This reduces the system from 12 controls
+and 12 equations to \textbf{8 controls and 8 equilibrium equations}, with 4
+variables computed as definitions.
+
+\subsection*{Eq.~10: Marginal cost $s_t$ (cost minimization FOC)}
+
+From eq.~10 and the rental rate definition $r_t^k = \epsilon_t \alpha
+(\mu_{z,t} h_t / k_{t-1})^{1-\alpha} s_t$, substitute into eq.~10 and solve for $s_t$:
+\begin{equation*}
+  \boxed{s_t = \frac{1}{\epsilon_t}
+    \left(\frac{\mu_{z,t}\, h_t}{k_{t-1}}\right)^{\!\alpha}
+    \frac{\tilde{w}_t}{1-\alpha}}
+\end{equation*}
+Depends on: $\epsilon_t, \mu_{z,t}, k_{t-1}$ (states), $h_t, \tilde{w}_t$ (remaining controls), $\alpha$ (parameter).
+
+\subsection*{Eq.~12: Leverage $L_t$ (balance sheet identity)}
+
+From eq.~12 ($k_t$ is already enforced by the state transition) and the
+leverage definition $L_t n_t = q_t k_t$:
+\begin{equation*}
+  \boxed{L_t = \frac{q_t\, k_t}{n_t}}
+\end{equation*}
+Depends on: $q_t$ (remaining control), $k_t, n_t$ (definitions computed from other variables).
+
+\subsection*{Eq.~11: Consumption $c_t$ (resource constraint)}
+
+From eq.~11, isolate $c_t$:
+\begin{equation*}
+  \boxed{c_t = y_{z,t} - g_t - \frac{i_t}{\mu_{\Upsilon,t}}
+    - \underbrace{\Theta\frac{1-\gamma}{\gamma}(n_t - w^e)}_{\text{entrepreneur consumption}}
+    - \underbrace{\frac{\mu\, G(\bar\omega_t)\, R_t^k\, q_{t-1}\, k_{t-1}}{\mu_{z,t}\,\pi_t}}_{\text{monitoring cost}}}
+\end{equation*}
+Depends on: $g_t, \mu_{\Upsilon,t}, \mu_{z,t}, q_{t-1}, k_{t-1}$ (states),
+$i_t, \pi_t$ (remaining controls), $y_{z,t}, n_t, R_t^k, G(\cdot)$ (definitions).
+Clipped to $c_t \geq 10^{-4}$ to prevent NaN in the habit-formation Euler equation.
+
+\subsection*{Eq.~8: Default threshold $\bar\omega_t$ (bank participation constraint)}
+
+Eq.~8 implicitly defines $\bar\omega_t$ given all other current-period quantities.
+Define:
+\begin{equation*}
+  h(\bar\omega) \;=\; \bar\omega\,(1-F(\bar\omega)) + (1-\mu)\,G(\bar\omega)
+  \;=\; \Gamma(\bar\omega) - \mu\,G(\bar\omega)
+\end{equation*}
+and the target from the bank zero-profit condition:
+\begin{equation*}
+  \text{target} \;=\; \frac{L_{t-1} - 1}{L_{t-1}\, R_t^k / R_{t-1}}
+\end{equation*}
+Then eq.~8 reduces to $h(\bar\omega_t) = \text{target}$, solved by Newton's method:
+\begin{equation*}
+  \boxed{\bar\omega^{(n+1)} = \bar\omega^{(n)}
+    - \frac{h(\bar\omega^{(n)}) - \text{target}}{h'(\bar\omega^{(n)})}}
+  \qquad
+  h'(\bar\omega) = 1 - F(\bar\omega) - \mu\,G'(\bar\omega)
+\end{equation*}
+Convergence: $h'(\bar\omega_{\text{ss}}) \approx 0.98$ (well-conditioned); 2 iterations
+from $\bar\omega_0 = 0.488$ to machine precision. Implementation uses 10 fixed iterations
+with $\bar\omega \in [0.01, 3.0]$ clipping, via \texttt{jax.lax.scan} for JIT compatibility.
+
+\medskip
+\noindent\textbf{Key dependency:} $R_t^k$ depends on $(h_t, \tilde{w}_t, q_t, \pi_t, \text{states})$
+but \emph{not} on $\bar\omega_t$, so the computation order
+$R_t^k \to \text{target} \to \bar\omega_t \to F, G, \Gamma \to n_t, L_t, c_t$
+has no circular dependency. Autodiff works via the chain rule through the Newton steps.
+
+\medskip
+\noindent\textbf{Remaining system:} 8 controls
+$(\lambda_z, i, \pi, \tilde{w}, h, F_w, F_p, q)$
+and 8 equations (eq.~1--7, eq.~9). The eliminated variables $s_t$, $L_t$, $c_t$, $\bar\omega_t$
+are available as definitions for dynamics and evaluation.
+
+
+\newpage
+
+\section{Euler Errors}
+    
+\setcounter{equation}{0}
+
+% EULER ERRORS
+
+\begin{equation}
+	 \frac{\textcolor{orange}{\lambda_{z,t}} \textcolor{brown}{y_{z,t}} + \beta \xi_p \mathds{E}_t\big[\left(\frac{\textcolor{brown}{\tilde{\pi}_{t+1}}}{\textcolor{blue}{\pi_{t+1}}}\right)^{\frac{1}{1-\lambda_f}} \textcolor{blue}{F_{p,t+1}}\big]}{\textcolor{orange}{F_{p,t}}} - 1 = 0
+\end{equation}
+
+\begin{equation}
+ \frac{\textcolor{orange}{\lambda_{z,t}} \lambda_f \textcolor{brown}{y_{z,t}} \textcolor{orange}{s_t} + \beta \xi_p  \mathds{E}_t\big[ \left(\frac{\textcolor{brown}{\tilde{\pi}_{t+1}}}{\textcolor{blue}{\pi_{t+1}}}\right)^{\frac{\lambda_f}{1-\lambda_f}}\textcolor{brown}{K_{p,t+1}} \big]}{\textcolor{brown}{K_{p,t}}} - 1	 = 0
+\end{equation}
+
+
+\begin{equation}
+   \frac{ \frac{\textcolor{orange}{h_t}(1-\tau_l)}{\lambda_w}\textcolor{orange}{\lambda_{z,t}}
+              +  \beta \xi_w\mathds{E}_t \left[ \textcolor{magenta}{\mu_{z,t+1}}^{\frac{\iota_{\mu}}{1-\lambda_w}-1} \mu_z^{\frac{1-\iota_{\mu}}{1-\lambda_w}} (\textcolor{brown}{\tilde{\pi}_{w,t+1}})^{\frac{1}{1-\lambda_w}}
+              \left(\frac{1}{\textcolor{brown}{\pi_{w,t+1}}}\right)^{\frac{\lambda_w}{1-\lambda_w}}
+              \frac{1}{\textcolor{blue}{\pi_{t+1}}} \textcolor{blue}{F_{w,t+1}} \right]}{\textcolor{orange}{F_{w,t}}}  -  1 = 0
+\end{equation}
+
+\begin{equation} 
+   \frac{\textcolor{orange}{h_t}^{1+\sigma_L}
+            +  \beta\xi_w \mathds{E}_t \left[
+              \left( \frac{\textcolor{brown}{\tilde{\pi}_{w,t+1}}\mu_z^{\iota_{\mu}}\mu_z^{1-\iota_{\mu}}}
+              {\textcolor{brown}{\pi_{w,t+1}}}  \right)^{\frac{\lambda_w}{1-\lambda_w}(1+\sigma_L)}
+              \textcolor{brown}{K_{w,t+1}}\right]}{\textcolor{brown}{K_{w,t}}} - 1 = 0
+\end{equation}
+
+
+
+\begin{equation} 
+		\frac{(1+\tau_c)\textcolor{orange}{\lambda_{z,t}}(\textcolor{orange}{c_t}\textcolor{green}{\mu_{z,t}}-b\textcolor{green}{c_{t-1}}) +  \beta b
+ 		\mathds{E}_t \bigg[ \frac{\textcolor{orange}{c_t}\textcolor{green}{\mu_{z,t}}-b\textcolor{green}{c_{t-1}}}{\textcolor{blue}{c_{t+1}}\textcolor{magenta}{\mu_{z,t+1}}-b \textcolor{orange}{c_t} }\bigg]}{\textcolor{green}{\mu_{z,t}}} - 1 = 0
+ \end{equation}
+
+
+\begin{equation} 
+					\frac{\textcolor{brown}{R_t} \beta
+					 \mathds{E}_t\bigg[
+					 \frac{\textcolor{blue}{\lambda_{z,t+1}}}{\textcolor{magenta}{\mu_{z,t+1}} \textcolor{blue}{\pi_{t+1}}}
+					 \bigg]}{\textcolor{orange}{\lambda_{z,t}}} - 1= 0
+\end{equation}
+
+
+\begin{equation} 
+  \begin{split}
+  0 = & \textcolor{green}{\mu_{\Upsilon,t}} \textcolor{orange}{q_t}  \left[
+      1-	\textcolor{brown}{S\left(\frac{\textcolor{green}{\mu_{z,t}}i_t}{i_{t-1}} \right)} - \frac{ \textcolor{green}{\mu_{z,t}} \textcolor{orange}{i_t}}{\textcolor{green}{i_{t-1}}} \textcolor{brown}{S'\left(  \frac{\textcolor{green}{\mu_{z,t}} i_t}{i_{t-1}}\right)}
+  \right]
+        - 1 \\
+      & + \beta \textcolor{green}{\mu_{\Upsilon,t}} \mathds{E}_t \left[
+      \frac{\textcolor{blue}{\lambda_{z,t+1}}}{\textcolor{orange}{\lambda_{z,t}}} \textcolor{blue}{q_{t+1}} \textcolor{magenta}{\mu_{z,t+1}} 
+      \left(\frac{ \textcolor{blue}{i_{t+1}}}{\textcolor{orange}{i_t}}\right)^2
+      \textcolor{brown}{S'\left( \frac{\textcolor{magenta}{\mu_{z,t+1}} i_{t+1}}{i_t} \right)}
+      \right]
+    \end{split}
+\end{equation}
+
+\begin{equation}
+			  \textcolor{green}{L_{t-1}} \frac{\textcolor{brown}{R_t^k}}{\textcolor{green}{R_{t-1}}} \left[
+					\textcolor{orange}{\bar{\omega_t}}\textcolor{brown}{F_{t-1}(\bar{\omega_t},\sigma)} + (1 - \mu) \textcolor{brown}{G_{t-1}(\bar{\omega_t},\sigma)}
+					\right]
+				- \textcolor{green}{L_{t-1}} + 1 	 = 0
+\end{equation}
+
+\begin{equation} 
+	 \mathds{E}_t  \bigg[ \frac{\textcolor{blue}{R_{t+1}^k}}{\textcolor{brown}{R_t}}\left[1-\Gamma_t(\textcolor{blue}{\bar{\omega}_{t+1}})\right]
+	 -
+	 \frac{\Gamma_t^{'}(\textcolor{blue}{\bar{\omega}_{t+1}})}{\Gamma_t^{'}(\textcolor{blue}{\bar{\omega}_{t+1}})-\mu G_t^{'}(\textcolor{blue}{\bar{\omega}_{t+1}})}
+	 \left[\frac{\textcolor{blue}{R_{t+1}^k}}{\textcolor{brown}{R_t}} \left(
+	 		\Gamma_t(\textcolor{blue}{\bar{\omega}_{t+1}})
+			- \mu G_t(\textcolor{blue}{\bar{\omega}_{t+1}})
+	 \right)
+	 	-1
+	 \right]
+	 \bigg]=0
+\end{equation}
+
+
+%\begin{equation}\tag{eq. 6}
+%	\frac{r^k exp(\sigma^a(\textcolor{black}{u_t}-1))}{\textcolor{brown}{R_t^k}} - 1 = 0
+%\end{equation}
+
+
+\begin{equation} 
+	 \frac{1}{\textcolor{orange}{s_t}\textcolor{black}{\varepsilon_t}} \left(\frac{\textcolor{brown}{r_t^k} }{\alpha} \right)^{\alpha}
+				\left(\frac{\textcolor{orange}{\tilde{w}_t}}{1-\alpha}\right)^{1-\alpha} - 1 = 0
+\end{equation}
+
+
+\begin{equation} 
+	 \frac{\textcolor{green}{g_t} + \textcolor{orange}{c_t} + \frac{\textcolor{orange}{i_t}}{\textcolor{green}{\mu_{\Upsilon,t}}}
+				 + \Theta \frac{(1 - \gamma)}{\gamma} (\textcolor{brown}{n_t}  - w^e) + \frac{\mu \textcolor{brown}{G_{t-1}(\bar{\omega}_t)}\textcolor{brown}{R_t^k}\textcolor{green}{q_{t-1}}\textcolor{green}{k_{t-1}}}{\textcolor{green}{\mu_{z,t}}\textcolor{orange}{\pi_t}}}
+				 {\textcolor{brown}{y_{z,t}}
+				 } - 1
+\end{equation}
+
+
+\begin{equation} 
+	\frac{(1-\delta)\frac{\textcolor{green}{k_{t-1}}}{\textcolor{green}{\mu_{z,t}}}
+	+ \left[1 - S\left(\textcolor{green}{\mu_{z,t}} \frac{\textcolor{orange}{i_{t}}}{\textcolor{green}{i_{t-1}}}
+	\right)\right]
+	\textcolor{orange}{i_t}}{\textcolor{brown}{k_{t}}} - 1 = 0
+\end{equation}
+
+\end{document}
