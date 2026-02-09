@@ -129,6 +129,73 @@ def _eq4_diagnostics(
     }
 
 
+def _eq2_diagnostics(
+    model: ModelSpec,
+    policy_fn,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq2 (price_phillips_K) diagnostic quantities.
+
+    Mirrors _eq4_diagnostics() for eq4. Decomposes eq2 residual into
+    constituent terms to diagnose convergence issues.
+
+    Returns scalar statistics (mean/std) for TensorBoard and console logging.
+    """
+    import numpy as np
+    c = model.constants
+    batch_size = states.shape[0]
+
+    # Next state with zero shock (mean scenario)
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c)
+    next_policies = jax.vmap(policy_fn)(next_states)
+    defs_n = jax.vmap(
+        lambda s, p: model.definitions_fn(s, p, c)
+    )(next_states, next_policies)
+
+    # eq2 ratio base: pi_tilda' / pi'
+    ratio_base = defs_n["pi_tilda"] / next_policies[:, list(model.policy_names).index("pi")]
+    exponent = c["lambda_f"] / (1 - c["lambda_f"])
+    eq2_ratio = ratio_base ** exponent
+
+    # Three terms of eq2
+    lambda_z_idx = list(model.policy_names).index("lambda_z")
+    lambda_z = policy_out[:, lambda_z_idx]
+    lhs_term = lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"]
+    expect_term = c["beta"] * c["xi_p"] * eq2_ratio * defs_n["K_p"]
+    K_p = defs["K_p"]
+    eq2_rhs = lhs_term + expect_term
+    # Log-space residual (matches equations.py)
+    log_residual = jnp.log(jnp.maximum(eq2_rhs, 1e-8)) - jnp.log(jnp.maximum(K_p, 1e-8))
+
+    # K_p_inner: check how many hit the soft floor zone
+    xi_p = c["xi_p"]
+    lambda_f = c["lambda_f"]
+    K_p_inner_ratio = (defs["pi_tilda"] / policy_out[:, list(model.policy_names).index("pi")]) ** (1 / (1 - lambda_f))
+    K_p_inner = (1 - xi_p * K_p_inner_ratio) / (1 - xi_p)
+    floor_frac = float(np.mean(np.asarray(K_p_inner) < 0.02))
+
+    rb = np.asarray(ratio_base)
+    lr = np.asarray(log_residual)
+    return {
+        "ratio_base_mean": float(np.mean(rb)),
+        "ratio_base_std": float(np.std(rb)),
+        "ratio_base_min": float(np.min(rb)),
+        "ratio_base_max": float(np.max(rb)),
+        "eq2_ratio_mean": float(np.mean(np.asarray(eq2_ratio))),
+        "K_p_mean": float(np.mean(np.asarray(K_p))),
+        "K_p_n_mean": float(np.mean(np.asarray(defs_n["K_p"]))),
+        "lhs_term_mean": float(np.mean(np.asarray(lhs_term))),
+        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+        "K_p_inner_floor_frac": floor_frac,
+        "exponent": float(exponent),
+    }
+
+
 def _count_params(model: eqx.Module) -> int:
     """Count trainable parameters in an Equinox model."""
     params = eqx.filter(model, eqx.is_array)
@@ -1417,6 +1484,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
 
             # Definition histograms (derived economic quantities)
+            eq2_diag = None
             eq4_diag = None
             if model.definitions_fn is not None:
                 defs = jax.vmap(
@@ -1425,20 +1493,29 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 for name, vals in defs.items():
                     hist_dict[f"derived/{name}"] = np.asarray(vals)
 
-                # eq4 (wage_phillips_K) diagnostics: compute next-period quantities
+                # Wrap policy_fn for sequence nets (use constant history)
+                if history_len > 1:
+                    _diag_policy_fn = lambda s: state.params(make_constant_history(s[None], history_len)[0])
+                else:
+                    _diag_policy_fn = state.params
+
+                # eq2 (price_phillips_K) diagnostics
+                if "K_p" in defs and "pi_tilda" in defs and "s" in defs:
+                    eq2_diag = _eq2_diagnostics(
+                        model, _diag_policy_fn, ep_states, policy_out, defs,
+                    )
+                    for dk, dv in eq2_diag.items():
+                        log_dict[f"eq2_diag/{dk}"] = float(dv)
+
+                # eq4 (wage_phillips_K) diagnostics
                 if "K_w" in defs and "pi_w_tilda" in defs and "pi_w" in defs:
-                    # Wrap policy_fn for sequence nets (use constant history)
-                    if history_len > 1:
-                        _diag_policy_fn = lambda s: state.params(make_constant_history(s[None], history_len)[0])
-                    else:
-                        _diag_policy_fn = state.params
                     eq4_diag = _eq4_diagnostics(
                         model, _diag_policy_fn, ep_states, policy_out, defs,
                     )
                     for dk, dv in eq4_diag.items():
                         log_dict[f"eq4_diag/{dk}"] = float(dv)
 
-            # Log all scalars (including eq4 diagnostics)
+            # Log all scalars (including eq2/eq4 diagnostics)
             logger.log_scalars(log_dict, step=ep_num)
 
             # Filter out arrays with NaN/Inf (early training can produce these)
@@ -1471,6 +1548,16 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     ))
                 else:
                     _print_residual_table(items)
+
+            # eq2 diagnostic line (when available)
+            if eq2_diag is not None:
+                print(
+                    f"    eq2: ratio={eq2_diag['ratio_base_mean']:.4f}±{eq2_diag['ratio_base_std']:.4f}"
+                    f"  log_r={eq2_diag['log_residual_mean']:.3f}±{eq2_diag['log_residual_std']:.3f}"
+                    f"  K_p={eq2_diag['K_p_mean']:.3f}"
+                    f"  lhs={eq2_diag['lhs_term_mean']:.3f}"
+                    f"  floor%={eq2_diag['K_p_inner_floor_frac']:.1%}"
+                )
 
             # eq4 diagnostic line (when available)
             if eq4_diag is not None:

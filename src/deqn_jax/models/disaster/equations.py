@@ -1,4 +1,15 @@
-"""Equilibrium equations for Disaster (NK-DSGE) model."""
+"""Equilibrium equations for Disaster (NK-DSGE) model.
+
+Analytical eliminations (reduce 12 original → 8 policies, 12 → 8 equations):
+  1. s (marginal cost) — from cost minimization FOC
+  2. L (leverage) — from balance sheet identity: L = q*k / n
+  3. c (consumption) — from resource constraint
+  4. omega_bar (default threshold) — from bank participation constraint via Newton solver
+
+Dependency order in definitions():
+  R_k → target → omega_bar (Newton) → F,G,Gamma → n,L,c
+No circular dependency: R_k depends on (h, w_tilda, q, pi, states) but NOT on omega_bar.
+"""
 
 from typing import Dict
 
@@ -12,7 +23,7 @@ from deqn_jax.models.disaster.variables import SPEC
 EQUATION_NAMES = (
     "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
     "eq4_wage_phillips_K", "eq5_consumption_euler", "eq6_bond_euler",
-    "eq7_investment_euler", "eq8_bank_participation", "eq9_entrepreneur_contract",
+    "eq7_investment_euler", "eq8_entrepreneur_contract",
 )
 
 
@@ -50,6 +61,38 @@ def S_adj_prime(ratio: Array, mu_z_ss: float, kappa: float) -> Array:
     return kappa * (ratio - mu_z_ss)
 
 
+def solve_omega_bar(target: Array, sigma: float, mu_mon: float,
+                    n_iter: int = 10, init: float = 0.488) -> Array:
+    """Solve bank participation constraint for omega_bar via Newton's method.
+
+    Eq8 rearranged: h(omega_bar) = target, where
+        h(w) = w*(1 - F(w)) + (1 - mu_mon)*G(w)   [= Gamma(w) - mu_mon*G(w)]
+        h'(w) = (1 - F(w)) - mu_mon * G'(w)        [= Gamma'(w) - mu_mon*G'(w)]
+        target = (L_lag - 1) / (L_lag * R_k / R_lag)
+
+    Properties:
+    - h is smooth, monotonically increasing for omega < ~1.1
+    - h'(omega_ss=0.488) ≈ 0.98 — well-conditioned
+    - Newton converges in ~2 iterations from init to omega_ss (< 1e-8 error)
+    - 10 fixed iterations for safety; clip [0.01, 3.0] for robustness
+
+    JAX compatible: fixed iteration count → unrolled, autodiff works via
+    chain rule through the Newton steps (implicit function theorem).
+    """
+    omega = jnp.full_like(target, init)
+
+    def _step(omega, _):
+        F_val = F_omega(omega, sigma)
+        G_val = G_omega(omega, sigma)
+        h_val = omega * (1.0 - F_val) + (1.0 - mu_mon) * G_val
+        h_prime = (1.0 - F_val) - mu_mon * G_omega_prime(omega, sigma)
+        omega = omega - (h_val - target) / (h_prime + 1e-10)
+        return jnp.clip(omega, 0.01, 3.0), None
+
+    omega, _ = jax.lax.scan(_step, omega, None, length=n_iter)
+    return omega
+
+
 def _soft_floor(x: Array, eps: float, sharpness: float = 10.0) -> Array:
     """Smooth approximation of max(x, eps) with non-vanishing gradients.
 
@@ -62,7 +105,12 @@ def _soft_floor(x: Array, eps: float, sharpness: float = 10.0) -> Array:
 
 
 def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array]:
-    """Compute derived quantities."""
+    """Compute derived quantities.
+
+    Dependency order: R_k → target → omega_bar (Newton) → F,G,Gamma → n,L,c.
+    R_k depends on (h, w_tilda, q, pi, states) but NOT on omega_bar,
+    so there is no circular dependency.
+    """
     st = SPEC.unpack_state(state)
     p = SPEC.unpack_policy(policy)
     c = constants  # shorthand
@@ -77,17 +125,22 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     S_val = S_adj(i_ratio, c["mu_z_ss"], c["kappa"])
     S_prime_val = S_adj_prime(i_ratio, c["mu_z_ss"], c["kappa"])
 
-    # Financial frictions
-    F_val = F_omega(p.omega_bar, c["sigma_omega"])
-    G_val = G_omega(p.omega_bar, c["sigma_omega"])
-    Gamma_val = Gamma(p.omega_bar, c["sigma_omega"])
-
-    # Capital and returns
+    # Capital and returns (NO dependency on omega_bar)
     k = (1 - c["delta"]) * st.k_lag / st.mu_z + (1 - S_val) * p.i
     # Marginal cost — solved analytically from cost minimization (eliminates eq10)
     s = (1.0 / st.eps) * (st.mu_z * p.h / st.k_lag) ** c["alpha"] * p.w_tilda / (1 - c["alpha"])
     r_k = st.eps * c["alpha"] * (st.mu_z * p.h / st.k_lag) ** (1 - c["alpha"]) * s
     R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * p.q) / st.q_lag * p.pi + c["tau_k"] * c["delta"]
+
+    # omega_bar — solved analytically from bank participation constraint (eliminates eq8)
+    # h(omega) = target where h(omega) = omega*(1-F) + (1-mu_mon)*G = Gamma - mu_mon*G
+    target = (st.L_lag - 1.0) / (st.L_lag * R_k / st.R_lag + 1e-10)
+    omega_bar = solve_omega_bar(target, c["sigma_omega"], c["mu_mon"])
+
+    # Financial frictions (using solved omega_bar)
+    F_val = F_omega(omega_bar, c["sigma_omega"])
+    G_val = G_omega(omega_bar, c["sigma_omega"])
+    Gamma_val = Gamma(omega_bar, c["sigma_omega"])
 
     # Net worth: entrepreneur keeps (1-Gamma) share of gross return on capital
     n = (c["gamma_e"] / (p.pi * st.mu_z)) * (1.0 - Gamma_val) * R_k * st.q_lag * st.k_lag + c["w_e"]
@@ -120,6 +173,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     return {
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
         "S_val": S_val, "S_prime_val": S_prime_val,
+        "omega_bar": omega_bar,
         "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
         "s": s, "L": L, "c": cc,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
@@ -180,20 +234,16 @@ def equations(
     eq7_expect = p_n.lambda_z * p_n.q * st_n.mu_z * (p_n.i / p.i) ** 2 * S_prime_next
     residuals["eq7_investment_euler"] = eq7_term1 - p.lambda_z / st.mu_ups + c["beta"] * eq7_expect
 
-    # Eq 8: Bank participation
-    survival_prob = 1.0 - defs["F_val"]
-    residuals["eq8_bank_participation"] = st.L_lag * (defs["R_k"] / st.R_lag) * (
-        p.omega_bar * survival_prob + (1 - c["mu_mon"]) * defs["G_val"]
-    ) - st.L_lag + 1
-
-    # Eq 9: Entrepreneur contract
-    Gamma_next = Gamma(p_n.omega_bar, c["sigma_omega"])
-    Gamma_prime_next = Gamma_prime(p_n.omega_bar, c["sigma_omega"])
-    G_prime_next = G_omega_prime(p_n.omega_bar, c["sigma_omega"])
-    G_next = G_omega(p_n.omega_bar, c["sigma_omega"])
+    # Eq 8: Entrepreneur contract (formerly eq9; eq8_bank_participation eliminated analytically)
+    # omega_bar is now solved via Newton in definitions(), so use defs/defs_n
+    omega_bar_next = defs_n["omega_bar"]
+    Gamma_next = Gamma(omega_bar_next, c["sigma_omega"])
+    Gamma_prime_next = Gamma_prime(omega_bar_next, c["sigma_omega"])
+    G_prime_next = G_omega_prime(omega_bar_next, c["sigma_omega"])
+    G_next = G_omega(omega_bar_next, c["sigma_omega"])
     Rk_over_R = defs_n["R_k"] / defs["R"]
     ratio_term = Gamma_prime_next / (Gamma_prime_next - c["mu_mon"] * G_prime_next + 1e-8)
     bracket_term = 1 - Rk_over_R * (Gamma_next - c["mu_mon"] * G_next)
-    residuals["eq9_entrepreneur_contract"] = Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
+    residuals["eq8_entrepreneur_contract"] = Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
 
     return residuals

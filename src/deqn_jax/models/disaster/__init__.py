@@ -2,9 +2,12 @@
 
 A medium-scale New Keynesian model with:
 - 13 state variables (8 endogenous + 5 exogenous)
-- 9 policy variables (s, L, c computed analytically)
-- 9 equilibrium equations
+- 8 policy variables (s, L, c, omega_bar computed analytically)
+- 8 equilibrium equations
 - Financial frictions (costly state verification banking)
+
+Analytical eliminations (12 original -> 8):
+  s (cost min), L (balance sheet), c (resource), omega_bar (bank participation)
 """
 
 from deqn_jax.types import ModelSpec

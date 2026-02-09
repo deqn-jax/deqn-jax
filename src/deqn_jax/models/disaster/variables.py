@@ -10,7 +10,7 @@ SPEC = VariableSpec(
         "w_tilda_lag", "L_lag", "eps", "mu_ups", "g", "mu_z", "m_p"
     ),
     policy_names=(
-        "lambda_z", "i", "pi", "w_tilda", "omega_bar",
+        "lambda_z", "i", "pi", "w_tilda",
         "h", "F_w", "F_p", "q"
     ),
 )
@@ -47,20 +47,23 @@ STEADY_STATE = {
     "i_lag": 0.794711, "R_lag": 1.017964, "w_tilda_lag": 1.920219, "L_lag": 1.965713,
     "eps": 1.0, "mu_ups": 1.0, "g": 0.616, "mu_z": 1.0041, "m_p": 0.0,
     "lambda_z": 0.601828, "i": 0.794711, "pi": 1.012286,
-    "w_tilda": 1.920219, "omega_bar": 0.488466, "h": 0.944029,
+    "w_tilda": 1.920219, "h": 0.944029,
     "F_w": 0.885310, "F_p": 4.735931, "q": 1.0,
 }
 
+# omega_bar SS value (computed analytically from bank participation constraint)
+OMEGA_BAR_SS = 0.488466
+
 # Per-variable bounding — tight to prevent pathological local minima.
-# Lower bounds raised close to SS; upper bounds on omega_bar/pi to prevent blowup.
-# v62 showed 5/9 policies collapse to old loose bounds, omega_bar at 23x SS.
+# Lower bounds raised close to SS; upper bounds on pi to prevent blowup.
+# omega_bar eliminated analytically (Newton solver on bank participation constraint).
 #
-# Policy:     lambda_z  i     pi    w_tilda  omega_bar  h     F_w   F_p   q
-# SS:         0.602     0.795 1.012 1.920    0.489      0.944 0.885 4.736 1.000
-# Bounding:   softplus  soft  sigm  softplus sigmoid    soft  soft  soft  softplus
-POLICY_LOWER = jnp.array([0.2, 0.4,  0.95, 1.0, 0.15, 0.6, 0.3, 2.0, 0.5])
+# Policy:     lambda_z  i     pi    w_tilda  h     F_w   F_p   q
+# SS:         0.602     0.795 1.012 1.920    0.944 0.885 4.736 1.000
+# Bounding:   softplus  soft  sigm  softplus soft  soft  soft  softplus
+POLICY_LOWER = jnp.array([0.2, 0.4,  0.95, 1.0, 0.6, 0.3, 2.0, 0.5])
 _inf = float("inf")
-POLICY_UPPER = jnp.array([_inf, _inf, 1.1,  _inf, 1.5,  _inf, _inf, _inf, _inf])
+POLICY_UPPER = jnp.array([_inf, _inf, 1.1,  _inf, _inf, _inf, _inf, _inf])
 
 N_SHOCKS = 5
 

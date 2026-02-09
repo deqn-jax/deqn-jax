@@ -310,15 +310,12 @@ def warm_start_from_dynare(
     ghx_cols, ghx_rows = read_csv_matrix("dynare_ghx.csv")
     ghu_cols, ghu_rows = read_csv_matrix("dynare_ghu.csv")
 
-    # --- Build Jacobian: J[9 policies, 13 DEQN states] ---
+    # --- Build Jacobian: J[n_policies, 13 DEQN states] ---
     # DEQN state ordering
     deqn_state_names = list(model.state_names)
-    # pi_lag, k_lag, c_lag, q_lag, i_lag, R_lag, w_tilda_lag, L_lag,
-    # eps, mu_ups, g, mu_z, m_p
 
-    # DEQN policy ordering
+    # DEQN policy ordering (omega_bar eliminated analytically)
     deqn_policy_names = list(model.policy_names)
-    # lambda_z, i, pi, w_tilda, omega_bar, h, F_w, F_p, q
 
     # Map DEQN policy names to Dynare variable names
     policy_name_map = {
