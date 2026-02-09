@@ -15,7 +15,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from scipy.linalg import ordqz
+from scipy.linalg import ordqz, solve_discrete_lyapunov
 
 from deqn_jax.types import ModelSpec
 
@@ -144,6 +144,54 @@ def linearize_model(
         print(f"  Max |P|: {np.abs(P).max():.4f}")
 
     return jnp.array(P), jnp.array(Q_mat)
+
+
+def compute_ergodic_covariance(
+    Q: Array,
+    model: ModelSpec,
+    verbose: bool = False,
+) -> Array:
+    """Compute ergodic state covariance via discrete Lyapunov equation.
+
+    The linearized dynamics: s' = Q s + B epsilon, epsilon ~ N(0, I).
+    The ergodic covariance satisfies: Sigma = Q Sigma Q' + B B'.
+
+    B is the shock loading matrix: d(step)/d(shock) at steady state with zero shock.
+
+    Args:
+        Q: Transition matrix [n_states, n_states] from linearize_model
+        model: Model specification with step_fn, steady_state_fn
+        verbose: Print diagnostic info
+
+    Returns:
+        Sigma: Ergodic covariance matrix [n_states, n_states]
+    """
+    constants = model.constants
+    ss_state, ss_policy = model.steady_state_fn(constants)
+
+    # Compute B = d(step)/d(shock) at SS with zero shock
+    def step_wrt_shock(shock):
+        return model.step_fn(
+            ss_state[None, :], ss_policy[None, :], shock[None, :], constants
+        )[0]
+
+    zero_shock = jnp.zeros(model.n_shocks)
+    B = jax.jacobian(step_wrt_shock)(zero_shock)  # [n_states, n_shocks]
+
+    B_np = np.array(B)
+    Q_np = np.array(Q)
+
+    if verbose:
+        print(f"  B (shock loading): {B_np.shape}, max |B|: {np.abs(B_np).max():.6f}")
+
+    # Solve Sigma = Q Sigma Q' + B B'
+    Sigma = solve_discrete_lyapunov(Q_np, B_np @ B_np.T)
+
+    if verbose:
+        print(f"  Ergodic covariance: diag = {np.diag(Sigma)[:5]}...")
+        print(f"  Max |Sigma|: {np.abs(Sigma).max():.6f}")
+
+    return jnp.array(Sigma)
 
 
 def linear_policy_fn(

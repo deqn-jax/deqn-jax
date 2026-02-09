@@ -50,6 +50,29 @@ class OptimizerConfig:
 
 
 @dataclass
+class CompositeLossConfig:
+    """Composite loss configuration (anchor + Jacobian + barrier + Newton terms)."""
+
+    anchor_weight: float = 1.0
+    jac_weight: float = 0.1
+    barrier_weight: float = 0.01
+    newton_weight: float = 0.01
+    n_anchor_points: int = 64
+    anchor_sigma: float = 1.0
+    leverage_mult: float = 5.0
+
+    def __post_init__(self):
+        """Coerce YAML string values to proper numeric types."""
+        self.anchor_weight = float(self.anchor_weight)
+        self.jac_weight = float(self.jac_weight)
+        self.barrier_weight = float(self.barrier_weight)
+        self.newton_weight = float(self.newton_weight)
+        self.n_anchor_points = int(self.n_anchor_points)
+        self.anchor_sigma = float(self.anchor_sigma)
+        self.leverage_mult = float(self.leverage_mult)
+
+
+@dataclass
 class NetworkConfig:
     """Neural network configuration."""
 
@@ -85,6 +108,9 @@ class TrainConfig:
 
     network: NetworkConfig = field(default_factory=NetworkConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
+
+    loss_type: str = "mse"  # "mse" or "composite"
+    composite_loss: CompositeLossConfig = field(default_factory=CompositeLossConfig)
 
     warm_start: bool = False
     warm_start_linearize: bool = False  # Use linearized (Blanchard-Kahn) warm start
@@ -139,6 +165,7 @@ class TrainConfig:
         # Extract nested sub-configs
         opt_dict = d.pop("optimizer", {})
         net_dict = d.pop("network", {})
+        comp_dict = d.pop("composite_loss", {})
 
         # If optimizer is a plain string, treat as name
         if isinstance(opt_dict, str):
@@ -161,15 +188,18 @@ class TrainConfig:
         # Filter to known fields only
         opt_fields = {f.name for f in fields(OptimizerConfig)}
         net_fields = {f.name for f in fields(NetworkConfig)}
+        comp_fields = {f.name for f in fields(CompositeLossConfig)}
         train_fields = {f.name for f in fields(TrainConfig)}
 
         opt_kw = {k: v for k, v in opt_dict.items() if k in opt_fields}
         net_kw = {k: v for k, v in net_dict.items() if k in net_fields}
+        comp_kw = {k: v for k, v in comp_dict.items() if k in comp_fields}
         train_kw = {k: v for k, v in d.items() if k in train_fields}
 
         return cls(
             optimizer=OptimizerConfig(**opt_kw),
             network=NetworkConfig(**net_kw),
+            composite_loss=CompositeLossConfig(**comp_kw),
             **train_kw,
         )
 
@@ -224,6 +254,9 @@ def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
         elif f.name == "network":
             for nf in fields(NetworkConfig):
                 flat[f"network.{nf.name}"] = getattr(val, nf.name)
+        elif f.name == "composite_loss":
+            for cf in fields(CompositeLossConfig):
+                flat[f"composite_loss.{cf.name}"] = getattr(val, cf.name)
         else:
             flat[f.name] = val
     return flat
@@ -233,11 +266,13 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     """Reconstruct TrainConfig from flat dot-notation dict."""
     opt_kw: Dict[str, Any] = {}
     net_kw: Dict[str, Any] = {}
+    comp_kw: Dict[str, Any] = {}
     train_kw: Dict[str, Any] = {}
 
     opt_fields = {f.name for f in fields(OptimizerConfig)}
     net_fields = {f.name for f in fields(NetworkConfig)}
-    train_fields = {f.name for f in fields(TrainConfig)} - {"optimizer", "network"}
+    comp_fields = {f.name for f in fields(CompositeLossConfig)}
+    train_fields = {f.name for f in fields(TrainConfig)} - {"optimizer", "network", "composite_loss"}
 
     for key, val in flat.items():
         if key.startswith("optimizer."):
@@ -248,12 +283,17 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
             subkey = key[len("network."):]
             if subkey in net_fields:
                 net_kw[subkey] = val
+        elif key.startswith("composite_loss."):
+            subkey = key[len("composite_loss."):]
+            if subkey in comp_fields:
+                comp_kw[subkey] = val
         elif key in train_fields:
             train_kw[key] = val
 
     return TrainConfig(
         optimizer=OptimizerConfig(**opt_kw),
         network=NetworkConfig(**net_kw),
+        composite_loss=CompositeLossConfig(**comp_kw),
         **train_kw,
     )
 

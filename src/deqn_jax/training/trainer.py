@@ -291,15 +291,23 @@ def _print_final(
     print(f"Training complete in {_format_time(elapsed)} ({eps_per_sec:.0f} ep/s)")
     print(f"Final loss: {final_loss:.2e}")
     if final_residuals:
-        items = [
+        eq_items = [
             (_strip_eq_prefix(k), float(v))
             for k, v in final_residuals.items()
+            if not k.startswith("aux_")
         ]
-        if len(items) <= 3:
-            for n, v in items:
+        aux_items = [
+            (k[4:], float(v))
+            for k, v in final_residuals.items()
+            if k.startswith("aux_")
+        ]
+        if len(eq_items) <= 3:
+            for n, v in eq_items:
                 print(f"  {n}: {v:.2e}")
         else:
-            _print_residual_table(items)
+            _print_residual_table(eq_items)
+        if aux_items:
+            print("  aux: " + "  ".join(f"{n}={v:.2e}" for n, v in aux_items))
     print("=" * w)
 
 
@@ -609,9 +617,11 @@ def _make_standard_step(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
 ):
     """Standard train step: jax.grad + opt.update(grads, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss = compute_loss_fn or compute_loss
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
@@ -620,7 +630,7 @@ def _make_standard_step(
         )
 
         def loss_fn(params):
-            loss, eq_losses = compute_loss(
+            loss, eq_losses = _compute_loss(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
@@ -668,6 +678,7 @@ def _make_pcgrad_step(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
 ):
     """PCGrad train step: per-equation gradients with conflict projection.
 
@@ -678,6 +689,9 @@ def _make_pcgrad_step(
     Reference: Yu et al. "Gradient Surgery for Multi-Task Learning" (NeurIPS 2020)
     """
     n_eq = len(model.equation_names) if model.equation_names else 1
+    # PCGrad uses base compute_loss for per-equation Jacobian (no aux terms)
+    # but can use composite loss for total loss logging
+    _compute_loss_total = compute_loss_fn or compute_loss
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
@@ -685,7 +699,7 @@ def _make_pcgrad_step(
             model, state, episode_length, batch_size, history_len,
         )
 
-        # Per-equation loss vector for jacrev
+        # Per-equation loss vector for jacrev (always base compute_loss)
         def eq_loss_vector(params):
             _, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
@@ -696,7 +710,7 @@ def _make_pcgrad_step(
 
         # Also need total loss + eq_losses for logging
         def total_loss_fn(params):
-            loss, eq_losses = compute_loss(
+            loss, eq_losses = _compute_loss_total(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
@@ -781,9 +795,12 @@ def _make_mao_step(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
 ):
     """MAO train step: per-equation Jacobian -> mao.update(eq_jac, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
+    # MAO uses base compute_loss for per-equation Jacobian
+    _compute_loss_total = compute_loss_fn or compute_loss
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
@@ -809,7 +826,7 @@ def _make_mao_step(
 
         # Also compute scalar loss + grad norm for metrics
         def total_loss_fn(params):
-            loss, eq_losses = compute_loss(
+            loss, eq_losses = _compute_loss_total(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
@@ -864,9 +881,11 @@ def _make_lbfgs_step(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
 ):
     """L-BFGS train step: passes value + value_fn for line search."""
     n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss = compute_loss_fn or compute_loss
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
@@ -878,7 +897,7 @@ def _make_lbfgs_step(
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
 
         def loss_fn(params):
-            loss, eq_losses = compute_loss(
+            loss, eq_losses = _compute_loss(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
@@ -892,7 +911,7 @@ def _make_lbfgs_step(
         # Value function for line search (operates on param arrays only)
         def value_fn(p_arrays):
             full_params = eqx.combine(p_arrays, params_static)
-            v, _ = compute_loss(
+            v, _ = _compute_loss(
                 model, full_params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
@@ -941,6 +960,7 @@ def _make_gn_step(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
 ):
     """Gauss-Newton / Levenberg-Marquardt train step.
 
@@ -948,6 +968,8 @@ def _make_gn_step(
     This gives quadratic convergence near the solution for least-squares.
     """
     n_eq = len(model.equation_names) if model.equation_names else 1
+    # GN uses base compute_loss for residuals; composite for logging only
+    _compute_loss_log = compute_loss_fn or compute_loss
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
@@ -955,7 +977,7 @@ def _make_gn_step(
             model, state, episode_length, batch_size, history_len,
         )
 
-        # Residual function: params -> [n_eq] mean residuals
+        # Residual function: params -> [n_eq] mean residuals (always base)
         def residual_fn(params):
             shocks = sample_antithetic_shocks(loss_key, mc_samples, batch_size, model.n_shocks)
 
@@ -970,7 +992,7 @@ def _make_gn_step(
             ])
 
         # Also get loss + eq_losses for logging
-        loss, eq_losses = compute_loss(
+        loss, eq_losses = _compute_loss_log(
             model, state.params, train_states, loss_key, mc_samples,
             weights=state.loss_weights, shock_scale=shock_scale,
             quad_nodes=quad_nodes, quad_weights=quad_weights,
@@ -1022,6 +1044,7 @@ def make_train_step(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
 ):
     """Create a JIT-compiled training step function.
 
@@ -1041,6 +1064,7 @@ def make_train_step(
         quad_nodes: Quadrature nodes [n_nodes, shock_dim] (None -> use MC)
         quad_weights: Quadrature weights [n_nodes] (None -> use MC)
         history_len: History window size (1=MLP, >1=LSTM/Transformer)
+        compute_loss_fn: Optional custom loss function (e.g. composite loss)
 
     Returns:
         JIT-compiled train_step function
@@ -1056,6 +1080,7 @@ def make_train_step(
         quad_nodes=quad_nodes,
         quad_weights=quad_weights,
         history_len=history_len,
+        compute_loss_fn=compute_loss_fn,
     )
 
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
@@ -1073,6 +1098,7 @@ def make_train_step(
             quad_nodes=quad_nodes,
             quad_weights=quad_weights,
             history_len=history_len,
+            compute_loss_fn=compute_loss_fn,
         )
     elif kind == OptimizerKind.LBFGS:
         return _make_lbfgs_step(**kwargs)
@@ -1297,6 +1323,32 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Determine history length from network (Python-level, before JIT) ----
     history_len = get_history_len(state.params)
 
+    # ---- Build composite loss if configured ----
+    custom_loss_fn = None
+    if getattr(config, "loss_type", "mse") == "composite":
+        from deqn_jax.training.linearize import linearize_model
+        from deqn_jax.training.composite_loss import prepare_composite_data, make_composite_loss
+
+        if config.verbose:
+            print("  Building composite loss (linearize + ergodic cov)...")
+        P, Q = linearize_model(model, verbose=config.verbose)
+        comp_data = prepare_composite_data(model, P, Q, verbose=config.verbose)
+
+        comp_cfg = config.composite_loss
+        custom_loss_fn = make_composite_loss(
+            model,
+            comp_data,
+            anchor_weight=comp_cfg.anchor_weight,
+            jac_weight=comp_cfg.jac_weight,
+            barrier_weight=comp_cfg.barrier_weight,
+            newton_weight=comp_cfg.newton_weight,
+            n_anchor_points=comp_cfg.n_anchor_points,
+            anchor_sigma=comp_cfg.anchor_sigma,
+            leverage_mult=comp_cfg.leverage_mult,
+        )
+        if config.verbose:
+            print("  Composite loss ready.")
+
     # ---- Create JIT-compiled train step ----
     gradient_surgery = getattr(config, "gradient_surgery", "none")
     train_step = make_train_step(
@@ -1309,6 +1361,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         quad_nodes=quad_nodes_jax,
         quad_weights=quad_weights_jax,
         history_len=history_len,
+        compute_loss_fn=custom_loss_fn,
     )
 
     # ---- Mid-training optimizer switch setup ----
@@ -1374,6 +1427,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 quad_nodes=quad_nodes_jax,
                 quad_weights=quad_weights_jax,
                 history_len=history_len,
+                compute_loss_fn=custom_loss_fn,
             )
             switched = True
             # Reset early stopping after optimizer switch
@@ -1461,7 +1515,10 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             log_dict["train/lr"] = current_lr
             if metrics.residuals:
                 for k, v in metrics.residuals.items():
-                    log_dict[f"eq/{k}"] = float(v)
+                    if k.startswith("aux_"):
+                        log_dict[f"aux/{k[4:]}"] = float(v)
+                    else:
+                        log_dict[f"eq/{k}"] = float(v)
             # Log per-equation weights when adaptive reweighting is active
             if config.loss_reweight != "none" and model.equation_names:
                 for i, name in enumerate(model.equation_names):
@@ -1543,16 +1600,26 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
 
             # Residuals: inline for <=3 equations, columnar table for more
             if residuals:
-                items = [
+                eq_items = [
                     (_strip_eq_prefix(k), float(v))
                     for k, v in residuals.items()
+                    if not k.startswith("aux_")
                 ]
-                if len(items) <= 3:
+                aux_items = [
+                    (k[4:], float(v))
+                    for k, v in residuals.items()
+                    if k.startswith("aux_")
+                ]
+                if len(eq_items) <= 3:
                     print("    " + "  ".join(
-                        f"{n}={v:.2e}" for n, v in items
+                        f"{n}={v:.2e}" for n, v in eq_items
                     ))
                 else:
-                    _print_residual_table(items)
+                    _print_residual_table(eq_items)
+                if aux_items:
+                    print("    aux: " + "  ".join(
+                        f"{n}={v:.2e}" for n, v in aux_items
+                    ))
 
             # eq2 diagnostic line (when available)
             if eq2_diag is not None:

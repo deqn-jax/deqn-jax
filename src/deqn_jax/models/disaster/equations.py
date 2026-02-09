@@ -147,6 +147,12 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     G_val = G_omega(omega_bar, c["sigma_omega"])
     Gamma_val = Gamma(omega_bar, c["sigma_omega"])
 
+    # Newton solver diagnostics
+    G_prime_val = G_omega_prime(omega_bar, c["sigma_omega"])
+    newton_h_prime = (1.0 - F_val) - c["mu_mon"] * G_prime_val
+    newton_h_val = omega_bar * (1.0 - F_val) + (1.0 - c["mu_mon"]) * G_val
+    newton_residual = jnp.abs(newton_h_val - target)
+
     # Net worth: entrepreneur keeps (1-Gamma) share of gross return on capital
     n = (c["gamma_e"] / (p.pi * st.mu_z)) * (1.0 - Gamma_val) * R_k * st.q_lag * st.k_lag + c["w_e"]
 
@@ -181,6 +187,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "S_val": S_val, "S_prime_val": S_prime_val,
         "omega_bar": omega_bar,
         "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
+        "newton_h_prime": newton_h_prime, "newton_residual": newton_residual,
         "s": s, "L": L, "c": p.c, "c_target": c_target,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": K_p, "K_w": K_w, "i_ratio": i_ratio,

@@ -265,8 +265,13 @@ def compute_loss(
 # ---------------------------------------------------------------------------
 
 def eq_losses_to_array(eq_losses: Dict[str, Array]) -> Array:
-    """Convert per-equation loss dict to stacked array [n_eq]."""
-    return jnp.stack(list(eq_losses.values()))
+    """Convert per-equation loss dict to stacked array [n_eq].
+
+    Filters out aux_ prefixed keys so that adaptive reweighting
+    (lr_annealing, relobralo) and per-equation gradient surgery
+    (PCGrad, MAO) only see base equilibrium equation losses.
+    """
+    return jnp.stack([v for k, v in eq_losses.items() if not k.startswith("aux_")])
 
 
 def compute_loss_for_grad(
