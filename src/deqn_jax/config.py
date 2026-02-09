@@ -37,6 +37,17 @@ class OptimizerConfig:
     lr_warmup: int = 0              # warmup episodes before decay
     lr_min_factor: float = 0.0      # min LR = learning_rate * lr_min_factor
 
+    def __post_init__(self):
+        """Coerce YAML string values to proper numeric types."""
+        self.learning_rate = float(self.learning_rate)
+        if self.grad_clip is not None:
+            self.grad_clip = float(self.grad_clip)
+        self.weight_decay = float(self.weight_decay)
+        self.beta1 = float(self.beta1)
+        self.beta2 = float(self.beta2)
+        self.epsilon = float(self.epsilon)
+        self.lr_min_factor = float(self.lr_min_factor)
+
 
 @dataclass
 class NetworkConfig:
@@ -107,6 +118,15 @@ class TrainConfig:
 
     expectation_type: str = "mc"  # "mc" or "quadrature" (Gauss-Hermite)
     n_quadrature_points: int = 3  # Points per dimension (3^5=243 nodes for 5 shocks)
+
+    def __post_init__(self):
+        """Coerce YAML string values to proper numeric types."""
+        if self.switch_lr is not None:
+            self.switch_lr = float(self.switch_lr)
+        if self.switch_episode is not None:
+            self.switch_episode = int(self.switch_episode)
+        self.curriculum_start = float(self.curriculum_start)
+        self.early_stop_min_delta = float(self.early_stop_min_delta)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TrainConfig":

@@ -1,13 +1,17 @@
 """Equilibrium equations for Disaster (NK-DSGE) model.
 
-Analytical eliminations (reduce 12 original → 8 policies, 12 → 8 equations):
+Analytical eliminations (reduce 12 original → 9 policies, 12 → 9 equations):
   1. s (marginal cost) — from cost minimization FOC
   2. L (leverage) — from balance sheet identity: L = q*k / n
-  3. c (consumption) — from resource constraint
-  4. omega_bar (default threshold) — from bank participation constraint via Newton solver
+  3. omega_bar (default threshold) — from bank participation constraint via Newton solver
+
+c (consumption) is a network output — NOT eliminated analytically.
+Eliminating c via resource constraint created a singularity pathway:
+c could go near zero → habit_now = c*mu_z - b*c_lag → 0 → 1/habit blowup.
+With c as a network output, the optimizer directly controls it.
 
 Dependency order in definitions():
-  R_k → target → omega_bar (Newton) → F,G,Gamma → n,L,c
+  R_k → target → omega_bar (Newton) → F,G,Gamma → n,L
 No circular dependency: R_k depends on (h, w_tilda, q, pi, states) but NOT on omega_bar.
 """
 
@@ -23,7 +27,7 @@ from deqn_jax.models.disaster.variables import SPEC
 EQUATION_NAMES = (
     "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
     "eq4_wage_phillips_K", "eq5_consumption_euler", "eq6_bond_euler",
-    "eq7_investment_euler", "eq8_entrepreneur_contract",
+    "eq7_investment_euler", "eq8_entrepreneur_contract", "eq9_resource_constraint",
 )
 
 
@@ -107,9 +111,10 @@ def _soft_floor(x: Array, eps: float, sharpness: float = 10.0) -> Array:
 def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array]:
     """Compute derived quantities.
 
-    Dependency order: R_k → target → omega_bar (Newton) → F,G,Gamma → n,L,c.
+    Dependency order: R_k → target → omega_bar (Newton) → F,G,Gamma → n,L.
     R_k depends on (h, w_tilda, q, pi, states) but NOT on omega_bar,
     so there is no circular dependency.
+    c comes from network output (p.c), not computed analytically.
     """
     st = SPEC.unpack_state(state)
     p = SPEC.unpack_policy(policy)
@@ -151,12 +156,13 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Output
     y_z = st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
 
-    # Consumption — solved analytically from resource constraint (eliminates eq11)
+    # Consumption from network output (not eliminated — avoids habit singularity)
     monitoring_cost = c["mu_mon"] * G_val * R_k * st.q_lag * st.k_lag / (st.mu_z * p.pi)
     entrepreneur_cons = c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (n - c["w_e"])
-    cc = jnp.maximum(y_z - st.g - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost, 1e-4)
+    # c_target is what the resource constraint implies; eq9 penalizes |p.c - c_target|
+    c_target = y_z - st.g - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost
 
-    y_gdp = st.g + cc + p.i / st.mu_ups
+    y_gdp = st.g + p.c + p.i / st.mu_ups
 
     # Interest rate (Taylor rule)
     R = c["R_ss"] * (st.R_lag / c["R_ss"]) ** c["rho_p"] * (
@@ -175,7 +181,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "S_val": S_val, "S_prime_val": S_prime_val,
         "omega_bar": omega_bar,
         "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
-        "s": s, "L": L, "c": cc,
+        "s": s, "L": L, "c": p.c, "c_target": c_target,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": K_p, "K_w": K_w, "i_ratio": i_ratio,
     }
@@ -218,10 +224,9 @@ def equations(
     eq4_rhs = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"]
     residuals["eq4_wage_phillips_K"] = jnp.log(jnp.maximum(eq4_rhs, 1e-8)) - jnp.log(jnp.maximum(defs["K_w"], 1e-8))
 
-    # Eq 5: Consumption Euler (c from resource constraint via defs)
-    # Floor habit to avoid 1/0 singularity (c can hit analytical floor in bad states)
-    habit_now = jnp.maximum(defs["c"] * st.mu_z - c["b"] * st.c_lag, 1e-2)
-    habit_next = jnp.maximum(defs_n["c"] * st_n.mu_z - c["b"] * defs["c"], 1e-2)
+    # Eq 5: Consumption Euler (c is network output, soft floor on habit)
+    habit_now = _soft_floor(p.c * st.mu_z - c["b"] * st.c_lag, 1e-2)
+    habit_next = _soft_floor(p_n.c * st_n.mu_z - c["b"] * p.c, 1e-2)
     residuals["eq5_consumption_euler"] = (1 + c["tau_c"]) * p.lambda_z - st.mu_z / habit_now + c["beta"] * c["b"] / habit_next
 
     # Eq 6: Bond Euler
@@ -245,5 +250,8 @@ def equations(
     ratio_term = Gamma_prime_next / (Gamma_prime_next - c["mu_mon"] * G_prime_next + 1e-8)
     bracket_term = 1 - Rk_over_R * (Gamma_next - c["mu_mon"] * G_next)
     residuals["eq8_entrepreneur_contract"] = Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
+
+    # Eq 9: Resource constraint (c is network output, not eliminated)
+    residuals["eq9_resource_constraint"] = p.c - defs["c_target"]
 
     return residuals

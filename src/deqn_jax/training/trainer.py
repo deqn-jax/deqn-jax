@@ -1350,7 +1350,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             and config.switch_optimizer is not None
             and ep_num == switch_episode
         ):
-            switch_lr = float(config.switch_lr) if config.switch_lr else float(config.optimizer.learning_rate)
+            switch_lr = config.switch_lr or config.optimizer.learning_rate
             switch_cfg = OptimizerConfig(
                 name=config.switch_optimizer,
                 learning_rate=switch_lr,
@@ -1387,7 +1387,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             current_lr = float(lr_schedule_fn(ep_num)) * nan_lr_scale
             lr_scale = jnp.array(current_lr)
         else:
-            current_lr = float(config.optimizer.learning_rate) * nan_lr_scale
+            current_lr = config.optimizer.learning_rate * nan_lr_scale
             lr_scale = jnp.array(nan_lr_scale)
 
         # Curriculum: ramp shock_scale from start to 1.0
