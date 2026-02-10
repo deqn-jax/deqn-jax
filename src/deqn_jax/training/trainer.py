@@ -540,23 +540,38 @@ def _update_weights_relobralo(
 # Common episode + batch logic (shared by all step variants)
 # ---------------------------------------------------------------------------
 
-def _run_episode_and_sample(model, state, episode_length, batch_size, history_len=1):
+def _run_episode_and_sample(model, state, episode_length, batch_size, history_len=1,
+                            ss_reset_frac: float = 0.0):
     """Run episode and sample training batch.
 
     For history_len=1 (MLP): returns [batch, n_states]
     For history_len>1 (LSTM/Transformer): returns [batch, H, n_states]
 
     history_len is captured in closure and resolves at trace time.
+
+    ss_reset_frac: fraction of batch to reset to SS-neighborhood each episode.
+    Prevents on-policy drift into degenerate basins.
     """
     key = state.key
-    key, episode_key, loss_key, shuffle_key = jax.random.split(key, 4)
+    key, episode_key, loss_key, shuffle_key, reset_key = jax.random.split(key, 5)
+
+    # Mix in fresh SS-neighborhood states to prevent trajectory drift
+    ep_states = state.episode_state
+    if ss_reset_frac > 0.0:
+        batch_n = ep_states.shape[0]
+        n_reset = int(ss_reset_frac * batch_n)
+        if n_reset > 0:
+            ss_state, _ = model.steady_state_fn(model.constants)
+            noise = jax.random.uniform(reset_key, (n_reset, model.n_states), minval=-0.05, maxval=0.05)
+            fresh = ss_state * (1 + noise)
+            ep_states = ep_states.at[:n_reset].set(fresh)
 
     if history_len > 1:
         # Sequence path: run episode with history, build windows
         trajectory, final_state = run_episode_with_history(
             model,
             state.params,
-            state.episode_state,
+            ep_states,
             episode_key,
             episode_length,
             history_len,
@@ -567,11 +582,11 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
         indices = jax.random.permutation(shuffle_key, n_windows)[:batch_size]
         train_batch = all_windows[indices]  # [batch, H, D]
     else:
-        # MLP path (unchanged)
+        # MLP path
         trajectory, final_state = run_episode(
             model,
             state.params,
-            state.episode_state,
+            ep_states,
             episode_key,
             episode_length,
         )
@@ -618,6 +633,7 @@ def _make_standard_step(
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
 ):
     """Standard train step: jax.grad + opt.update(grads, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
@@ -627,6 +643,7 @@ def _make_standard_step(
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size, history_len,
+            ss_reset_frac=ss_reset_frac,
         )
 
         def loss_fn(params):
@@ -679,6 +696,7 @@ def _make_pcgrad_step(
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
 ):
     """PCGrad train step: per-equation gradients with conflict projection.
 
@@ -697,6 +715,7 @@ def _make_pcgrad_step(
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size, history_len,
+            ss_reset_frac=ss_reset_frac,
         )
 
         # Per-equation loss vector for jacrev (always base compute_loss)
@@ -796,6 +815,7 @@ def _make_mao_step(
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
 ):
     """MAO train step: per-equation Jacobian -> mao.update(eq_jac, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
@@ -806,6 +826,7 @@ def _make_mao_step(
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size, history_len,
+            ss_reset_frac=ss_reset_frac,
         )
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
@@ -882,6 +903,7 @@ def _make_lbfgs_step(
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
 ):
     """L-BFGS train step: passes value + value_fn for line search."""
     n_eq = len(model.equation_names) if model.equation_names else 1
@@ -891,6 +913,7 @@ def _make_lbfgs_step(
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size, history_len,
+            ss_reset_frac=ss_reset_frac,
         )
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
@@ -961,6 +984,7 @@ def _make_gn_step(
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
 ):
     """Gauss-Newton / Levenberg-Marquardt train step.
 
@@ -970,26 +994,44 @@ def _make_gn_step(
     n_eq = len(model.equation_names) if model.equation_names else 1
     # GN uses base compute_loss for residuals; composite for logging only
     _compute_loss_log = compute_loss_fn or compute_loss
+    use_quadrature = quad_nodes is not None and quad_weights is not None
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         train_states, final_state, loss_key, key = _run_episode_and_sample(
             model, state, episode_length, batch_size, history_len,
+            ss_reset_frac=ss_reset_frac,
         )
 
-        # Residual function: params -> [n_eq] mean residuals (always base)
+        # Residual function: params -> [n_eq * batch] per-batch E_shock[r]
+
         def residual_fn(params):
-            shocks = sample_antithetic_shocks(loss_key, mc_samples, batch_size, model.n_shocks)
+            if use_quadrature:
+                n_nodes = quad_nodes.shape[0]
+                shocks = jnp.broadcast_to(
+                    quad_nodes[:, None, :],
+                    (n_nodes, batch_size, model.n_shocks),
+                ) * shock_scale
+                sample_weights = quad_weights
+            else:
+                shocks = sample_antithetic_shocks(
+                    loss_key, mc_samples, batch_size, model.n_shocks, shock_scale,
+                )
+                n_samples = shocks.shape[0]
+                sample_weights = jnp.ones(n_samples) / n_samples
 
             def sample_residuals(shock):
                 return compute_residuals(model, params, train_states, shock)
 
             all_residuals = jax.vmap(sample_residuals)(shocks)
             # all_residuals: Dict[str, [n_samples, batch]]
-            # Mean over samples and batch -> [n_eq] scalar per equation
-            return jnp.stack([
-                jnp.mean(r) for r in all_residuals.values()
-            ])
+            # E_shock[r] per batch element per equation, then stack
+            per_eq = []
+            for r in all_residuals.values():
+                # r: [n_samples, batch] -> weighted mean over samples -> [batch]
+                mean_r = jnp.einsum('s,sb->b', sample_weights, r)
+                per_eq.append(mean_r)
+            return jnp.concatenate(per_eq)  # [n_eq * batch]
 
         # Also get loss + eq_losses for logging
         loss, eq_losses = _compute_loss_log(
@@ -1045,6 +1087,7 @@ def make_train_step(
     quad_weights: Optional[Array] = None,
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
 ):
     """Create a JIT-compiled training step function.
 
@@ -1081,6 +1124,7 @@ def make_train_step(
         quad_weights=quad_weights,
         history_len=history_len,
         compute_loss_fn=compute_loss_fn,
+        ss_reset_frac=ss_reset_frac,
     )
 
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
@@ -1099,6 +1143,7 @@ def make_train_step(
             quad_weights=quad_weights,
             history_len=history_len,
             compute_loss_fn=compute_loss_fn,
+            ss_reset_frac=ss_reset_frac,
         )
     elif kind == OptimizerKind.LBFGS:
         return _make_lbfgs_step(**kwargs)
@@ -1186,7 +1231,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         start_episode = int(state.episode)
 
         # Check if optimizer changed
-        total_episodes = start_episode + config.episodes
+        # Resume runs TO config.episodes, not an additional config.episodes
+        total_episodes = config.episodes
         if has_schedule:
             total_for_schedule = total_episodes
         optimizer_changed = config.optimizer.name != orig_config.optimizer.name
@@ -1300,7 +1346,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     lr_schedule_fn = None
     if has_schedule:
         if config.resume:
-            total_for_schedule = start_episode + config.episodes
+            total_for_schedule = config.episodes
         lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
 
     # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
@@ -1349,6 +1395,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             barrier_weight=comp_cfg.barrier_weight,
             newton_weight=comp_cfg.newton_weight,
             leverage_mult=comp_cfg.leverage_mult,
+            aux_decay_floor=comp_cfg.aux_decay_floor,
         )
         if config.verbose:
             print("  Composite loss ready.")
@@ -1366,6 +1413,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         quad_weights=quad_weights_jax,
         history_len=history_len,
         compute_loss_fn=custom_loss_fn,
+        ss_reset_frac=getattr(config, "ss_reset_frac", 0.0),
     )
 
     # ---- Mid-training optimizer switch setup ----
@@ -1390,7 +1438,10 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     last_good_episode = start_episode
 
     # ---- Training loop ----
-    total_episodes = start_episode + config.episodes
+    total_episodes = config.episodes
+    if start_episode >= total_episodes:
+        print(f"WARNING: checkpoint episode {start_episode} >= config.episodes {total_episodes}. Nothing to do.")
+        return
     ep_width = len(str(total_episodes))
 
     history: Dict[str, list] = {"loss": [], "grad_norm": []}
@@ -1432,6 +1483,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 quad_weights=quad_weights_jax,
                 history_len=history_len,
                 compute_loss_fn=custom_loss_fn,
+                ss_reset_frac=getattr(config, "ss_reset_frac", 0.0),
             )
             switched = True
             # Reset early stopping after optimizer switch

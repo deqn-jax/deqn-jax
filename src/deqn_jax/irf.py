@@ -20,7 +20,6 @@ import yaml
 from jax import Array
 
 from deqn_jax.models import load_model
-from deqn_jax.networks.mlp import create_mlp
 from deqn_jax.types import TrainState
 
 
@@ -205,22 +204,12 @@ def load_policy_from_checkpoint(
     init = net_cfg.get("init", "default")
     multi_head = net_cfg.get("multi_head", False)
     skip_connections = net_cfg.get("skip_connections", False)
+    net_type = net_cfg.get("type", "mlp")
+    history_len = net_cfg.get("history_len", 1)
+    num_heads = net_cfg.get("num_heads", 4)
+    n_layers = net_cfg.get("n_layers", 2)
 
     key = jax.random.PRNGKey(0)  # doesn't matter, will be overwritten
-
-    policy_net = create_mlp(
-        n_states=model.n_states,
-        n_policies=model.n_policies,
-        hidden_sizes=hidden_sizes,
-        activation=activation,
-        activations=activations,
-        init=init,
-        policy_lower=model.policy_lower,
-        policy_upper=model.policy_upper,
-        multi_head=multi_head,
-        skip_connections=skip_connections,
-        key=key,
-    )
 
     # Deserialize — the checkpoint is a full TrainState, we need just params
     # Build a template TrainState to match the checkpoint structure
@@ -255,12 +244,16 @@ def load_policy_from_checkpoint(
 
     from deqn_jax.config import NetworkConfig
     net_config = NetworkConfig(
+        type=net_type,
         hidden_sizes=hidden_sizes,
         activation=activation,
         activations=activations,
         init=init,
         multi_head=multi_head,
         skip_connections=skip_connections,
+        history_len=history_len,
+        num_heads=num_heads,
+        n_layers=n_layers,
     )
 
     template_state, _, _ = create_train_state(

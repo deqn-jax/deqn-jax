@@ -113,6 +113,7 @@ class CompositeLossConfig:
     n_anchor_points: int = 64  # Fixed sample points near SS
     anchor_sigma: float = 1.0  # Spread of anchor points (in ergodic std devs)
     leverage_mult: float = 5.0
+    aux_decay_floor: float = 0.2  # Minimum anchor/jac weight fraction (0=full decay, 1=no decay)
 
     def __post_init__(self):
         """Coerce YAML string values to proper numeric types."""
@@ -123,6 +124,7 @@ class CompositeLossConfig:
         self.n_anchor_points = int(self.n_anchor_points)
         self.anchor_sigma = float(self.anchor_sigma)
         self.leverage_mult = float(self.leverage_mult)
+        self.aux_decay_floor = float(self.aux_decay_floor)
         self.validate()
 
     def validate(self):
@@ -201,6 +203,13 @@ class NetworkConfig:
             raise ValueError(f"num_heads must be > 0, got {self.num_heads}")
         if self.n_layers <= 0:
             raise ValueError(f"n_layers must be > 0, got {self.n_layers}")
+        if self.type == "transformer":
+            hidden_dim = self.hidden_sizes[0]
+            if hidden_dim % self.num_heads != 0:
+                raise ValueError(
+                    f"For transformer, hidden_dim ({hidden_dim}) must be divisible "
+                    f"by num_heads ({self.num_heads})"
+                )
 
 
 @dataclass
@@ -256,6 +265,7 @@ class TrainConfig:
 
     curriculum_episodes: int = 0  # Ramp shock_scale from curriculum_start to 1.0 over N episodes
     curriculum_start: float = 0.1  # Initial shock scale for curriculum
+    ss_reset_frac: float = 0.0  # Fraction of batch to reset to SS-neighborhood each episode
 
     expectation_type: str = "mc"  # "mc" or "quadrature" (Gauss-Hermite)
     n_quadrature_points: int = 3  # Points per dimension (3^5=243 nodes for 5 shocks)
@@ -272,6 +282,7 @@ class TrainConfig:
         if self.switch_episode is not None:
             self.switch_episode = int(self.switch_episode)
         self.curriculum_start = float(self.curriculum_start)
+        self.ss_reset_frac = float(self.ss_reset_frac)
         self.early_stop_min_delta = float(self.early_stop_min_delta)
         self.validate()
 
@@ -327,6 +338,15 @@ class TrainConfig:
         if self.switch_optimizer is not None and self.switch_episode is None:
             raise ValueError(
                 "switch_episode must be set when switch_optimizer is specified"
+            )
+        if self.checkpoint_every is not None and self.checkpoint_every <= 0:
+            raise ValueError(
+                f"checkpoint_every must be > 0, got {self.checkpoint_every}"
+            )
+        if self.network is not None and self.network.history_len > self.episode_length:
+            raise ValueError(
+                f"history_len ({self.network.history_len}) must be <= episode_length "
+                f"({self.episode_length}), otherwise no training windows can be formed"
             )
         if self.loss_weights is not None:
             if any(w < 0 for w in self.loss_weights):

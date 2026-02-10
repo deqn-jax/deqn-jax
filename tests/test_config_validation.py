@@ -335,6 +335,53 @@ class TestTrainConfigValidation:
         with pytest.raises(ValueError, match="reweight_alpha"):
             TrainConfig(reweight_alpha=1.0)
 
+    def test_checkpoint_every_zero_raises(self):
+        with pytest.raises(ValueError, match="checkpoint_every must be > 0"):
+            TrainConfig(checkpoint_every=0)
+
+    def test_checkpoint_every_negative_raises(self):
+        with pytest.raises(ValueError, match="checkpoint_every must be > 0"):
+            TrainConfig(checkpoint_every=-1)
+
+    def test_checkpoint_every_none_ok(self):
+        cfg = TrainConfig(checkpoint_every=None)
+        assert cfg.checkpoint_every is None
+
+    def test_checkpoint_every_positive_ok(self):
+        TrainConfig(checkpoint_every=100)
+
+    def test_history_len_exceeds_episode_length_raises(self):
+        with pytest.raises(ValueError, match="history_len.*must be <= episode_length"):
+            TrainConfig(
+                network=NetworkConfig(history_len=50),
+                episode_length=10,
+            )
+
+    def test_history_len_equals_episode_length_ok(self):
+        TrainConfig(
+            network=NetworkConfig(history_len=10),
+            episode_length=10,
+        )
+
+    def test_history_len_less_than_episode_length_ok(self):
+        TrainConfig(
+            network=NetworkConfig(history_len=5),
+            episode_length=100,
+        )
+
+
+class TestNetworkConfigTransformerValidation:
+    def test_transformer_hidden_dim_not_divisible_by_num_heads_raises(self):
+        with pytest.raises(ValueError, match="hidden_dim.*must be divisible by num_heads"):
+            NetworkConfig(type="transformer", hidden_sizes=(65,), num_heads=4)
+
+    def test_transformer_hidden_dim_divisible_ok(self):
+        NetworkConfig(type="transformer", hidden_sizes=(64,), num_heads=4)
+
+    def test_non_transformer_hidden_dim_indivisible_ok(self):
+        # Only enforced for transformer type
+        NetworkConfig(type="mlp", hidden_sizes=(65,), num_heads=4)
+
 
 # ---------------------------------------------------------------------------
 # Type coercion
