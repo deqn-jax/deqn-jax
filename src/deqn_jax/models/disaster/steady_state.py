@@ -16,7 +16,7 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     """Numerically solve for the deterministic steady state.
 
     At SS: state = next_state, policy = next_policy, shocks = 0.
-    Unknowns: 9 policy variables (s, L, omega_bar computed analytically).
+    Unknowns: 11 policy variables (s, L, omega_bar computed analytically).
     State constructed from them. Uses JAX autodiff Jacobian.
     """
     c = constants
@@ -25,13 +25,12 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     x0 = np.array([STEADY_STATE[n] for n in SPEC.policy_names])
 
     def _build_state(x):
-        """Construct SS state from 9 policy variables.
+        """Construct SS state from 11 policy variables.
 
         s (marginal cost), L (leverage), and omega_bar (default threshold)
-        are computed analytically to satisfy eq10, eq12, eq8 by construction.
-        c is a network output (not eliminated).
+        are computed analytically.
         """
-        lambda_z, i, pi, cc, w_tilda, h, F_w, F_p, q = x
+        lambda_z, i, pi, cc, w_tilda, h, F_w, F_p, q, K_p, K_w = x
         mu_z = c["mu_z_ss"]
         k = i / (1.0 - (1.0 - c["delta"]) / mu_z)
 

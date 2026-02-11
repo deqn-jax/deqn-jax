@@ -11,7 +11,7 @@ SPEC = VariableSpec(
     ),
     policy_names=(
         "lambda_z", "i", "pi", "c", "w_tilda",
-        "h", "F_w", "F_p", "q"
+        "h", "F_w", "F_p", "q", "K_p", "K_w"
     ),
 )
 
@@ -49,22 +49,22 @@ STEADY_STATE = {
     "lambda_z": 0.601828, "i": 0.794711, "pi": 1.012286, "c": 1.593684,
     "w_tilda": 1.920219, "h": 0.944029,
     "F_w": 0.885310, "F_p": 4.735931, "q": 1.0,
+    "K_p": 4.777379, "K_w": 2.182537,
 }
 
 # omega_bar SS value (computed analytically from bank participation constraint)
 OMEGA_BAR_SS = 0.488466
 
 # Per-variable bounding — tight to prevent pathological local minima.
-# Lower bounds raised close to SS; upper bounds on pi to prevent blowup.
 # omega_bar eliminated analytically (Newton solver on bank participation constraint).
-# c un-eliminated (network controls directly to avoid consumption euler singularity).
+# K_p, K_w are network outputs (bounded) — prevents drift in near-null Phillips direction.
 #
-# Policy:     lambda_z  i     pi    c     w_tilda  h     F_w   F_p   q
-# SS:         0.602     0.795 1.012 1.594 1.920    0.944 0.885 4.736 1.000
-# Bounding:   softplus  soft  sigm  soft  softplus soft  soft  soft  softplus
-POLICY_LOWER = jnp.array([0.2, 0.4,  0.95, 0.3, 1.0, 0.6, 0.3, 2.0, 0.5])
+# Policy:     lambda_z  i     pi    c     w_tilda  h     F_w   F_p   q     K_p   K_w
+# SS:         0.602     0.795 1.012 1.594 1.920    0.944 0.885 4.736 1.000 4.777 2.183
+# Bounding:   softplus  soft  sigm  soft  softplus soft  soft  soft  soft  soft  soft
+POLICY_LOWER = jnp.array([0.2, 0.4,  0.95, 0.3, 1.0, 0.6, 0.3, 2.0, 0.5, 1.0, 0.5])
 _inf = float("inf")
-POLICY_UPPER = jnp.array([_inf, _inf, 1.1,  _inf, _inf, _inf, _inf, _inf, _inf])
+POLICY_UPPER = jnp.array([_inf, _inf, 1.1,  _inf, _inf, _inf, _inf, _inf, _inf, _inf, _inf])
 
 N_SHOCKS = 5
 

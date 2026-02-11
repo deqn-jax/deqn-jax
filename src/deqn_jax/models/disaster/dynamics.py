@@ -28,11 +28,18 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     g_next = jnp.exp(c["rho_g"] * safe_log(st.g) + (1 - c["rho_g"]) * safe_log(c["g_ss"]) + c["sigma_g"] * g_shock)
     m_p_next = c["sigma_mp"] * mp_shock
 
-    next_state = jnp.stack([
+    return jnp.stack([
         p.pi, defs["k"], defs["c"], p.q, p.i, defs["R"], p.w_tilda, defs["L"],
         eps_next, mu_ups_next, g_next, mu_z_next, m_p_next
     ], axis=1)
 
-    lower = jnp.array([0.9, 10.0, 0.5, 0.5, 0.3, 1.0, 1.0, 1.0, 0.8, 0.9, 0.4, 0.99, -2.0])
-    upper = jnp.array([1.2, 50.0, 3.0, 2.0, 2.0, 1.1, 3.0, 4.0, 1.2, 1.1, 0.9, 1.02, 2.0])
-    return jnp.clip(next_state, lower, upper)
+
+# Safety bounds for long-horizon simulation only (evaluate, irf).
+# NOT used in training loss path — hard clips kill gradients.
+_SIM_LOWER = jnp.array([0.8, 5.0, 0.1, 0.3, 0.1, 0.99, 0.5, 0.5, 0.7, 0.8, 0.3, 0.97, -3.0])
+_SIM_UPPER = jnp.array([1.3, 80.0, 5.0, 3.0, 3.0, 1.15, 5.0, 8.0, 1.4, 1.3, 1.2, 1.04, 3.0])
+
+
+def clip_state(state: Array) -> Array:
+    """Clip states for simulation safety (eval/irf only, NOT training)."""
+    return jnp.clip(state, _SIM_LOWER, _SIM_UPPER)

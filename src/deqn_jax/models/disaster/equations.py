@@ -1,18 +1,13 @@
 """Equilibrium equations for Disaster (NK-DSGE) model.
 
-Analytical eliminations (reduce 12 original → 9 policies, 12 → 9 equations):
+11 policies, 11 equations. Analytical eliminations (12 original → 11):
   1. s (marginal cost) — from cost minimization FOC
   2. L (leverage) — from balance sheet identity: L = q*k / n
   3. omega_bar (default threshold) — from bank participation constraint via Newton solver
 
-c (consumption) is a network output — NOT eliminated analytically.
-Eliminating c via resource constraint created a singularity pathway:
-c could go near zero → habit_now = c*mu_z - b*c_lag → 0 → 1/habit blowup.
-With c as a network output, the optimizer directly controls it.
-
-Dependency order in definitions():
-  R_k → target → omega_bar (Newton) → F,G,Gamma → n,L
-No circular dependency: R_k depends on (h, w_tilda, q, pi, states) but NOT on omega_bar.
+K_p and K_w are network outputs (bounded, prevents drift in near-null direction).
+Split Phillips equations: definition (log-space) + recursion (level-space).
+c is a network output; eq9 (resource constraint) enforces consistency.
 """
 
 from typing import Dict
@@ -25,8 +20,9 @@ from jax.scipy.special import erf
 from deqn_jax.models.disaster.variables import SPEC
 
 EQUATION_NAMES = (
-    "eq1_price_phillips_F", "eq2_price_phillips_K", "eq3_wage_phillips_F",
-    "eq4_wage_phillips_K", "eq5_consumption_euler", "eq6_bond_euler",
+    "eq1_price_phillips_F", "eq2a_Kp_definition", "eq2b_Kp_recursion",
+    "eq3_wage_phillips_F", "eq4a_Kw_definition", "eq4b_Kw_recursion",
+    "eq5_consumption_euler", "eq6_bond_euler",
     "eq7_investment_euler", "eq8_entrepreneur_contract", "eq9_resource_constraint",
 )
 
@@ -176,12 +172,14 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     ) ** (1 - c["rho_p"]) * jnp.exp(st.m_p)
 
     # Phillips curve auxiliaries (soft floor preserves gradient signal)
+    # K_p_inner and K_w_inner used by definition equations (eq2a, eq4a)
     K_p_inner = (1 - c["xi_p"] * (pi_tilda / p.pi) ** (1 / (1 - c["lambda_f"]))) / (1 - c["xi_p"])
-    K_p = p.F_p * _soft_floor(K_p_inner, 0.01) ** (1 - c["lambda_f"])
+    K_p_inner = _soft_floor(K_p_inner, 0.01)
 
     K_w_inner = (1 - c["xi_w"] * (pi_w_tilda / pi_w * c["mu_z_ss"]) ** (1 / (1 - c["lambda_w"]))) / (1 - c["xi_w"])
-    K_w = (1 / c["psi_L"]) * _soft_floor(K_w_inner, 0.01) ** (1 - c["lambda_w"] * (1 + c["sigma_L"])) * p.w_tilda * p.F_w
+    K_w_inner = _soft_floor(K_w_inner, 0.01)
 
+    # K_p, K_w are network outputs (bounded, prevents drift in near-null direction)
     return {
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
         "S_val": S_val, "S_prime_val": S_prime_val,
@@ -190,7 +188,8 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "newton_h_prime": newton_h_prime, "newton_residual": newton_residual,
         "s": s, "L": L, "c": p.c, "c_target": c_target,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
-        "R": R, "K_p": K_p, "K_w": K_w, "i_ratio": i_ratio,
+        "R": R, "K_p": p.K_p, "K_w": p.K_w,
+        "K_p_inner": K_p_inner, "K_w_inner": K_w_inner, "i_ratio": i_ratio,
     }
 
 
@@ -215,10 +214,16 @@ def equations(
     eq1_expect = (defs_n["pi_tilda"] / p_n.pi) ** (1 / (1 - c["lambda_f"])) * p_n.F_p
     residuals["eq1_price_phillips_F"] = p.lambda_z * defs["y_z"] + c["beta"] * c["xi_p"] * eq1_expect - p.F_p
 
-    # Eq 2: Price Phillips (K_p) — log-space: log(rhs/K_p), auto-normalized gradient
-    eq2_expect = (defs_n["pi_tilda"] / p_n.pi) ** (c["lambda_f"] / (1 - c["lambda_f"])) * defs_n["K_p"]
-    eq2_rhs = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_expect
-    residuals["eq2_price_phillips_K"] = jnp.log(jnp.maximum(eq2_rhs, 1e-8)) - jnp.log(jnp.maximum(defs["K_p"], 1e-8))
+    # Eq 2a: K_p definition (log-space) — pins K_p to F_p via reset price identity
+    residuals["eq2a_Kp_definition"] = (
+        jnp.log(p.K_p) - jnp.log(p.F_p)
+        - (1 - c["lambda_f"]) * jnp.log(defs["K_p_inner"])
+    )
+
+    # Eq 2b: K_p recursion (level-space) — gradient w.r.t. K_p is clean (=1)
+    eq2_ratio_next = (defs_n["pi_tilda"] / p_n.pi) ** (c["lambda_f"] / (1 - c["lambda_f"]))
+    eq2_rhs = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_ratio_next * p_n.K_p
+    residuals["eq2b_Kp_recursion"] = p.K_p - eq2_rhs
 
     # Eq 3: Wage Phillips (F_w)
     eq3_coef = st_n.mu_z ** (c["iota_mu"] / (1 - c["lambda_w"]) - 1) * c["mu_z_ss"] ** ((1 - c["iota_mu"]) / (1 - c["lambda_w"]))
@@ -226,10 +231,17 @@ def equations(
                  (1 / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"])) * (1 / p_n.pi) * p_n.F_w
     residuals["eq3_wage_phillips_F"] = p.h * (1 - c["tau_l"]) / c["lambda_w"] * p.lambda_z + c["beta"] * c["xi_w"] * eq3_expect - p.F_w
 
-    # Eq 4: Wage Phillips (K_w) — log-space: log(rhs/K_w), auto-normalized gradient
-    eq4_ratio = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"]))
-    eq4_rhs = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"]
-    residuals["eq4_wage_phillips_K"] = jnp.log(jnp.maximum(eq4_rhs, 1e-8)) - jnp.log(jnp.maximum(defs["K_w"], 1e-8))
+    # Eq 4a: K_w definition (log-space) — pins K_w to F_w via wage reset identity
+    residuals["eq4a_Kw_definition"] = (
+        jnp.log(p.K_w) - jnp.log(1.0 / c["psi_L"])
+        - (1 - c["lambda_w"] * (1 + c["sigma_L"])) * jnp.log(defs["K_w_inner"])
+        - jnp.log(p.w_tilda) - jnp.log(p.F_w)
+    )
+
+    # Eq 4b: K_w recursion (level-space) — gradient w.r.t. K_w is clean (=1)
+    eq4_ratio_next = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"]))
+    eq4_rhs = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio_next * p_n.K_w
+    residuals["eq4b_Kw_recursion"] = p.K_w - eq4_rhs
 
     # Eq 5: Consumption Euler (c is network output, soft floor on habit)
     habit_now = _soft_floor(p.c * st.mu_z - c["b"] * st.c_lag, 1e-2)

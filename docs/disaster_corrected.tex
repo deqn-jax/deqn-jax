@@ -20,9 +20,9 @@
 
 \noindent This document is the definitive reference for the disaster model as
 implemented in \texttt{deqn-jax}. It incorporates all errata corrections
-(see \texttt{docs/disaster\_model\_errata.md}) and all three analytical
-eliminations. When this document and \texttt{disaster.tex} disagree,
-\emph{this document is correct}.
+(see \texttt{docs/disaster\_model\_errata.md}), all three analytical
+eliminations, and the split Phillips curve formulation. When this document and
+\texttt{disaster.tex} disagree, \emph{this document is correct}.
 
 \bigskip\noindent
 \textbf{Color code:}
@@ -58,7 +58,7 @@ eliminations. When this document and \texttt{disaster.tex} disagree,
   $\textcolor{green!60!black}{m_t^p}$
 \end{itemize}
 
-\subsection{Policy variables (9 network outputs)}
+\subsection{Policy variables (11 network outputs)}
 
 After three analytical eliminations ($s_t, L_t, \bar\omega_t$), the neural
 network outputs:
@@ -66,20 +66,37 @@ network outputs:
   \textcolor{orange!80!black}{\lambda_{z,t}},\quad
   \textcolor{orange!80!black}{i_t},\quad
   \textcolor{orange!80!black}{\pi_t},\quad
-  \textcolor{orange!80!black}{c_t},\quad
   \textcolor{orange!80!black}{\tilde{w}_t},\quad
   \textcolor{orange!80!black}{h_t},\quad
   \textcolor{orange!80!black}{F_{w,t}},\quad
   \textcolor{orange!80!black}{F_{p,t}},\quad
-  \textcolor{orange!80!black}{q_t}
+  \textcolor{orange!80!black}{q_t},\quad
+  \textcolor{orange!80!black}{c_t},\quad
+  \textcolor{orange!80!black}{K_{p,t}},\quad
+  \textcolor{orange!80!black}{K_{w,t}}
 \]
-\noindent\textbf{Note:} $c_t$ is a network output rather than eliminated via the
-resource constraint. Eliminating $c_t$ analytically created a singularity
-pathway: when the resource constraint yielded $c_t \approx 0$, the habit
-term $c_t\mu_{z,t} - b\,c_{t-1} \to 0$ and the consumption Euler
-$\mu_z/\text{habit} \to \infty$, causing catastrophic training escapes.
-With $c_t$ as a network output, the optimizer directly controls consumption
-and avoids the singularity.
+
+\noindent\textbf{Why $c_t$ is a network output.}\;
+The resource constraint uniquely determines $c_t$, but eliminating it
+analytically creates a singularity: when the resource constraint yields
+$c_t \approx 0$, the habit term $c_t\mu_{z,t} - b\,c_{t-1} \to 0$ and
+the consumption Euler diverges. With $c_t$ as a network output, the optimizer
+directly controls consumption. The resource constraint (Eq.~9) enforces
+consistency.
+
+\medskip\noindent\textbf{Why $K_{p,t}$ and $K_{w,t}$ are network outputs.}\;
+The Phillips curve composites $K_p$, $K_w$ were originally computed as
+nonlinear functions of $(F_p, \pi, \tilde\pi, \ldots)$ involving extreme
+exponents (${}^{-5}$, ${}^{-12}$). These exponent chains create near-perfect
+gradient cancellation: the derivatives of $K_p$ and the recursion RHS with
+respect to $\pi$ have nearly opposite signs and magnitudes, leaving
+$|\partial r/\partial \pi| \approx 0$. This froze the price/wage ratios
+during training.
+
+Making $K_p$, $K_w$ network outputs and splitting each Phillips K equation
+into a \emph{definition} (log-space) and a \emph{recursion} (level-space)
+breaks this cancellation. The definition equation constrains $K_p$ to match
+its analytical value; the recursion equation has clean gradient $\partial r/\partial K_p = 1$.
 
 \subsection{Policy bounds}
 
@@ -92,12 +109,14 @@ Variable & Lower & Upper & SS value & Bounding \\
 $\lambda_{z,t}$ & 0.20 & $\infty$ & 0.6018 & softplus \\
 $i_t$            & 0.40 & $\infty$ & 0.7947 & softplus \\
 $\pi_t$          & 0.95 & 1.10     & 1.0123 & sigmoid \\
-$c_t$            & 0.30 & $\infty$ & 1.5937 & softplus \\
 $\tilde{w}_t$    & 1.00 & $\infty$ & 1.9202 & softplus \\
 $h_t$            & 0.60 & $\infty$ & 0.9440 & softplus \\
 $F_{w,t}$        & 0.30 & $\infty$ & 0.8853 & softplus \\
-$F_{p,t}$        & 2.00 & $\infty$ & 4.7361 & softplus \\
+$F_{p,t}$        & 2.00 & $\infty$ & 4.7359 & softplus \\
 $q_t$            & 0.50 & $\infty$ & 1.0000 & softplus \\
+$c_t$            & 0.50 & $\infty$ & 1.5937 & softplus \\
+$K_{p,t}$        & 1.00 & $\infty$ & 4.8308 & softplus \\
+$K_{w,t}$        & 0.50 & $\infty$ & 2.2071 & softplus \\
 \bottomrule
 \end{tabular}
 \caption{Per-variable output bounding. Softplus:
@@ -114,6 +133,7 @@ $\pi_t$ to prevent Phillips curve blowup from the ${}^{-5}$ exponent.}
 \textcolor{brown}{$k_t$},
 \textcolor{brown}{$n_t$},
 \textcolor{brown}{$y_{z,t}$},
+\textcolor{brown}{$c_t^{\text{implied}}$} (from resource constraint),
 \textcolor{brown}{$y_t^{\text{GDP}}$},
 \textcolor{brown}{$r_t^k$},
 \textcolor{brown}{$R_t^k$},
@@ -126,8 +146,13 @@ $\pi_t$ to prevent Phillips curve blowup from the ${}^{-5}$ exponent.}
 \textcolor{brown}{$F(\bar\omega_t)$},
 \textcolor{brown}{$G(\bar\omega_t)$},
 \textcolor{brown}{$\Gamma(\bar\omega_t)$},
-\textcolor{brown}{$K_{p,t}$},
-\textcolor{brown}{$K_{w,t}$}.
+\textcolor{brown}{$K_{p,\text{inner}}$},
+\textcolor{brown}{$K_{w,\text{inner}}$}.
+
+\medskip\noindent\textbf{Note:} $K_{p,t}$ and $K_{w,t}$ are network outputs,
+not definitions. The ``inner'' terms $K_{p,\text{inner}}$ and
+$K_{w,\text{inner}}$ are computed analytically and used only in the
+definition equations (Eq.~2a, 4a).
 
 
 %==========================================================================
@@ -245,20 +270,23 @@ see errata Bug~1.
        \textcolor{orange!80!black}{h_t}^{1-\alpha} - \Phi
   \\
   \textcolor{brown}{y_t^{\text{GDP}}}
-    &= \textcolor{green!60!black}{g_t} + \textcolor{brown}{c_t}
+    &= \textcolor{green!60!black}{g_t} + \textcolor{orange!80!black}{c_t}
        + \frac{\textcolor{orange!80!black}{i_t}}{\textcolor{green!60!black}{\mu_{\Upsilon,t}}}
 \end{align*}
+\textbf{Note:} $y_t^{\text{GDP}}$ uses the \emph{network output} $c_t$
+(orange), not the implied consumption from the resource constraint.
 
-\paragraph{Consumption (eliminates eq.~11).}
+\paragraph{Implied consumption (for Eq.~9 residual only).}
 \begin{equation*}
-  \textcolor{brown}{c_t} = \textcolor{brown}{y_{z,t}} - \textcolor{green!60!black}{g_t}
+  \textcolor{brown}{c_t^{\text{implied}}} = \textcolor{brown}{y_{z,t}} - \textcolor{green!60!black}{g_t}
     - \frac{\textcolor{orange!80!black}{i_t}}{\textcolor{green!60!black}{\mu_{\Upsilon,t}}}
     - \underbrace{\Theta\frac{1-\gamma_e}{\gamma_e}(\textcolor{brown}{n_t} - w^e)}_{\text{entrepreneur consumption}}
     - \underbrace{\frac{\mu\,G(\textcolor{brown}{\bar\omega_t})\,\textcolor{brown}{R_t^k}\,
       \textcolor{green!60!black}{q_{t-1}}\,\textcolor{green!60!black}{k_{t-1}}}
       {\textcolor{green!60!black}{\mu_{z,t}}\,\textcolor{orange!80!black}{\pi_t}}}_{\text{monitoring cost}}
 \end{equation*}
-Clipped to $c_t \geq 10^{-4}$ to prevent NaN in the habit-formation Euler equation.
+This is \emph{not} used in any equation except Eq.~9 (resource constraint).
+The consumption Euler (Eq.~5) uses the network output $\textcolor{orange!80!black}{c_t}$ directly.
 
 \paragraph{Interest rate (Taylor rule).}
 \begin{equation*}
@@ -271,21 +299,20 @@ Clipped to $c_t \geq 10^{-4}$ to prevent NaN in the habit-formation Euler equati
       \!\exp(\textcolor{green!60!black}{m_t^p})
 \end{equation*}
 
-\paragraph{Phillips curve composites.}
+\paragraph{Phillips curve inner terms.}
 With \emph{soft floor}: $\lfloor x \rfloor_\varepsilon = \varepsilon + \frac{1}{s}\log(1+e^{s(x-\varepsilon)})$,\;
 $\varepsilon = 0.01$, $s=10$.
 \begin{align*}
-  K_{p,\text{inner}} &= \frac{1 - \xi_p\bigl(\tilde\pi_t/\pi_t\bigr)^{1/(1-\lambda_f)}}{1-\xi_p}
-  &
-  \textcolor{brown}{K_{p,t}} &= \textcolor{orange!80!black}{F_{p,t}}\;
-    \bigl\lfloor K_{p,\text{inner}} \bigr\rfloor_{0.01}^{1-\lambda_f}
+  \textcolor{brown}{K_{p,\text{inner}}} &= \left\lfloor
+    \frac{1 - \xi_p\bigl(\tilde\pi_t/\pi_t\bigr)^{1/(1-\lambda_f)}}{1-\xi_p}
+  \right\rfloor_{0.01}
   \\
-  K_{w,\text{inner}} &= \frac{1 - \xi_w\bigl(\tilde\pi_{w,t}\mu_{z,\text{ss}}/\pi_{w,t}\bigr)^{1/(1-\lambda_w)}}{1-\xi_w}
-  &
-  \textcolor{brown}{K_{w,t}} &= \frac{1}{\psi_L}\,
-    \bigl\lfloor K_{w,\text{inner}} \bigr\rfloor_{0.01}^{1-\lambda_w(1+\sigma_L)}
-    \textcolor{orange!80!black}{\tilde{w}_t}\,\textcolor{orange!80!black}{F_{w,t}}
+  \textcolor{brown}{K_{w,\text{inner}}} &= \left\lfloor
+    \frac{1 - \xi_w\bigl(\tilde\pi_{w,t}\mu_{z,\text{ss}}/\pi_{w,t}\bigr)^{1/(1-\lambda_w)}}{1-\xi_w}
+  \right\rfloor_{0.01}
 \end{align*}
+These are used only in the definition equations (Eq.~2a, 4a).
+The actual $K_{p,t}$ and $K_{w,t}$ are network outputs.
 
 \paragraph{Computation order.}
 \begin{equation*}
@@ -293,18 +320,19 @@ $\varepsilon = 0.01$, $s=10$.
   \;\to\; (k, s, r^k, R^k)
   \;\to\; \bar\omega_t\;\text{(Newton)}
   \;\to\; (F, G, \Gamma, n, L)
-  \;\to\; (y_z, c, y^{\text{GDP}}, R, K_p, K_w)
+  \;\to\; (y_z, c^{\text{implied}}, y^{\text{GDP}}, R, K_{p,\text{inner}}, K_{w,\text{inner}})
 \end{equation*}
 
 
 %==========================================================================
-\section{Equilibrium Equations (8)}
+\section{Equilibrium Equations (11)}
 \label{sec:equations}
 %==========================================================================
 
-The 8 residual equations solved by the neural network. Equations 2 and 4
-are formulated in log-space for numerical stability:
-$\text{residual} = \log(\text{rhs}) - \log(\text{lhs})$.
+The 11 residual equations solved by the neural network.
+The Phillips curve $K$ equations are each split into a \emph{definition}
+(log-space, linearizes extreme exponents) and a \emph{recursion}
+(level-space, clean unit gradient on $K$).
 
 \setcounter{equation}{0}
 
@@ -318,17 +346,26 @@ $\text{residual} = \log(\text{rhs}) - \log(\text{lhs})$.
   - \textcolor{orange!80!black}{F_{p,t}} = 0
 \end{equation}
 
-\paragraph{Eq.~2: Price Phillips curve --- denominator ($K_p$).}
-In log-space:
+\paragraph{Eq.~2a: Price Phillips $K_p$ --- definition (log-space).}
+Constrains the network's $K_{p,t}$ to match its analytical value:
 \begin{equation}
-  \log\!\left(
-    \textcolor{orange!80!black}{\lambda_{z,t}}\,\lambda_f\,\textcolor{brown}{y_{z,t}}\,\textcolor{brown}{s_t}
-    + \beta\,\xi_p\;\mathds{E}_t\!\left[
-      \left(\frac{\textcolor{brown}{\tilde\pi_{t+1}}}{\textcolor{blue}{\pi_{t+1}}}\right)^{\!\frac{\lambda_f}{1-\lambda_f}}
-      \textcolor{brown}{K_{p,t+1}}
-    \right]
-  \right)
-  - \log\textcolor{brown}{K_{p,t}} = 0
+  \log\textcolor{orange!80!black}{K_{p,t}}
+  - \log\textcolor{orange!80!black}{F_{p,t}}
+  - (1 - \lambda_f)\,\log\textcolor{brown}{K_{p,\text{inner}}} = 0
+  \tag{2a}
+\end{equation}
+
+\paragraph{Eq.~2b: Price Phillips $K_p$ --- recursion (level-space).}
+Gradient w.r.t.\ $K_{p,t}$ is exactly 1:
+\begin{equation}
+  \textcolor{orange!80!black}{K_{p,t}}
+  - \textcolor{orange!80!black}{\lambda_{z,t}}\,\lambda_f\,
+    \textcolor{brown}{y_{z,t}}\,\textcolor{brown}{s_t}
+  - \beta\,\xi_p\;\mathds{E}_t\!\left[
+    \left(\frac{\textcolor{brown}{\tilde\pi_{t+1}}}{\textcolor{blue}{\pi_{t+1}}}\right)^{\!\frac{\lambda_f}{1-\lambda_f}}
+    \textcolor{blue}{K_{p,t+1}}
+  \right] = 0
+  \tag{2b}
 \end{equation}
 
 \paragraph{Eq.~3: Wage Phillips curve --- numerator ($F_w$).}
@@ -344,29 +381,49 @@ In log-space:
   - \textcolor{orange!80!black}{F_{w,t}} = 0
 \end{equation}
 
-\paragraph{Eq.~4: Wage Phillips curve --- denominator ($K_w$).}
-In log-space:
+\paragraph{Eq.~4a: Wage Phillips $K_w$ --- definition (log-space).}
 \begin{equation}
-  \log\!\left(
-    \textcolor{orange!80!black}{h_t}^{1+\sigma_L}
-    + \beta\,\xi_w\;\mathds{E}_t\!\left[
-      \left(\frac{\textcolor{brown}{\tilde\pi_{w,t+1}}\,\mu_{z,\text{ss}}}
-           {\textcolor{brown}{\pi_{w,t+1}}}\right)^{\!\frac{\lambda_w}{1-\lambda_w}(1+\sigma_L)}
-      \!\textcolor{brown}{K_{w,t+1}}
-    \right]
-  \right)
-  - \log\textcolor{brown}{K_{w,t}} = 0
+  \log\textcolor{orange!80!black}{K_{w,t}}
+  - \log\!\left(\frac{1}{\psi_L}\right)
+  - \bigl(1 - \lambda_w(1+\sigma_L)\bigr)\,\log\textcolor{brown}{K_{w,\text{inner}}}
+  - \log\textcolor{orange!80!black}{\tilde{w}_t}
+  - \log\textcolor{orange!80!black}{F_{w,t}} = 0
+  \tag{4a}
 \end{equation}
 
-\paragraph{Eq.~5: Consumption Euler (with external habit).}
+\paragraph{Eq.~4b: Wage Phillips $K_w$ --- recursion (level-space).}
 \begin{equation}
-  (1+\tau_c)\,\textcolor{orange!80!black}{\lambda_{z,t}}
-  - \frac{\textcolor{green!60!black}{\mu_{z,t}}}
-    {\max(\textcolor{brown}{c_t}\,\textcolor{green!60!black}{\mu_{z,t}} - b\,\textcolor{green!60!black}{c_{t-1}},\; 10^{-2})}
-  + \frac{\beta\,b}
-    {\max(\textcolor{blue}{c_{t+1}}\,\textcolor{magenta}{\mu_{z,t+1}} - b\,\textcolor{brown}{c_t},\; 10^{-2})}
-  = 0
+  \textcolor{orange!80!black}{K_{w,t}}
+  - \textcolor{orange!80!black}{h_t}^{1+\sigma_L}
+  - \beta\,\xi_w\;\mathds{E}_t\!\left[
+    \left(\frac{\textcolor{brown}{\tilde\pi_{w,t+1}}\,\mu_{z,\text{ss}}}
+         {\textcolor{brown}{\pi_{w,t+1}}}\right)^{\!\frac{\lambda_w}{1-\lambda_w}(1+\sigma_L)}
+    \!\textcolor{blue}{K_{w,t+1}}
+  \right] = 0
+  \tag{4b}
 \end{equation}
+
+\paragraph{Eq.~5: Consumption Euler (multiply-through formulation).}
+The standard formulation has $\mu_z / \text{habit}$ singularities.
+Multiplying through by both habit terms eliminates all divisions:
+\begin{equation}
+  (1+\tau_c)\,\textcolor{orange!80!black}{\lambda_{z,t}}\,
+  \textcolor{brown}{\text{habit}_{t}}\,\textcolor{brown}{\text{habit}_{t+1}}
+  - \textcolor{green!60!black}{\mu_{z,t}}\,\textcolor{brown}{\text{habit}_{t+1}}
+  + \beta\,b\,\textcolor{brown}{\text{habit}_{t}} = 0
+\end{equation}
+where
+\begin{align*}
+  \textcolor{brown}{\text{habit}_t}
+    &= \bigl\lfloor \textcolor{orange!80!black}{c_t}\,\textcolor{green!60!black}{\mu_{z,t}}
+       - b\,\textcolor{green!60!black}{c_{t-1}} \bigr\rfloor_{0.01}
+  \\
+  \textcolor{brown}{\text{habit}_{t+1}}
+    &= \bigl\lfloor \textcolor{blue}{c_{t+1}}\,\textcolor{magenta}{\mu_{z,t+1}}
+       - b\,\textcolor{orange!80!black}{c_t} \bigr\rfloor_{0.01}
+\end{align*}
+Soft floor $\lfloor \cdot \rfloor_{0.01}$ prevents the habit term from
+reaching zero (which would make the original equation singular).
 
 \paragraph{Eq.~6: Bond Euler (Fisher equation).}
 \begin{equation}
@@ -417,15 +474,34 @@ Using next-period $\bar\omega_{t+1}$ from the Newton solver applied to next-peri
 \end{equation}
 
 \paragraph{Eq.~9: Resource constraint.}
-($c_t$ is a network output; this equation enforces the goods market clearing.)
+$c_t$ is a network output; this equation enforces goods market clearing:
 \begin{equation}
-  0 = \textcolor{orange!80!black}{c_t}
-    - \bigl(\textcolor{brown}{y_{z,t}}
-      - \textcolor{green!60!black}{g_t}
-      - \textcolor{orange!80!black}{i_t}/\textcolor{green!60!black}{\mu_{\Upsilon,t}}
-      - \textcolor{brown}{\text{monitoring}_t}
-      - \textcolor{brown}{\text{entrepr.\ cons}_t}\bigr)
+  0 = \textcolor{orange!80!black}{c_t} - \textcolor{brown}{c_t^{\text{implied}}}
 \end{equation}
+
+\medskip\noindent\textbf{Equation--output coupling.}\;
+Every network output appears in at least one residual with nonzero gradient:
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+Output & Primary equations \\
+\midrule
+$\lambda_{z,t}$ & Eq.~1, 2b, 5, 6, 7 \\
+$i_t$ & Eq.~7, 9 (via $k_t$, $y_z$, $c^{\text{impl}}$) \\
+$\pi_t$ & Eq.~2a (via $K_{p,\text{inner}}$), Eq.~6 (via $R$), Eq.~9 \\
+$\tilde{w}_t$ & Eq.~3, 4a, 9 (via $s$, $y_z$) \\
+$h_t$ & Eq.~3, 4b, 9 (via $y_z$) \\
+$F_{w,t}$ & Eq.~3, 4a \\
+$F_{p,t}$ & Eq.~1, 2a \\
+$q_t$ & Eq.~7, 9 (via $L$, $n$, monitoring) \\
+$c_t$ & Eq.~5, 6 (via $y^{\text{GDP}} \to R$), 9 \\
+$K_{p,t}$ & Eq.~2a, 2b \\
+$K_{w,t}$ & Eq.~4a, 4b \\
+\bottomrule
+\end{tabular}
+\end{center}
+No output has zero gradient in the loss --- the system is fully determined.
 
 
 %==========================================================================
@@ -435,7 +511,8 @@ Using next-period $\bar\omega_{t+1}$ from the Newton solver applied to next-peri
 
 Three equilibrium equations are static (no expectations) and can be solved
 analytically, reducing the system from 12 controls and 12 equations to
-\textbf{9 controls and 9 equations}.
+\textbf{11 controls and 11 equations} (with $K_p$, $K_w$ as outputs and
+the Phillips $K$ equations split).
 
 \begin{center}
 \begin{tabular}{clll}
@@ -450,13 +527,7 @@ analytically, reducing the system from 12 controls and 12 equations to
 \end{center}
 
 \noindent\textbf{Why $c_t$ is not eliminated.}\;
-The resource constraint (Eq.~11) uniquely determines $c_t$ given all other
-variables, so in principle it could be eliminated analytically. However, doing
-so creates a singularity pathway: when the resource constraint implies
-$c_t \approx 0$, the habit formation term $c_t\mu_{z,t} - b\,c_{t-1}$ approaches
-zero and the consumption Euler equation (Eq.~5) contains $\mu_z / \text{habit}
-\to \infty$. With $c_t$ as a network output and the resource constraint as an
-explicit equation (Eq.~9), the optimizer can directly keep $c_t$ in a safe range.
+See Section~1.2 (policy variables).
 
 
 %==========================================================================
@@ -481,6 +552,17 @@ explicit equation (Eq.~9), the optimizer can directly keep $c_t$ in a safe range
 \end{align*}
 
 \subsection{Endogenous state updates}
+
+States are updated via soft clipping (softplus-based, gradient $\approx 1$ in
+valid range, decays smoothly outside):
+\begin{equation*}
+  x_{\text{next}} = \ell + \frac{1}{s}\log(1+e^{s(x-\ell)})
+  \quad\text{(lower clip)},\qquad
+  x_{\text{next}} = u - \frac{1}{s}\log(1+e^{s(u-x)})
+  \quad\text{(upper clip)}
+\end{equation*}
+with $s=5$. Applied to endogenous states only; exogenous states (AR(1)
+processes) are not clipped.
 \begin{equation*}
   \pi_{t-1} \leftarrow \pi_t, \quad
   k_{t-1} \leftarrow k_t, \quad
@@ -553,37 +635,32 @@ $\sigma_p$ & & 0.0049 & CMR estimation \\
 %==========================================================================
 
 Numerically solved via \texttt{scipy.optimize.root} with JAX autodiff Jacobian.
-All 9 residuals $< 2\times 10^{-7}$.
+All 11 residuals $< 6\times 10^{-8}$.
 
 \begin{table}[h!]
 \centering
 \begin{minipage}[t]{0.45\linewidth}
 \centering
-\caption{Policy \& definition values at SS}
+\caption{Policy values at SS}
 \begin{tabular}{lrl}
 \toprule
-Variable & Value & Type \\
+Variable & Value & Bounding \\
 \midrule
-$\lambda_z$  & 0.6018 & \textcolor{orange!80!black}{policy} \\
-$i$          & 0.7947 & \textcolor{orange!80!black}{policy} \\
-$\pi$        & 1.0123 & \textcolor{orange!80!black}{policy} \\
-$c$          & 1.5937 & \textcolor{orange!80!black}{policy} \\
-$\tilde{w}$  & 1.9202 & \textcolor{orange!80!black}{policy} \\
-$h$          & 0.9440 & \textcolor{orange!80!black}{policy} \\
-$F_w$        & 0.8853 & \textcolor{orange!80!black}{policy} \\
-$F_p$        & 4.7361 & \textcolor{orange!80!black}{policy} \\
-$q$          & 1.0000 & \textcolor{orange!80!black}{policy} \\
+$\lambda_z$  & 0.6018 & softplus \\
+$i$          & 0.7947 & softplus \\
+$\pi$        & 1.0123 & sigmoid \\
+$\tilde{w}$  & 1.9202 & softplus \\
+$h$          & 0.9440 & softplus \\
+$F_w$        & 0.8853 & softplus \\
+$F_p$        & 4.7359 & softplus \\
+$q$          & 1.0000 & softplus \\
+$c$          & 1.5937 & softplus \\
+$K_p$        & 4.8308 & softplus \\
+$K_w$        & 2.2071 & softplus \\
 \midrule
-$\bar\omega$ & 0.4885 & \textcolor{brown}{def (Newton)} \\
-$s$          & 0.8330 & \textcolor{brown}{definition} \\
-$L$          & 1.9657 & \textcolor{brown}{definition} \\
-$n$          & 13.950 & \textcolor{brown}{definition} \\
-$R^k$        & 1.0254 & \textcolor{brown}{definition} \\
-$R$          & 1.0180 & \textcolor{brown}{definition} \\
-$k$          & 27.421 & \textcolor{brown}{definition} \\
-$y_z$        & 3.0207 & \textcolor{brown}{definition} \\
-$K_p$        & 4.7776 & \textcolor{brown}{definition} \\
-$K_w$        & 2.1826 & \textcolor{brown}{definition} \\
+$\bar\omega$ & 0.4885 & Newton \\
+$s$          & 0.8330 & analytical \\
+$L$          & 1.9657 & analytical \\
 \bottomrule
 \end{tabular}
 \end{minipage}\hfill
@@ -614,8 +691,7 @@ $m_t^p$            & 0.0000 \\
 
 \textbf{Note:} $\pi_{\text{SS}} = 1.012 \neq \pi_{\text{ss}} = 1.006$.
 The Taylor rule with $\alpha_y > 0$ and financial frictions shifts
-the equilibrium inflation above the target. This is standard for
-this class of models and is not a bug.
+the equilibrium inflation above the target.
 \end{minipage}
 \end{table}
 

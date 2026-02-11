@@ -93,7 +93,8 @@ def euler_equation_errors(
             all_residuals.append(row)
             all_states.append(st)
 
-        state = next_state
+        # Clip for simulation safety (trajectory propagation only)
+        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
     residuals_array = jnp.stack(all_residuals)  # [T, n_eq]
     states_array = jnp.stack(all_states)  # [T, n_states]
@@ -252,7 +253,7 @@ def simulated_moments(
             all_states.append(st)
             all_policies.append(pol)
 
-        state = next_state
+        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
     states = jnp.stack(all_states)    # [T, n_states]
     policies = jnp.stack(all_policies)  # [T, n_policies]
@@ -364,7 +365,7 @@ def stability_check(
             bound_hits += int(near_lower + near_upper)
             total_outputs += len(policy_names)
 
-        state = next_state
+        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
     # Check final state deviation from SS
     final_state = state[0] if state.ndim == 2 else state

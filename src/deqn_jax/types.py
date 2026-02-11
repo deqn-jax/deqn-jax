@@ -71,6 +71,10 @@ class ModelSpec(NamedTuple):
     policy_lower: Optional[Array] = None
     policy_upper: Optional[Array] = None
 
+    # Optional: clip states for simulation safety (eval/irf only, NOT training)
+    # clip_state_fn(state) -> state
+    clip_state_fn: Optional[Callable[..., Array]] = None
+
 
 class ReweightState(NamedTuple):
     """Running statistics for adaptive loss reweighting.

@@ -317,11 +317,10 @@ def warm_start_from_dynare(
     # DEQN policy ordering (omega_bar eliminated analytically)
     deqn_policy_names = list(model.policy_names)
 
-    # Map DEQN policy names to Dynare variable names
-    policy_name_map = {
-        "lambda_z": "lambda_z", "i": "i_var", "pi": "pi",
-        "w_tilda": "w_tilda", "omega_bar": "omega_bar",
-        "h": "h", "F_w": "F_w", "F_p": "F_p", "q": "q",
+    # Map DEQN policy names to Dynare variable names.
+    # Keep aliases for renamed variables; default to identity when possible.
+    policy_aliases = {
+        "i": "i_var",
     }
 
     # Map DEQN state names to Dynare state column names (lagged endogenous)
@@ -348,7 +347,14 @@ def warm_start_from_dynare(
     J = jnp.zeros((n_policies, n_states))
 
     for pi, pname in enumerate(deqn_policy_names):
-        dynare_var = policy_name_map[pname]
+        dynare_var = policy_aliases.get(pname, pname)
+        if dynare_var not in ghx_rows or dynare_var not in ghu_rows:
+            available = sorted(set(ghx_rows.keys()) & set(ghu_rows.keys()))
+            raise KeyError(
+                f"Policy '{pname}' maps to Dynare variable '{dynare_var}', "
+                f"but that row was not found in dynare_ghx/ghu.csv. "
+                f"Available rows: {available}"
+            )
         ghx_row = ghx_rows[dynare_var]
         ghu_row = ghu_rows[dynare_var]
 

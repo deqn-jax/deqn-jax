@@ -1,9 +1,54 @@
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+*.egg
 *.egg-info/
-.venv/
 dist/
 build/
+wheels/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing / linting
 .pytest_cache/
-*.egg
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# JAX / ML artifacts
+checkpoints/
+runs/
+wandb/
+*.tfevents*
+*.ckpt
+
+# Project-specific
+configs/
+scripts/
+dynare/
+PLAN.md
+
+# Claude Code
+.claude/
+
+# Docs (PDFs are binary, keep .tex in version control)
+docs/*.pdf

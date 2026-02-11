@@ -190,6 +190,7 @@ def make_composite_loss(
     barrier_weight: float = 0.01,
     newton_weight: float = 0.01,
     leverage_mult: float = 5.0,
+    aux_decay_floor: float = 0.2,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
@@ -197,11 +198,11 @@ def make_composite_loss(
         (model, policy_fn, states, key, mc_samples, weights, shock_scale,
          quad_nodes, quad_weights) -> (total_loss, eq_losses_dict)
 
-    Anchor and Jacobian losses decay with shock_scale: weight *= max(0, 1 - shock_scale).
-    During curriculum (shock_scale ramps 0.1 → 1.0), they fade from 90% → 0%.
-    This is the right coupling: anchor is most useful near SS (low shock_scale),
-    and should vanish once the network trains on the full stochastic domain.
-    Barrier and Newton losses don't decay (always useful for feasibility).
+    Anchor and Jacobian losses decay with shock_scale but maintain a floor:
+        decay = max(floor, 1 - shock_scale)
+    During curriculum (shock_scale ramps 0.1 → 1.0), they fade from 90% → floor.
+    With floor=0.2, anchor/jac stay active throughout training to prevent
+    the network from drifting into degenerate far-from-SS basins.
 
     Auxiliary loss entries are keyed with "aux_" prefix.
     """
@@ -224,8 +225,8 @@ def make_composite_loss(
             quad_nodes=quad_nodes, quad_weights=quad_weights,
         )
 
-        # Anchor + jac decay: fade as curriculum progresses (shock_scale → 1)
-        aux_decay = jnp.maximum(0.0, 1.0 - shock_scale)
+        # Anchor + jac decay: fade as curriculum progresses, but keep a floor
+        aux_decay = jnp.maximum(aux_decay_floor, 1.0 - shock_scale)
 
         # 2. Anchor loss: net should match linearized policy near SS
         anchor = _anchor_loss(policy_fn, data)

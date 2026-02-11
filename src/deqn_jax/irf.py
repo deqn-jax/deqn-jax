@@ -116,7 +116,8 @@ def run_irf(
         if policy.ndim == 1:
             policy = policy[None, :]
         record(t, state, policy)
-        state = model.step_fn(state, policy, zero_shock, constants)
+        next_state = model.step_fn(state, policy, zero_shock, constants)
+        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
     # ---- Period 0: record pre-shock state ----
     policy = policy_net(state)
@@ -132,7 +133,8 @@ def run_irf(
     # ---- Period 1: apply shock ----
     shock = jnp.zeros((1, n_shocks))
     shock = shock.at[0, shock_idx].set(shock_size)
-    state = model.step_fn(state, policy, shock, constants)
+    next_state = model.step_fn(state, policy, shock, constants)
+    state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
     # ---- Periods 2..horizon: deterministic ----
     for t in range(1, horizon + 1):
@@ -155,7 +157,7 @@ def run_irf(
             residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
 
         record(t, state, policy, defs, residuals)
-        state = next_state
+        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
     return results
 
