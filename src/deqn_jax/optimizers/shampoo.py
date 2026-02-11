@@ -39,7 +39,6 @@ def _matrix_power_neg_quarter(M: Array, ridge: float = 1e-6) -> Array:
 def shampoo(
     learning_rate: float = 1e-3,
     beta: float = 0.9,
-    block_size: int = 64,
     precond_update_freq: int = 10,
     epsilon: float = 1e-12,
 ) -> optax.GradientTransformation:
@@ -48,7 +47,6 @@ def shampoo(
     Args:
         learning_rate: Step size
         beta: EMA decay for preconditioner statistics
-        block_size: Max dimension for Kronecker factors
         precond_update_freq: Steps between preconditioner updates
         epsilon: Ridge for numerical stability
 
@@ -132,6 +130,5 @@ def shampoo(
 def _shampoo(config):
     return shampoo(
         learning_rate=config.learning_rate,
-        block_size=config.block_size,
         precond_update_freq=config.precond_update_freq,
     )

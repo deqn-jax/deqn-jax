@@ -106,8 +106,9 @@ class GaussNewton:
         new_flat_params = flat_params + self.learning_rate * delta
         new_params = unflatten(new_flat_params)
 
-        # Compute new loss
-        new_loss = jnp.sum(r ** 2)
+        # Compute new loss (from updated params, not old residuals)
+        new_r = flat_residual_fn(new_flat_params)
+        new_loss = jnp.sum(new_r ** 2)
 
         new_state = GaussNewtonState(
             count=state.count + 1,

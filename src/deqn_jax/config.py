@@ -139,6 +139,8 @@ class CompositeLossConfig:
             raise ValueError(f"anchor_sigma must be > 0, got {self.anchor_sigma}")
         if self.leverage_mult <= 0:
             raise ValueError(f"leverage_mult must be > 0, got {self.leverage_mult}")
+        if not (0 <= self.aux_decay_floor <= 1):
+            raise ValueError(f"aux_decay_floor must be in [0, 1], got {self.aux_decay_floor}")
 
 
 @dataclass
@@ -269,6 +271,9 @@ class TrainConfig:
 
     expectation_type: str = "mc"  # "mc" or "quadrature" (Gauss-Hermite)
     n_quadrature_points: int = 3  # Points per dimension (3^5=243 nodes for 5 shocks)
+
+    episode_soft_clip: bool = True   # Differentiable soft clip in episode trajectories
+    barrier_weight: float = 0.0      # State barrier penalty weight (0 = off)
 
     VALID_LOSS_TYPES = frozenset({"mse", "composite"})
     VALID_LOSS_REWEIGHTS = frozenset({"none", "lr_annealing", "relobralo"})
