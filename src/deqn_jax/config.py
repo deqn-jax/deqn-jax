@@ -7,7 +7,7 @@ Priority: --set overrides > CLI args > YAML file > defaults
 
 from dataclasses import dataclass, field, fields, asdict
 from difflib import get_close_matches
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, get_type_hints, get_origin, get_args, Union
 import copy
 
 
@@ -46,14 +46,22 @@ class OptimizerConfig:
 
     def __post_init__(self):
         """Coerce YAML string values to proper numeric types."""
-        self.learning_rate = float(self.learning_rate)
+        self.learning_rate = _coerce(self.learning_rate, float, "optimizer.learning_rate")
         if self.grad_clip is not None:
-            self.grad_clip = float(self.grad_clip)
-        self.weight_decay = float(self.weight_decay)
-        self.beta1 = float(self.beta1)
-        self.beta2 = float(self.beta2)
-        self.epsilon = float(self.epsilon)
-        self.lr_min_factor = float(self.lr_min_factor)
+            self.grad_clip = _coerce(self.grad_clip, float, "optimizer.grad_clip")
+        self.weight_decay = _coerce(self.weight_decay, float, "optimizer.weight_decay")
+        self.beta1 = _coerce(self.beta1, float, "optimizer.beta1")
+        self.beta2 = _coerce(self.beta2, float, "optimizer.beta2")
+        self.epsilon = _coerce(self.epsilon, float, "optimizer.epsilon")
+        self.damping = _coerce(self.damping, float, "optimizer.damping")
+        self.decay = _coerce(self.decay, float, "optimizer.decay")
+        self.block_size = _coerce(self.block_size, int, "optimizer.block_size")
+        self.precond_update_freq = _coerce(self.precond_update_freq, int, "optimizer.precond_update_freq")
+        self.memory_size = _coerce(self.memory_size, int, "optimizer.memory_size")
+        self.ns_steps = _coerce(self.ns_steps, int, "optimizer.ns_steps")
+        self.lr_warmup = _coerce(self.lr_warmup, int, "optimizer.lr_warmup")
+        self.lr_min_factor = _coerce(self.lr_min_factor, float, "optimizer.lr_min_factor")
+        _validate_field_types(self)
         self.validate()
 
     def validate(self):
@@ -118,14 +126,15 @@ class CompositeLossConfig:
 
     def __post_init__(self):
         """Coerce YAML string values to proper numeric types."""
-        self.anchor_weight = float(self.anchor_weight)
-        self.jac_weight = float(self.jac_weight)
-        self.barrier_weight = float(self.barrier_weight)
-        self.newton_weight = float(self.newton_weight)
-        self.n_anchor_points = int(self.n_anchor_points)
-        self.anchor_sigma = float(self.anchor_sigma)
-        self.leverage_mult = float(self.leverage_mult)
-        self.aux_decay_floor = float(self.aux_decay_floor)
+        self.anchor_weight = _coerce(self.anchor_weight, float, "composite_loss.anchor_weight")
+        self.jac_weight = _coerce(self.jac_weight, float, "composite_loss.jac_weight")
+        self.barrier_weight = _coerce(self.barrier_weight, float, "composite_loss.barrier_weight")
+        self.newton_weight = _coerce(self.newton_weight, float, "composite_loss.newton_weight")
+        self.n_anchor_points = _coerce(self.n_anchor_points, int, "composite_loss.n_anchor_points")
+        self.anchor_sigma = _coerce(self.anchor_sigma, float, "composite_loss.anchor_sigma")
+        self.leverage_mult = _coerce(self.leverage_mult, float, "composite_loss.leverage_mult")
+        self.aux_decay_floor = _coerce(self.aux_decay_floor, float, "composite_loss.aux_decay_floor")
+        _validate_field_types(self)
         self.validate()
 
     def validate(self):
@@ -172,6 +181,10 @@ class NetworkConfig:
             self.hidden_sizes = tuple(self.hidden_sizes)
         if isinstance(self.activations, list):
             self.activations = tuple(self.activations)
+        self.history_len = _coerce(self.history_len, int, "network.history_len")
+        self.num_heads = _coerce(self.num_heads, int, "network.num_heads")
+        self.n_layers = _coerce(self.n_layers, int, "network.n_layers")
+        _validate_field_types(self)
         self.validate()
 
     def validate(self):
@@ -283,13 +296,30 @@ class TrainConfig:
 
     def __post_init__(self):
         """Coerce YAML string values to proper numeric types."""
+        self.episodes = _coerce(self.episodes, int, "episodes")
+        self.batch_size = _coerce(self.batch_size, int, "batch_size")
+        self.episode_length = _coerce(self.episode_length, int, "episode_length")
+        self.mc_samples = _coerce(self.mc_samples, int, "mc_samples")
+        self.seed = _coerce(self.seed, int, "seed")
+        self.reweight_alpha = _coerce(self.reweight_alpha, float, "reweight_alpha")
+        self.log_every = _coerce(self.log_every, int, "log_every")
+        self.curriculum_episodes = _coerce(self.curriculum_episodes, int, "curriculum_episodes")
+        self.curriculum_start = _coerce(self.curriculum_start, float, "curriculum_start")
+        self.ss_reset_frac = _coerce(self.ss_reset_frac, float, "ss_reset_frac")
+        self.early_stop_min_delta = _coerce(self.early_stop_min_delta, float, "early_stop_min_delta")
+        self.n_quadrature_points = _coerce(self.n_quadrature_points, int, "n_quadrature_points")
+        self.barrier_weight = _coerce(self.barrier_weight, float, "barrier_weight")
         if self.switch_lr is not None:
-            self.switch_lr = float(self.switch_lr)
+            self.switch_lr = _coerce(self.switch_lr, float, "switch_lr")
         if self.switch_episode is not None:
-            self.switch_episode = int(self.switch_episode)
-        self.curriculum_start = float(self.curriculum_start)
-        self.ss_reset_frac = float(self.ss_reset_frac)
-        self.early_stop_min_delta = float(self.early_stop_min_delta)
+            self.switch_episode = _coerce(self.switch_episode, int, "switch_episode")
+        if self.checkpoint_every is not None:
+            self.checkpoint_every = _coerce(self.checkpoint_every, int, "checkpoint_every")
+        if self.max_checkpoints is not None:
+            self.max_checkpoints = _coerce(self.max_checkpoints, int, "max_checkpoints")
+        if self.early_stop_patience is not None:
+            self.early_stop_patience = _coerce(self.early_stop_patience, int, "early_stop_patience")
+        _validate_field_types(self)
         self.validate()
 
     def validate(self):
@@ -447,6 +477,113 @@ class TrainConfig:
 
         with open(path, "w") as f:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)
+
+
+def _coerce(value: Any, target: type, field_name: str) -> Any:
+    """Coerce *value* to *target* type with a clear error on failure.
+
+    Handles the common YAML case where numbers arrive as strings.
+    Booleans are never coerced to int/float (``True`` is not ``1``).
+    """
+    if isinstance(value, target) and not (target in (int, float) and isinstance(value, bool)):
+        return value
+    # Reject bool -> int/float coercion
+    if isinstance(value, bool):
+        raise TypeError(
+            f"{field_name}: expected {target.__name__}, got bool ({value!r})"
+        )
+    try:
+        return target(value)
+    except (TypeError, ValueError):
+        raise TypeError(
+            f"{field_name}: expected {target.__name__}, "
+            f"got {type(value).__name__} ({value!r})"
+        ) from None
+
+
+def _type_name(tp: type) -> str:
+    """Human-readable name for a type annotation."""
+    origin = get_origin(tp)
+    if origin is Union:
+        args = get_args(tp)
+        # Optional[X] is Union[X, None]
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1 and type(None) in args:
+            return f"Optional[{_type_name(non_none[0])}]"
+        return " | ".join(_type_name(a) for a in args)
+    if origin is list:
+        (inner,) = get_args(tp)
+        return f"List[{_type_name(inner)}]"
+    if origin is tuple:
+        args = get_args(tp)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return f"Tuple[{_type_name(args[0])}, ...]"
+        return f"Tuple[{', '.join(_type_name(a) for a in args)}]"
+    return getattr(tp, "__name__", str(tp))
+
+
+def _check_type(value: Any, tp: type) -> bool:
+    """Check if *value* matches type annotation *tp*.
+
+    Handles: str, int, float, bool, Optional[X], Tuple[X, ...],
+    List[X], and nested dataconfig classes.
+    """
+    origin = get_origin(tp)
+
+    # Optional[X] = Union[X, None]
+    if origin is Union:
+        return any(_check_type(value, arg) for arg in get_args(tp))
+
+    # List[X]
+    if origin is list:
+        if not isinstance(value, list):
+            return False
+        (inner,) = get_args(tp)
+        return all(_check_type(v, inner) for v in value)
+
+    # Tuple[X, ...]
+    if origin is tuple:
+        if not isinstance(value, tuple):
+            return False
+        args = get_args(tp)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return all(_check_type(v, args[0]) for v in value)
+        if len(args) != len(value):
+            return False
+        return all(_check_type(v, a) for v, a in zip(value, args))
+
+    # NoneType
+    if tp is type(None):
+        return value is None
+
+    # bool must be checked before int (bool is subclass of int)
+    if tp is bool:
+        return isinstance(value, bool)
+    if tp is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if tp is float:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    return isinstance(value, tp)
+
+
+def _validate_field_types(obj: Any) -> None:
+    """Validate all dataclass field types on *obj*.
+
+    Call after coercion in ``__post_init__`` to catch type mismatches
+    with clear error messages.  Skips class-var frozensets (VALID_*).
+    """
+    hints = get_type_hints(type(obj))
+    for f in fields(type(obj)):
+        tp = hints.get(f.name)
+        if tp is None:
+            continue
+        value = getattr(obj, f.name)
+        if not _check_type(value, tp):
+            raise TypeError(
+                f"{type(obj).__name__}.{f.name}: expected {_type_name(tp)}, "
+                f"got {type(value).__name__} ({value!r})"
+            )
 
 
 def _check_unknown_keys(

@@ -706,3 +706,128 @@ network:
         assert cfg.optimizer.name == "ngd"
         assert cfg.network.hidden_sizes == (128, 64)
         assert cfg.composite_loss.anchor_weight == 0.1
+
+
+# ---------------------------------------------------------------------------
+# Type validation
+# ---------------------------------------------------------------------------
+class TestTypeValidation:
+    # -- TrainConfig --
+    def test_episodes_string_non_numeric_raises(self):
+        with pytest.raises(TypeError, match="episodes.*expected int.*got str"):
+            TrainConfig(episodes="hello")
+
+    def test_episodes_list_raises(self):
+        with pytest.raises(TypeError, match="episodes.*expected int"):
+            TrainConfig(episodes=[1, 2])
+
+    def test_episodes_bool_raises(self):
+        with pytest.raises(TypeError, match="episodes.*expected int.*got bool"):
+            TrainConfig(episodes=True)
+
+    def test_episodes_string_numeric_coerced(self):
+        cfg = TrainConfig(episodes="500")
+        assert cfg.episodes == 500
+        assert isinstance(cfg.episodes, int)
+
+    def test_model_int_raises(self):
+        with pytest.raises(TypeError, match="TrainConfig.model.*expected str.*got int"):
+            TrainConfig(model=42)
+
+    def test_verbose_int_raises(self):
+        with pytest.raises(TypeError, match="TrainConfig.verbose.*expected bool.*got int"):
+            TrainConfig(verbose=1)
+
+    def test_verbose_string_raises(self):
+        with pytest.raises(TypeError, match="TrainConfig.verbose.*expected bool.*got str"):
+            TrainConfig(verbose="yes")
+
+    def test_batch_size_float_coerced(self):
+        # float 64.0 can coerce to int 64
+        cfg = TrainConfig(batch_size=64.0)
+        assert cfg.batch_size == 64
+        assert isinstance(cfg.batch_size, int)
+
+    def test_loss_weights_string_raises(self):
+        with pytest.raises(TypeError, match="TrainConfig.loss_weights.*expected Optional"):
+            TrainConfig(loss_weights="1.0,0.5")
+
+    # -- OptimizerConfig --
+    def test_learning_rate_string_non_numeric_raises(self):
+        with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float.*got str"):
+            OptimizerConfig(learning_rate="fast")
+
+    def test_learning_rate_list_raises(self):
+        with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float"):
+            OptimizerConfig(learning_rate=[0.01])
+
+    def test_learning_rate_bool_raises(self):
+        with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float.*got bool"):
+            OptimizerConfig(learning_rate=True)
+
+    def test_name_int_raises(self):
+        with pytest.raises(TypeError, match="OptimizerConfig.name.*expected str.*got int"):
+            OptimizerConfig(name=42)
+
+    def test_block_size_string_coerced(self):
+        cfg = OptimizerConfig(block_size="128")
+        assert cfg.block_size == 128
+
+    # -- NetworkConfig --
+    def test_hidden_sizes_string_raises(self):
+        with pytest.raises(TypeError, match="NetworkConfig.hidden_sizes.*expected Tuple"):
+            NetworkConfig(hidden_sizes="64,64")
+
+    def test_hidden_sizes_int_raises(self):
+        with pytest.raises(TypeError, match="NetworkConfig.hidden_sizes.*expected Tuple"):
+            NetworkConfig(hidden_sizes=64)
+
+    def test_activation_int_raises(self):
+        with pytest.raises(TypeError, match="NetworkConfig.activation.*expected str.*got int"):
+            NetworkConfig(activation=0)
+
+    def test_multi_head_int_raises(self):
+        with pytest.raises(TypeError, match="NetworkConfig.multi_head.*expected bool.*got int"):
+            NetworkConfig(multi_head=1)
+
+    # -- CompositeLossConfig --
+    def test_anchor_weight_list_raises(self):
+        with pytest.raises(TypeError, match="composite_loss.anchor_weight.*expected float"):
+            CompositeLossConfig(anchor_weight=[0.1])
+
+    def test_anchor_weight_bool_raises(self):
+        with pytest.raises(TypeError, match="composite_loss.anchor_weight.*expected float.*got bool"):
+            CompositeLossConfig(anchor_weight=True)
+
+    def test_n_anchor_points_float_coerced(self):
+        cfg = CompositeLossConfig(n_anchor_points=64.0)
+        assert cfg.n_anchor_points == 64
+        assert isinstance(cfg.n_anchor_points, int)
+
+    # -- YAML type errors --
+    def test_yaml_wrong_type_raises(self):
+        yaml_content = """
+episodes: [1, 2, 3]
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False,
+        ) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(TypeError, match="episodes.*expected int"):
+                TrainConfig.from_yaml(f.name)
+        os.unlink(f.name)
+
+    def test_yaml_optimizer_wrong_type_raises(self):
+        yaml_content = """
+optimizer:
+  learning_rate: [0.01, 0.001]
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False,
+        ) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float"):
+                TrainConfig.from_yaml(f.name)
+        os.unlink(f.name)
