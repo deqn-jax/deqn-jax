@@ -1369,6 +1369,14 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Determine history length from network (Python-level, before JIT) ----
     history_len = get_history_len(state.params)
 
+    # ---- Episode soft clip switch ----
+    if not getattr(config, "episode_soft_clip", True):
+        model = model._replace(soft_clip_state_fn=None)
+        if config.verbose:
+            print("  Episode soft clip: DISABLED")
+    elif model.soft_clip_state_fn is not None and config.verbose:
+        print("  Episode soft clip: enabled")
+
     # ---- Build composite loss if configured ----
     custom_loss_fn = None
     if getattr(config, "loss_type", "mse") == "composite":
@@ -1399,6 +1407,14 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         )
         if config.verbose:
             print("  Composite loss ready.")
+
+    # ---- State barrier penalty ----
+    barrier_weight = getattr(config, "barrier_weight", 0.0)
+    if barrier_weight > 0 and custom_loss_fn is None and model.state_barrier_fn is not None:
+        from functools import partial
+        custom_loss_fn = partial(compute_loss, barrier_weight=barrier_weight)
+        if config.verbose:
+            print(f"  State barrier: weight={barrier_weight}")
 
     # ---- Create JIT-compiled train step ----
     gradient_surgery = getattr(config, "gradient_surgery", "none")

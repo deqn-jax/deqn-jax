@@ -2,6 +2,7 @@
 
 from typing import Dict
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -34,12 +35,44 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     ], axis=1)
 
 
-# Safety bounds for long-horizon simulation only (evaluate, irf).
-# NOT used in training loss path — hard clips kill gradients.
+# ---------- State bounds ----------
+# Hard clip bounds for eval/irf simulation safety (NOT training).
+#          pi    k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
 _SIM_LOWER = jnp.array([0.8, 5.0, 0.1, 0.3, 0.1, 0.99, 0.5, 0.5, 0.7, 0.8, 0.3, 0.97, -3.0])
 _SIM_UPPER = jnp.array([1.3, 80.0, 5.0, 3.0, 3.0, 1.15, 5.0, 8.0, 1.4, 1.3, 1.2, 1.04, 3.0])
 
+# Soft clip bounds: ~3x the plausible deviation from SS.
+# Tighter than "NaN-prevention" but differentiable (gradient never zero).
+# All margins > 0.5 from SS so softplus(k=5) distortion is < 1%.
+#              pi    k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
+_SOFT_LOWER = jnp.array([0.5, 1.0, 0.05, 0.05, 0.05, 0.5, 0.2, 0.2, 0.5, 0.5, 0.1, 0.5, -5.0])
+_SOFT_UPPER = jnp.array([1.5, 100.0, 8.0, 5.0, 5.0, 1.5, 6.0, 10.0, 1.6, 1.6, 1.5, 1.5, 5.0])
+
 
 def clip_state(state: Array) -> Array:
-    """Clip states for simulation safety (eval/irf only, NOT training)."""
+    """Hard clip for simulation safety (eval/irf only, NOT training)."""
     return jnp.clip(state, _SIM_LOWER, _SIM_UPPER)
+
+
+def soft_clip_state(state: Array) -> Array:
+    """Differentiable clip for episode trajectories.
+
+    Uses chained softplus with very wide bounds: gradient attenuates
+    smoothly near bounds but never reaches exactly zero. Wide bounds
+    ensure < 1% distortion at SS values.
+    """
+    k = 5.0
+    x = _SOFT_LOWER + jax.nn.softplus(k * (state - _SOFT_LOWER)) / k
+    x = _SOFT_UPPER - jax.nn.softplus(k * (_SOFT_UPPER - x)) / k
+    return x
+
+
+def compute_state_barrier(state: Array) -> Array:
+    """Box barrier penalty on states outside plausible bounds.
+
+    Returns per-sample penalty [batch]. Added to loss with barrier_weight.
+    Uses relu² (exactly zero inside bounds, quadratic outside).
+    """
+    over = jnp.maximum(state - _SIM_UPPER, 0.0)
+    under = jnp.maximum(_SIM_LOWER - state, 0.0)
+    return jnp.mean(over**2 + under**2, axis=-1)

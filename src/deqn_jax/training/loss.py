@@ -191,6 +191,7 @@ def compute_loss(
     shock_scale: float = 1.0,
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
+    barrier_weight: float = 0.0,
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with MC or quadrature expectations.
 
@@ -214,6 +215,7 @@ def compute_loss(
         shock_scale: Curriculum scaling for shocks (0→1 ramp)
         quad_nodes: Quadrature nodes [n_nodes, shock_dim] (None -> use MC)
         quad_weights: Quadrature weights [n_nodes] (None -> use MC)
+        barrier_weight: Weight for state barrier penalty (0 = off)
 
     Returns:
         Tuple of (scalar loss, dict of per-equation losses)
@@ -256,6 +258,16 @@ def compute_loss(
         eq_losses[eq_name] = eq_loss
         w = 1.0 if weights is None else weights[i]
         total_loss = total_loss + w * eq_loss
+
+    # State barrier: penalize next_states outside plausible bounds
+    if barrier_weight > 0 and model.state_barrier_fn is not None:
+        current_states = states[:, -1, :] if states.ndim == 3 else states
+        policy = jax.vmap(policy_fn)(current_states)
+        zero_shock = jnp.zeros((batch_size, model.n_shocks))
+        next_states = model.step_fn(current_states, policy, zero_shock, model.constants)
+        barrier = jnp.mean(model.state_barrier_fn(next_states))
+        total_loss = total_loss + barrier_weight * barrier
+        eq_losses["aux_state_barrier"] = barrier
 
     return total_loss, eq_losses
 

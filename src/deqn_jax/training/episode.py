@@ -45,9 +45,10 @@ def simulate_step(
     # Transition
     next_state = model.step_fn(state, policy, shock, model.constants)
 
-    # Clip for trajectory stability (NOT in loss path — no gradient flows here)
-    if model.clip_state_fn is not None:
-        next_state = model.clip_state_fn(next_state)
+    # Soft clip for trajectory stability (differentiable — gradients attenuate
+    # near bounds but never die, unlike hard jnp.clip)
+    if model.soft_clip_state_fn is not None:
+        next_state = model.soft_clip_state_fn(next_state)
 
     return next_state, shock
 

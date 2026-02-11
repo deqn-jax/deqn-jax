@@ -15,7 +15,7 @@ from deqn_jax.models.disaster.variables import (
     SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER,
 )
 from deqn_jax.models.disaster.equations import equations, definitions, EQUATION_NAMES
-from deqn_jax.models.disaster.dynamics import step, clip_state
+from deqn_jax.models.disaster.dynamics import step, clip_state, soft_clip_state, compute_state_barrier
 from deqn_jax.models.disaster.steady_state import steady_state, init_state
 
 MODEL = ModelSpec(
@@ -34,5 +34,7 @@ MODEL = ModelSpec(
     definitions_fn=definitions,
     policy_lower=POLICY_LOWER,
     policy_upper=POLICY_UPPER,  # None → softplus bounding (no gradient death)
-    clip_state_fn=clip_state,   # Simulation safety only (NOT in training loss path)
+    clip_state_fn=clip_state,          # Hard clip for eval/irf only
+    soft_clip_state_fn=soft_clip_state, # Differentiable clip for episode trajectories
+    state_barrier_fn=compute_state_barrier,  # Box penalty for loss
 )
