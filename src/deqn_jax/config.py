@@ -6,7 +6,8 @@ Priority: --set overrides > CLI args > YAML file > defaults
 """
 
 from dataclasses import dataclass, field, fields, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from difflib import get_close_matches
+from typing import Any, Dict, List, Optional, Set, Tuple
 import copy
 
 
@@ -390,22 +391,22 @@ class TrainConfig:
         if "loss_weights" in d and isinstance(d["loss_weights"], list):
             d["loss_weights"] = list(d["loss_weights"])
 
-        # Filter to known fields only
+        # Validate: reject unknown keys
         opt_fields = {f.name for f in fields(OptimizerConfig)}
         net_fields = {f.name for f in fields(NetworkConfig)}
         comp_fields = {f.name for f in fields(CompositeLossConfig)}
         train_fields = {f.name for f in fields(TrainConfig)}
 
-        opt_kw = {k: v for k, v in opt_dict.items() if k in opt_fields}
-        net_kw = {k: v for k, v in net_dict.items() if k in net_fields}
-        comp_kw = {k: v for k, v in comp_dict.items() if k in comp_fields}
-        train_kw = {k: v for k, v in d.items() if k in train_fields}
+        _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
+        _check_unknown_keys(set(net_dict.keys()), net_fields, "network")
+        _check_unknown_keys(set(comp_dict.keys()), comp_fields, "composite_loss")
+        _check_unknown_keys(set(d.keys()), train_fields, "config")
 
         return cls(
-            optimizer=OptimizerConfig(**opt_kw),
-            network=NetworkConfig(**net_kw),
-            composite_loss=CompositeLossConfig(**comp_kw),
-            **train_kw,
+            optimizer=OptimizerConfig(**opt_dict),
+            network=NetworkConfig(**net_dict),
+            composite_loss=CompositeLossConfig(**comp_dict),
+            **{k: v for k, v in d.items() if k in train_fields},
         )
 
     @classmethod
@@ -448,6 +449,32 @@ class TrainConfig:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)
 
 
+def _check_unknown_keys(
+    provided: Set[str],
+    valid: Set[str],
+    context: str,
+) -> None:
+    """Raise ValueError if *provided* contains keys not in *valid*.
+
+    Includes "did you mean?" suggestions using difflib.
+    """
+    unknown = provided - valid
+    if not unknown:
+        return
+    parts = []
+    for key in sorted(unknown):
+        matches = get_close_matches(key, sorted(valid), n=3, cutoff=0.6)
+        if matches:
+            parts.append(f"  '{key}' (did you mean: {', '.join(repr(m) for m in matches)}?)")
+        else:
+            parts.append(f"  '{key}'")
+    raise ValueError(
+        f"Unknown keys in {context}:\n"
+        + "\n".join(parts)
+        + f"\nValid keys: {sorted(valid)}"
+    )
+
+
 def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
     """Flatten a TrainConfig into dot-notation keys."""
     flat: Dict[str, Any] = {}
@@ -479,20 +506,22 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     comp_fields = {f.name for f in fields(CompositeLossConfig)}
     train_fields = {f.name for f in fields(TrainConfig)} - {"optimizer", "network", "composite_loss"}
 
+    # Build set of all valid flat keys for validation
+    valid_flat_keys = set(train_fields)
+    valid_flat_keys |= {f"optimizer.{n}" for n in opt_fields}
+    valid_flat_keys |= {f"network.{n}" for n in net_fields}
+    valid_flat_keys |= {f"composite_loss.{n}" for n in comp_fields}
+
+    _check_unknown_keys(set(flat.keys()), valid_flat_keys, "config overrides")
+
     for key, val in flat.items():
         if key.startswith("optimizer."):
-            subkey = key[len("optimizer."):]
-            if subkey in opt_fields:
-                opt_kw[subkey] = val
+            opt_kw[key[len("optimizer."):]] = val
         elif key.startswith("network."):
-            subkey = key[len("network."):]
-            if subkey in net_fields:
-                net_kw[subkey] = val
+            net_kw[key[len("network."):]] = val
         elif key.startswith("composite_loss."):
-            subkey = key[len("composite_loss."):]
-            if subkey in comp_fields:
-                comp_kw[subkey] = val
-        elif key in train_fields:
+            comp_kw[key[len("composite_loss."):]] = val
+        else:
             train_kw[key] = val
 
     return TrainConfig(
@@ -557,6 +586,10 @@ def load_config(
                 flat[f"optimizer.{key}"] = val
             elif f"network.{key}" in flat:
                 flat[f"network.{key}"] = val
+            else:
+                matches = get_close_matches(key, sorted(flat.keys()), n=3, cutoff=0.6)
+                hint = f" (did you mean: {', '.join(repr(m) for m in matches)}?)" if matches else ""
+                raise ValueError(f"Unknown CLI config key '{key}'{hint}")
         config = _flat_dict_to_config(flat)
 
     # Apply --set overrides last (highest priority)

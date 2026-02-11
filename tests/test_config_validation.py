@@ -453,13 +453,40 @@ class TestEdgeCases:
         assert _infer_type(3.14) == 3.14
         assert _infer_type(None) is None
 
-    def test_from_dict_unknown_keys_ignored(self):
-        cfg = TrainConfig.from_dict({
-            "model": "brock_mirman",
-            "totally_unknown_key": 999,
-        })
-        assert cfg.model == "brock_mirman"
-        assert not hasattr(cfg, "totally_unknown_key")
+    def test_from_dict_unknown_top_level_key_raises(self):
+        with pytest.raises(ValueError, match="(?s)Unknown keys in config.*totally_unknown_key"):
+            TrainConfig.from_dict({
+                "model": "brock_mirman",
+                "totally_unknown_key": 999,
+            })
+
+    def test_from_dict_unknown_optimizer_key_raises(self):
+        with pytest.raises(ValueError, match="(?s)Unknown keys in optimizer.*momentum"):
+            TrainConfig.from_dict({
+                "optimizer": {"name": "adam", "momentum": 0.9},
+            })
+
+    def test_from_dict_unknown_network_key_raises(self):
+        with pytest.raises(ValueError, match="(?s)Unknown keys in network.*dropout"):
+            TrainConfig.from_dict({
+                "network": {"type": "mlp", "dropout": 0.1},
+            })
+
+    def test_from_dict_unknown_composite_loss_key_raises(self):
+        with pytest.raises(ValueError, match="(?s)Unknown keys in composite_loss.*temperature"):
+            TrainConfig.from_dict({
+                "composite_loss": {"anchor_weight": 0.1, "temperature": 1.0},
+            })
+
+    def test_from_dict_typo_suggests_correction(self):
+        with pytest.raises(ValueError, match="did you mean.*'episodes'"):
+            TrainConfig.from_dict({"episode": 500})
+
+    def test_from_dict_optimizer_typo_suggests_correction(self):
+        with pytest.raises(ValueError, match="did you mean.*'learning_rate'"):
+            TrainConfig.from_dict({
+                "optimizer": {"leaning_rate": 0.01},
+            })
 
     def test_from_dict_empty_sub_dicts(self):
         cfg = TrainConfig.from_dict({
@@ -588,3 +615,94 @@ episodes: -5
             with pytest.raises(ValueError, match="episodes must be > 0"):
                 load_config(config_path=f.name)
         os.unlink(f.name)
+
+    def test_load_config_unknown_cli_kwarg_raises(self):
+        with pytest.raises(ValueError, match="Unknown CLI config key 'bogus_param'"):
+            load_config(bogus_param=42)
+
+    def test_load_config_yaml_unknown_key_raises(self):
+        yaml_content = """
+model: brock_mirman
+precision: fp64
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False,
+        ) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(ValueError, match="(?s)Unknown keys in config.*precision"):
+                load_config(config_path=f.name)
+        os.unlink(f.name)
+
+
+# ---------------------------------------------------------------------------
+# Strict key validation
+# ---------------------------------------------------------------------------
+class TestStrictKeyValidation:
+    def test_with_overrides_unknown_key_raises(self):
+        cfg = TrainConfig()
+        with pytest.raises(ValueError, match="Unknown keys in config overrides"):
+            cfg.with_overrides({"bogus_key": 42})
+
+    def test_with_overrides_unknown_dot_key_raises(self):
+        cfg = TrainConfig()
+        with pytest.raises(ValueError, match="(?s)Unknown keys in config overrides.*optimizer.momentum"):
+            cfg.with_overrides({"optimizer.momentum": 0.9})
+
+    def test_with_overrides_valid_keys_pass(self):
+        cfg = TrainConfig()
+        new = cfg.with_overrides({
+            "episodes": "500",
+            "optimizer.learning_rate": "0.01",
+            "network.activation": "relu",
+        })
+        assert new.episodes == 500
+        assert new.optimizer.learning_rate == 0.01
+        assert new.network.activation == "relu"
+
+    def test_yaml_unknown_optimizer_key_raises(self):
+        yaml_content = """
+optimizer:
+  name: adam
+  schedule: cosine
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False,
+        ) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(ValueError, match="(?s)Unknown keys in optimizer.*schedule"):
+                TrainConfig.from_yaml(f.name)
+        os.unlink(f.name)
+
+    def test_yaml_unknown_network_key_raises(self):
+        yaml_content = """
+network:
+  type: mlp
+  batch_norm: true
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False,
+        ) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(ValueError, match="(?s)Unknown keys in network.*batch_norm"):
+                TrainConfig.from_yaml(f.name)
+        os.unlink(f.name)
+
+    def test_multiple_unknown_keys_all_reported(self):
+        with pytest.raises(ValueError, match="foo.*\n.*bar|bar.*\n.*foo"):
+            TrainConfig.from_dict({"foo": 1, "bar": 2})
+
+    def test_valid_config_dict_passes(self):
+        cfg = TrainConfig.from_dict({
+            "model": "disaster",
+            "episodes": 500,
+            "optimizer": {"name": "ngd", "learning_rate": 0.01},
+            "network": {"hidden_sizes": [128, 64]},
+            "composite_loss": {"anchor_weight": 0.1},
+        })
+        assert cfg.model == "disaster"
+        assert cfg.optimizer.name == "ngd"
+        assert cfg.network.hidden_sizes == (128, 64)
+        assert cfg.composite_loss.anchor_weight == 0.1
