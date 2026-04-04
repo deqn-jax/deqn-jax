@@ -181,7 +181,7 @@ class TransformerPolicy(eqx.Module):
         x = jax.vmap(self.input_proj)(x)
 
         # Add positional embeddings
-        x = x + jax.lax.stop_gradient(self.pos_embed[:x.shape[0]])
+        x = x + self.pos_embed[:x.shape[0]]
 
         # Transformer blocks
         for block in self.blocks:

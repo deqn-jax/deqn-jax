@@ -278,7 +278,8 @@ def compute_loss(
     # State barrier: penalize next_states outside plausible bounds
     if barrier_weight > 0 and model.state_barrier_fn is not None:
         current_states = states[:, -1, :] if states.ndim == 3 else states
-        policy = jax.vmap(policy_fn)(current_states)
+        # policy_fn needs the full input (history window or plain states)
+        policy = policy_fn(states)
         zero_shock = jnp.zeros((batch_size, model.n_shocks))
         next_states = model.step_fn(current_states, policy, zero_shock, model.constants)
         barrier = jnp.mean(model.state_barrier_fn(next_states))

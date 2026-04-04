@@ -852,6 +852,7 @@ def _make_mao_step(
             _, eq_losses = compute_loss(
                 model, full_params, train_states, loss_key, mc_samples,
                 weights=None,  # MAO handles weighting internally
+                shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
@@ -1026,6 +1027,8 @@ def _make_gn_step(
             ss_reset_frac=ss_reset_frac,
         )
 
+        target_fn = state.target_params if use_target_network else None
+
         # Residual function: params -> [n_eq * batch] per-batch E_shock[r]
 
         def residual_fn(params):
@@ -1044,7 +1047,8 @@ def _make_gn_step(
                 sample_weights = jnp.ones(n_samples) / n_samples
 
             def sample_residuals(shock):
-                return compute_residuals(model, params, train_states, shock)
+                return compute_residuals(model, params, train_states, shock,
+                                         target_policy_fn=target_fn)
 
             all_residuals = jax.vmap(sample_residuals)(shocks)
             # all_residuals: Dict[str, [n_samples, batch]]
@@ -1061,6 +1065,7 @@ def _make_gn_step(
             model, state.params, train_states, loss_key, mc_samples,
             weights=state.loss_weights, shock_scale=shock_scale,
             quad_nodes=quad_nodes, quad_weights=quad_weights,
+            target_policy_fn=target_fn,
         )
 
         # GN update: optimizer handles Jacobian computation internally
@@ -1432,6 +1437,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             newton_weight=comp_cfg.newton_weight,
             leverage_mult=comp_cfg.leverage_mult,
             aux_decay_floor=comp_cfg.aux_decay_floor,
+            history_len=history_len,
         )
         if config.verbose:
             print("  Composite loss ready.")

@@ -102,22 +102,44 @@ def prepare_composite_data(
     )
 
 
+def _make_markov_wrapper(
+    policy_fn: Callable[[Array], Array],
+    history_len: int,
+) -> Callable[[Array], Array]:
+    """Wrap a sequence policy to accept plain state vectors.
+
+    For MLP (history_len=1), returns policy_fn unchanged.
+    For LSTM/Transformer (history_len>1), tiles the state into a constant-history
+    window [H, n_states] so the policy can be called on a single state vector.
+    """
+    if history_len <= 1:
+        return policy_fn
+    def wrapper(state: Array) -> Array:
+        # state: [n_states] -> [H, n_states] constant window
+        window = jnp.broadcast_to(state, (history_len, state.shape[-1]))
+        return policy_fn(window)
+    return wrapper
+
+
 def _anchor_loss(
     policy_fn: Callable[[Array], Array],
     data: CompositeData,
+    history_len: int = 1,
 ) -> Array:
     """Anchor loss: ||f_net(x) - f_lin(x)||^2 at pre-sampled points near SS.
 
     Uses fixed sample points (precomputed in prepare_composite_data) so the
     anchor loss is deterministic — no per-step random sampling noise in gradients.
     """
-    net_policy = jax.vmap(policy_fn)(data.anchor_points)  # [n_anchor, n_policies]
+    markov_fn = _make_markov_wrapper(policy_fn, history_len)
+    net_policy = jax.vmap(markov_fn)(data.anchor_points)  # [n_anchor, n_policies]
     return jnp.mean((net_policy - data.anchor_lin_policy) ** 2)
 
 
 def _jac_loss(
     policy_fn: Callable[[Array], Array],
     data: CompositeData,
+    history_len: int = 1,
 ) -> Array:
     """Jacobian loss: ||J_net(ss) - P||^2_F.
 
@@ -125,8 +147,9 @@ def _jac_loss(
     from the linearized policy rule matrix P. This ensures the net has
     the correct first-order response to state perturbations.
     """
+    markov_fn = _make_markov_wrapper(policy_fn, history_len)
     # Jacobian of net at SS: [n_policies, n_states]
-    J_net = jax.jacfwd(policy_fn)(data.ss_state)
+    J_net = jax.jacfwd(markov_fn)(data.ss_state)
     return jnp.mean((J_net - data.P) ** 2)
 
 
@@ -191,6 +214,7 @@ def make_composite_loss(
     newton_weight: float = 0.01,
     leverage_mult: float = 5.0,
     aux_decay_floor: float = 0.2,
+    history_len: int = 1,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
@@ -217,12 +241,15 @@ def make_composite_loss(
         shock_scale: float = 1.0,
         quad_nodes: Optional[Array] = None,
         quad_weights: Optional[Array] = None,
+        barrier_weight: float = 0.0,
+        target_policy_fn: Optional[Callable[[Array], Array]] = None,
     ) -> Tuple[Array, Dict[str, Array]]:
         # 1. Base MSE loss (standard Euler residuals)
         base_loss, eq_losses = compute_loss(
             model_, policy_fn, states, key, mc_samples,
             weights=weights, shock_scale=shock_scale,
             quad_nodes=quad_nodes, quad_weights=quad_weights,
+            target_policy_fn=target_policy_fn,
         )
 
         # Anchor + jac decay: fade as curriculum progresses, but keep a floor
@@ -231,19 +258,21 @@ def make_composite_loss(
         aux_decay = jnp.maximum(aux_decay_floor, 1.0 - _ss)
 
         # 2. Anchor loss: net should match linearized policy near SS
-        anchor = _anchor_loss(policy_fn, data)
+        anchor = _anchor_loss(policy_fn, data, history_len=history_len)
         eq_losses["aux_anchor"] = anchor
 
         # 3. Jacobian loss: net Jacobian at SS should match P
-        jac = _jac_loss(policy_fn, data)
+        jac = _jac_loss(policy_fn, data, history_len=history_len)
         eq_losses["aux_jac"] = jac
 
         # 4. Barrier + Newton losses from training batch definitions
         # TODO: redundant vmap — base loss already evaluates definitions() internally.
         # Fixing this requires changing compute_loss to return intermediate defs.
+        # Extract current states from history window for definitions()
+        current_states = states[:, -1, :] if states.ndim == 3 else states
         defs = jax.vmap(
-            lambda s: model_.definitions_fn(s, policy_fn(s), model_.constants)
-        )(states)
+            lambda s: model_.definitions_fn(s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants)
+        )(current_states)
 
         barriers = _barrier_losses(defs, data, leverage_mult)
         eq_losses.update(barriers)
