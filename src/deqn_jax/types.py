@@ -138,6 +138,7 @@ class TrainState(NamedTuple):
     episode: int
     loss_weights: Array  # [n_eq] per-equation weights
     reweight_state: ReweightState  # adaptive reweighting state
+    target_params: Any = None  # Frozen policy for target network (DQN-style)
 
 
 class EpisodeState(NamedTuple):

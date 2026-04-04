@@ -634,6 +634,7 @@ def _make_standard_step(
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
 ):
     """Standard train step: jax.grad + opt.update(grads, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
@@ -646,11 +647,15 @@ def _make_standard_step(
             ss_reset_frac=ss_reset_frac,
         )
 
+        # Target network: frozen copy for next_policy (breaks self-referential loop)
+        target_fn = state.target_params if use_target_network else None
+
         def loss_fn(params):
             loss, eq_losses = _compute_loss(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return loss, eq_losses
 
@@ -678,6 +683,7 @@ def _make_standard_step(
             episode=state.episode + 1,
             loss_weights=new_weights,
             reweight_state=new_rw,
+            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
@@ -697,6 +703,7 @@ def _make_pcgrad_step(
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
 ):
     """PCGrad train step: per-equation gradients with conflict projection.
 
@@ -718,12 +725,15 @@ def _make_pcgrad_step(
             ss_reset_frac=ss_reset_frac,
         )
 
+        target_fn = state.target_params if use_target_network else None
+
         # Per-equation loss vector for jacrev (always base compute_loss)
         def eq_loss_vector(params):
             _, eq_losses = compute_loss(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return eq_losses_to_array(eq_losses)
 
@@ -733,6 +743,7 @@ def _make_pcgrad_step(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return loss, eq_losses
 
@@ -796,6 +807,7 @@ def _make_pcgrad_step(
             episode=state.episode + 1,
             loss_weights=new_weights,
             reweight_state=new_rw,
+            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
@@ -816,6 +828,7 @@ def _make_mao_step(
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
 ):
     """MAO train step: per-equation Jacobian -> mao.update(eq_jac, state, params)."""
     n_eq = len(model.equation_names) if model.equation_names else 1
@@ -829,6 +842,7 @@ def _make_mao_step(
             ss_reset_frac=ss_reset_frac,
         )
 
+        target_fn = state.target_params if use_target_network else None
         params_arrays = eqx.filter(state.params, eqx.is_array)
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
 
@@ -839,6 +853,7 @@ def _make_mao_step(
                 model, full_params, train_states, loss_key, mc_samples,
                 weights=None,  # MAO handles weighting internally
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return eq_losses_to_array(eq_losses)
 
@@ -851,6 +866,7 @@ def _make_mao_step(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return loss, eq_losses
 
@@ -885,6 +901,7 @@ def _make_mao_step(
             episode=state.episode + 1,
             loss_weights=new_weights,
             reweight_state=new_rw,
+            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
@@ -904,6 +921,7 @@ def _make_lbfgs_step(
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
 ):
     """L-BFGS train step: passes value + value_fn for line search."""
     n_eq = len(model.equation_names) if model.equation_names else 1
@@ -916,6 +934,7 @@ def _make_lbfgs_step(
             ss_reset_frac=ss_reset_frac,
         )
 
+        target_fn = state.target_params if use_target_network else None
         params_arrays = eqx.filter(state.params, eqx.is_array)
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
 
@@ -924,6 +943,7 @@ def _make_lbfgs_step(
                 model, params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return loss, eq_losses
 
@@ -938,6 +958,7 @@ def _make_lbfgs_step(
                 model, full_params, train_states, loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
             )
             return v
 
@@ -966,6 +987,7 @@ def _make_lbfgs_step(
             episode=state.episode + 1,
             loss_weights=new_weights,
             reweight_state=new_rw,
+            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
@@ -985,6 +1007,7 @@ def _make_gn_step(
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
 ):
     """Gauss-Newton / Levenberg-Marquardt train step.
 
@@ -1062,6 +1085,7 @@ def _make_gn_step(
             episode=state.episode + 1,
             loss_weights=new_weights,
             reweight_state=new_rw,
+            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
@@ -1088,6 +1112,7 @@ def make_train_step(
     history_len: int = 1,
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
 ):
     """Create a JIT-compiled training step function.
 
@@ -1125,6 +1150,7 @@ def make_train_step(
         history_len=history_len,
         compute_loss_fn=compute_loss_fn,
         ss_reset_frac=ss_reset_frac,
+        use_target_network=use_target_network,
     )
 
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
@@ -1144,6 +1170,7 @@ def make_train_step(
             history_len=history_len,
             compute_loss_fn=compute_loss_fn,
             ss_reset_frac=ss_reset_frac,
+            use_target_network=use_target_network,
         )
     elif kind == OptimizerKind.LBFGS:
         return _make_lbfgs_step(**kwargs)
@@ -1190,16 +1217,15 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
 
     # ---- Build LR schedule helper for logging ----
     from deqn_jax.optimizers.registry import _build_lr_schedule
-    import copy as _copy
 
     # When a schedule is active, the optimizer is created with lr=1.0.
     # The actual LR is passed as a dynamic scalar to train_step each episode.
     has_schedule = config.optimizer.lr_schedule != "constant"
     if has_schedule:
         total_for_schedule = config.episodes  # overridden below for resume
-        effective_opt_cfg = _copy.copy(config.optimizer)
-        effective_opt_cfg.learning_rate = 1.0
-        effective_opt_cfg.lr_schedule = "constant"
+        effective_opt_cfg = config.optimizer.model_copy(
+            update={"learning_rate": 1.0, "lr_schedule": "constant"}
+        )
     else:
         effective_opt_cfg = config.optimizer
 
@@ -1369,13 +1395,15 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Determine history length from network (Python-level, before JIT) ----
     history_len = get_history_len(state.params)
 
-    # ---- Episode soft clip switch ----
-    if not getattr(config, "episode_soft_clip", True):
-        model = model._replace(soft_clip_state_fn=None)
-        if config.verbose:
-            print("  Episode soft clip: DISABLED")
-    elif model.soft_clip_state_fn is not None and config.verbose:
-        print("  Episode soft clip: enabled")
+    # Soft clip is baked into disaster model's step() — no runtime switch needed.
+    # The episode_soft_clip config field is kept for backward compat but ignored.
+
+    # ---- Shock mask ----
+    if config.shock_mask is not None and config.verbose:
+        shock_names = model.shock_names if hasattr(model, 'shock_names') and model.shock_names else [f"shock_{i}" for i in range(model.n_shocks)]
+        active = [n for n, m in zip(shock_names, config.shock_mask) if m > 0]
+        zeroed = [n for n, m in zip(shock_names, config.shock_mask) if m == 0]
+        print(f"  Shock mask: active={active}, zeroed={zeroed}")
 
     # ---- Build composite loss if configured ----
     custom_loss_fn = None
@@ -1416,6 +1444,14 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         if config.verbose:
             print(f"  State barrier: weight={barrier_weight}")
 
+    # ---- Target network setup ----
+    use_target = config.target_update_every > 0
+    if use_target:
+        state = state._replace(target_params=state.params)
+        if config.verbose:
+            print(f"  Target network: update every {config.target_update_every} episodes"
+                  f" (tau={config.target_tau})")
+
     # ---- Create JIT-compiled train step ----
     gradient_surgery = getattr(config, "gradient_surgery", "none")
     train_step = make_train_step(
@@ -1430,6 +1466,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         history_len=history_len,
         compute_loss_fn=custom_loss_fn,
         ss_reset_frac=getattr(config, "ss_reset_frac", 0.0),
+        use_target_network=use_target,
     )
 
     # ---- Mid-training optimizer switch setup ----
@@ -1500,6 +1537,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 history_len=history_len,
                 compute_loss_fn=custom_loss_fn,
                 ss_reset_frac=getattr(config, "ss_reset_frac", 0.0),
+                use_target_network=use_target,
             )
             switched = True
             # Reset early stopping after optimizer switch
@@ -1522,10 +1560,34 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             shock_scale_val = config.curriculum_start + (1.0 - config.curriculum_start) * t
         else:
             shock_scale_val = 1.0
-        shock_scale = jnp.array(shock_scale_val)
+
+        # Per-shock masking: shock_mask=[1,0,1,1,1] zeros shock 1.
+        # Multiply into shock_scale so it becomes a vector [n_shocks].
+        # Broadcasting in loss.py handles scalar vs vector transparently.
+        if config.shock_mask is not None:
+            shock_scale = jnp.array(shock_scale_val) * jnp.array(config.shock_mask)
+        else:
+            shock_scale = jnp.array(shock_scale_val)
 
         state, metrics = train_step(state, lr_scale, shock_scale)
         last_metrics = metrics
+
+        # Periodic target network update (Polyak averaging or hard copy)
+        if use_target and ep_num % config.target_update_every == 0:
+            if config.target_tau >= 1.0:
+                # Hard copy
+                state = state._replace(target_params=state.params)
+            else:
+                # Polyak: target = tau * current + (1-tau) * target
+                tau = config.target_tau
+                new_target = jax.tree.map(
+                    lambda p, t: tau * p + (1 - tau) * t,
+                    eqx.filter(state.params, eqx.is_array),
+                    eqx.filter(state.target_params, eqx.is_array),
+                )
+                state = state._replace(
+                    target_params=eqx.combine(new_target, state.params)
+                )
 
         loss_val = float(metrics.loss)
         grad_val = float(metrics.grad_norm)

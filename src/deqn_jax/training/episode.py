@@ -42,13 +42,8 @@ def simulate_step(
     # Get policy
     policy = policy_fn(state)
 
-    # Transition
+    # Transition (soft clip is baked into model step_fn for disaster model)
     next_state = model.step_fn(state, policy, shock, model.constants)
-
-    # Soft clip for trajectory stability (differentiable — gradients attenuate
-    # near bounds but never die, unlike hard jnp.clip)
-    if model.soft_clip_state_fn is not None:
-        next_state = model.soft_clip_state_fn(next_state)
 
     return next_state, shock
 

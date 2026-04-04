@@ -136,6 +136,7 @@ def compute_residuals(
     policy_fn: Callable[[Array], Array],
     train_batch: Array,
     shock: Array,
+    target_policy_fn: Optional[Callable[[Array], Array]] = None,
 ) -> Dict[str, Array]:
     """Compute equilibrium equation residuals for a single shock realization.
 
@@ -146,15 +147,24 @@ def compute_residuals(
 
     The ndim check resolves at JAX trace time (no runtime branching).
 
+    If target_policy_fn is provided (target network mode), next_policy is
+    computed from the frozen target network with stop_gradient. This breaks
+    the self-referential gradient loop where the network must simultaneously
+    satisfy today's equations and be consistent with its own future outputs.
+
     Args:
         model: Model specification
         policy_fn: Policy network (states -> policies) or (history -> policies)
         train_batch: Current states [batch, n_states] or history windows [batch, H, n_states]
         shock: Shock realization [batch, n_shocks]
+        target_policy_fn: Frozen policy for next_policy (None = use policy_fn)
 
     Returns:
         Dict mapping equation names to residuals [batch]
     """
+    # Choose which function computes next_policy
+    next_fn = target_policy_fn if target_policy_fn is not None else policy_fn
+
     if train_batch.ndim == 3:
         # Sequence path: [B, H, D]
         states = train_batch[:, -1, :]  # current state from last timestep
@@ -164,13 +174,17 @@ def compute_residuals(
         next_batch = jnp.concatenate(
             [train_batch[:, 1:, :], next_state[:, None, :]], axis=1
         )
-        next_policy = policy_fn(next_batch)
+        next_policy = next_fn(next_batch)
     else:
         # MLP path: [B, D]
         states = train_batch
         policy = policy_fn(states)
         next_state = model.step_fn(states, policy, shock, model.constants)
-        next_policy = policy_fn(next_state)
+        next_policy = next_fn(next_state)
+
+    # stop_gradient on next_policy when using target network
+    if target_policy_fn is not None:
+        next_policy = jax.lax.stop_gradient(next_policy)
 
     return model.equations_fn(
         states, policy, next_state, next_policy, model.constants
@@ -192,6 +206,7 @@ def compute_loss(
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
     barrier_weight: float = 0.0,
+    target_policy_fn: Optional[Callable[[Array], Array]] = None,
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with MC or quadrature expectations.
 
@@ -240,7 +255,8 @@ def compute_loss(
 
     # Compute residuals for each shock/node
     def compute_sample_residuals(shock):
-        return compute_residuals(model, policy_fn, states, shock)
+        return compute_residuals(model, policy_fn, states, shock,
+                                 target_policy_fn=target_policy_fn)
 
     # vmap over samples/nodes: Dict[str, [n_samples, batch]]
     all_residuals = jax.vmap(compute_sample_residuals)(shocks)

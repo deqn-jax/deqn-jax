@@ -226,7 +226,9 @@ def make_composite_loss(
         )
 
         # Anchor + jac decay: fade as curriculum progresses, but keep a floor
-        aux_decay = jnp.maximum(aux_decay_floor, 1.0 - shock_scale)
+        # shock_scale may be a vector [n_shocks] when shock_mask is active; use mean
+        _ss = jnp.mean(shock_scale) if jnp.ndim(shock_scale) > 0 else shock_scale
+        aux_decay = jnp.maximum(aux_decay_floor, 1.0 - _ss)
 
         # 2. Anchor loss: net should match linearized policy near SS
         anchor = _anchor_loss(policy_fn, data)
