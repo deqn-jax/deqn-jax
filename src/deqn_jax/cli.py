@@ -448,8 +448,8 @@ def run_train(args):
 
     # Parse loss_weights (special case -- list type)
     if args.loss_weights is not None:
-        config = config.__class__(
-            **{**config.__dict__, "loss_weights": [float(x) for x in args.loss_weights.split(",")]}
+        config = config.model_copy(
+            update={"loss_weights": [float(x) for x in args.loss_weights.split(",")]}
         )
 
     # Validate model is set

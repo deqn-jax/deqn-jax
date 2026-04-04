@@ -241,7 +241,7 @@ def load_policy_from_checkpoint(
             opt_cfg_dict["learning_rate"] = cfg["switch_lr"]
     opt_cfg = OptimizerConfig(**{
         k: v for k, v in opt_cfg_dict.items()
-        if k in OptimizerConfig.__dataclass_fields__
+        if k in OptimizerConfig.model_fields
     })
 
     from deqn_jax.config import NetworkConfig

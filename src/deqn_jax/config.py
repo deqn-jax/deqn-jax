@@ -1,71 +1,220 @@
 """Structured configuration for DEQN-JAX training.
 
-Three nested dataclasses with YAML loading and CLI override merging.
+Three nested Pydantic models with YAML loading and CLI override merging.
 
 Priority: --set overrides > CLI args > YAML file > defaults
 """
 
-from dataclasses import dataclass, field, fields, asdict
-from difflib import get_close_matches
-from typing import Any, Dict, List, Optional, Set, Tuple, get_type_hints, get_origin, get_args, Union
+from __future__ import annotations
+
 import copy
+from difflib import get_close_matches
+from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
-@dataclass
-class OptimizerConfig:
+# ---------------------------------------------------------------------------
+# Base class: wraps Pydantic ValidationError → ValueError / TypeError
+# ---------------------------------------------------------------------------
+
+class _ConfigBase(BaseModel):
+    """Shared base that converts Pydantic ValidationError into the
+    ValueError / TypeError that existing callers expect."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    def __init__(self, **data: Any):
+        try:
+            super().__init__(**data)
+        except ValidationError as exc:
+            _reraise_validation_error(exc, type(self).__name__)
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs):
+        try:
+            return super().model_validate(obj, **kwargs)
+        except ValidationError as exc:
+            _reraise_validation_error(exc, cls.__name__)
+
+
+def _reraise_validation_error(exc: ValidationError, cls_name: str):
+    """Convert a Pydantic ValidationError into ValueError or TypeError.
+
+    Preserves the original error messages that tests match against.
+    """
+    errors = exc.errors()
+    if len(errors) == 1:
+        err = errors[0]
+        msg = err.get("msg", "")
+        loc = ".".join(str(p) for p in err.get("loc", ()))
+        err_type = err.get("type", "")
+
+        # Our custom validators raise with "Value error, <message>"
+        if msg.startswith("Value error, "):
+            raise ValueError(msg[len("Value error, "):]) from None
+
+        # Bool rejection from our validators
+        if "expected" in msg and "got bool" in msg:
+            raise TypeError(msg) from None
+
+        # Pydantic's built-in type errors
+        if err_type in (
+            "int_type", "int_parsing", "float_type", "float_parsing",
+            "string_type", "bool_type", "tuple_type", "list_type",
+        ):
+            expected = _pydantic_type_to_name(err_type)
+            inp = err.get("input")
+            actual = type(inp).__name__
+            raise TypeError(
+                f"{cls_name}.{loc}: expected {expected}, "
+                f"got {actual} ({inp!r})"
+            ) from None
+
+        # extra_forbidden (unknown key via ConfigDict(extra='forbid'))
+        if err_type == "extra_forbidden":
+            raise ValueError(str(exc)) from None
+
+    # Multiple errors or unrecognised pattern — use first error
+    first = errors[0]
+    msg = first.get("msg", str(exc))
+    if msg.startswith("Value error, "):
+        raise ValueError(msg[len("Value error, "):]) from None
+    raise ValueError(str(exc)) from None
+
+
+def _pydantic_type_to_name(err_type: str) -> str:
+    """Map Pydantic error type codes to human-readable type names."""
+    mapping = {
+        "int_type": "int",
+        "int_parsing": "int",
+        "float_type": "float",
+        "float_parsing": "float",
+        "string_type": "str",
+        "bool_type": "bool",
+        "tuple_type": "Tuple[int, ...]",
+        "list_type": "List[float]",
+    }
+    return mapping.get(err_type, err_type)
+
+
+# ---------------------------------------------------------------------------
+# OptimizerConfig
+# ---------------------------------------------------------------------------
+
+class OptimizerConfig(_ConfigBase):
     """Optimizer configuration."""
 
-    name: str = "adam"
-    learning_rate: float = 1e-3
-    grad_clip: Optional[float] = None
-    weight_decay: float = 0.0
-    # Adam / MAO
-    beta1: float = 0.9
-    beta2: float = 0.999
-    epsilon: float = 1e-8
-    # NGD
-    damping: float = 1e-4
-    decay: float = 0.999
-    # Shampoo
-    block_size: int = 64
-    precond_update_freq: int = 10
-    # L-BFGS
-    memory_size: int = 10
-    # Muon
-    ns_steps: int = 5
-    # LR schedule
-    lr_schedule: str = "constant"   # "constant" or "cosine"
-    lr_warmup: int = 0              # warmup episodes before decay
-    lr_min_factor: float = 0.0      # min LR = learning_rate * lr_min_factor
+    model_config = ConfigDict(extra="forbid", coerce_numbers_to_str=False)
 
-    VALID_NAMES = frozenset({
+    name: str = "adam"
+    learning_rate: float = Field(default=1e-3)
+    grad_clip: Optional[float] = None
+    weight_decay: float = Field(default=0.0)
+    # Adam / MAO
+    beta1: float = Field(default=0.9)
+    beta2: float = Field(default=0.999)
+    epsilon: float = Field(default=1e-8)
+    # NGD
+    damping: float = Field(default=1e-4)
+    decay: float = Field(default=0.999)
+    # Shampoo
+    block_size: int = Field(default=64)
+    precond_update_freq: int = Field(default=10)
+    # L-BFGS
+    memory_size: int = Field(default=10)
+    # Muon
+    ns_steps: int = Field(default=5)
+    # LR schedule
+    lr_schedule: str = "constant"
+    lr_warmup: int = Field(default=0)
+    lr_min_factor: float = Field(default=0.0)
+
+    VALID_NAMES: ClassVar[frozenset] = frozenset({
         "adam", "sgd", "adamw", "lion", "muon",
         "ngd", "shampoo", "lbfgs", "mao", "mao_kfac", "gn", "lm",
     })
-    VALID_LR_SCHEDULES = frozenset({"constant", "cosine"})
+    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset({"constant", "cosine"})
 
-    def __post_init__(self):
-        """Coerce YAML string values to proper numeric types."""
-        self.learning_rate = _coerce(self.learning_rate, float, "optimizer.learning_rate")
-        if self.grad_clip is not None:
-            self.grad_clip = _coerce(self.grad_clip, float, "optimizer.grad_clip")
-        self.weight_decay = _coerce(self.weight_decay, float, "optimizer.weight_decay")
-        self.beta1 = _coerce(self.beta1, float, "optimizer.beta1")
-        self.beta2 = _coerce(self.beta2, float, "optimizer.beta2")
-        self.epsilon = _coerce(self.epsilon, float, "optimizer.epsilon")
-        self.damping = _coerce(self.damping, float, "optimizer.damping")
-        self.decay = _coerce(self.decay, float, "optimizer.decay")
-        self.block_size = _coerce(self.block_size, int, "optimizer.block_size")
-        self.precond_update_freq = _coerce(self.precond_update_freq, int, "optimizer.precond_update_freq")
-        self.memory_size = _coerce(self.memory_size, int, "optimizer.memory_size")
-        self.ns_steps = _coerce(self.ns_steps, int, "optimizer.ns_steps")
-        self.lr_warmup = _coerce(self.lr_warmup, int, "optimizer.lr_warmup")
-        self.lr_min_factor = _coerce(self.lr_min_factor, float, "optimizer.lr_min_factor")
-        _validate_field_types(self)
-        self.validate()
+    @field_validator(
+        "learning_rate", "weight_decay", "beta1", "beta2", "epsilon",
+        "damping", "decay", "lr_min_factor",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_float_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"optimizer.{info.field_name}: expected float, got bool ({v!r})"
+            )
+        if isinstance(v, (list, dict, tuple)):
+            raise TypeError(
+                f"optimizer.{info.field_name}: expected float, "
+                f"got {type(v).__name__} ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"optimizer.{info.field_name}: expected float, "
+                    f"got str ({v!r})"
+                ) from None
+        return v
 
-    def validate(self):
-        """Validate optimizer configuration values."""
+    @field_validator("grad_clip", mode="before")
+    @classmethod
+    def _coerce_grad_clip(cls, v, info):
+        if v is None:
+            return v
+        if isinstance(v, bool):
+            raise TypeError(
+                f"optimizer.{info.field_name}: expected float, got bool ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"optimizer.{info.field_name}: expected float, "
+                    f"got str ({v!r})"
+                ) from None
+        return v
+
+    @field_validator(
+        "block_size", "precond_update_freq", "memory_size", "ns_steps",
+        "lr_warmup",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_int_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"optimizer.{info.field_name}: expected int, got bool ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"optimizer.{info.field_name}: expected int, "
+                    f"got str ({v!r})"
+                ) from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _check_name_type(cls, v):
+        if not isinstance(v, str):
+            raise TypeError(
+                f"OptimizerConfig.name: expected str, got {type(v).__name__} ({v!r})"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_ranges(self):
         if self.name not in self.VALID_NAMES:
             raise ValueError(
                 f"Unknown optimizer '{self.name}'. "
@@ -104,10 +253,14 @@ class OptimizerConfig:
             raise ValueError(f"lr_warmup must be >= 0, got {self.lr_warmup}")
         if not (0 <= self.lr_min_factor <= 1):
             raise ValueError(f"lr_min_factor must be in [0, 1], got {self.lr_min_factor}")
+        return self
 
 
-@dataclass
-class CompositeLossConfig:
+# ---------------------------------------------------------------------------
+# CompositeLossConfig
+# ---------------------------------------------------------------------------
+
+class CompositeLossConfig(_ConfigBase):
     """Composite loss configuration (anchor + Jacobian + barrier + Newton terms).
 
     Anchor and Jacobian losses decay with shock_scale during curriculum
@@ -115,30 +268,64 @@ class CompositeLossConfig:
     Barrier and Newton losses don't decay (always useful for feasibility).
     """
 
-    anchor_weight: float = 0.1
-    jac_weight: float = 0.01
-    barrier_weight: float = 0.01
-    newton_weight: float = 0.01
-    n_anchor_points: int = 64  # Fixed sample points near SS
-    anchor_sigma: float = 1.0  # Spread of anchor points (in ergodic std devs)
-    leverage_mult: float = 5.0
-    aux_decay_floor: float = 0.2  # Minimum anchor/jac weight fraction (0=full decay, 1=no decay)
+    model_config = ConfigDict(extra="forbid")
 
-    def __post_init__(self):
-        """Coerce YAML string values to proper numeric types."""
-        self.anchor_weight = _coerce(self.anchor_weight, float, "composite_loss.anchor_weight")
-        self.jac_weight = _coerce(self.jac_weight, float, "composite_loss.jac_weight")
-        self.barrier_weight = _coerce(self.barrier_weight, float, "composite_loss.barrier_weight")
-        self.newton_weight = _coerce(self.newton_weight, float, "composite_loss.newton_weight")
-        self.n_anchor_points = _coerce(self.n_anchor_points, int, "composite_loss.n_anchor_points")
-        self.anchor_sigma = _coerce(self.anchor_sigma, float, "composite_loss.anchor_sigma")
-        self.leverage_mult = _coerce(self.leverage_mult, float, "composite_loss.leverage_mult")
-        self.aux_decay_floor = _coerce(self.aux_decay_floor, float, "composite_loss.aux_decay_floor")
-        _validate_field_types(self)
-        self.validate()
+    anchor_weight: float = Field(default=0.1)
+    jac_weight: float = Field(default=0.01)
+    barrier_weight: float = Field(default=0.01)
+    newton_weight: float = Field(default=0.01)
+    n_anchor_points: int = Field(default=64)
+    anchor_sigma: float = Field(default=1.0)
+    leverage_mult: float = Field(default=5.0)
+    aux_decay_floor: float = Field(default=0.2)
 
-    def validate(self):
-        """Validate composite loss configuration values."""
+    @field_validator(
+        "anchor_weight", "jac_weight", "barrier_weight", "newton_weight",
+        "anchor_sigma", "leverage_mult", "aux_decay_floor",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_float_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"composite_loss.{info.field_name}: expected float, got bool ({v!r})"
+            )
+        if isinstance(v, (list, dict, tuple)):
+            raise TypeError(
+                f"composite_loss.{info.field_name}: expected float, "
+                f"got {type(v).__name__} ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"composite_loss.{info.field_name}: expected float, "
+                    f"got str ({v!r})"
+                ) from None
+        return v
+
+    @field_validator("n_anchor_points", mode="before")
+    @classmethod
+    def _coerce_int_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"composite_loss.{info.field_name}: expected int, got bool ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"composite_loss.{info.field_name}: expected int, "
+                    f"got str ({v!r})"
+                ) from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @model_validator(mode="after")
+    def _validate_ranges(self):
         for name in ("anchor_weight", "jac_weight", "barrier_weight", "newton_weight"):
             val = getattr(self, name)
             if val < 0:
@@ -151,15 +338,21 @@ class CompositeLossConfig:
             raise ValueError(f"leverage_mult must be > 0, got {self.leverage_mult}")
         if not (0 <= self.aux_decay_floor <= 1):
             raise ValueError(f"aux_decay_floor must be in [0, 1], got {self.aux_decay_floor}")
+        return self
 
 
-@dataclass
-class NetworkConfig:
+# ---------------------------------------------------------------------------
+# NetworkConfig
+# ---------------------------------------------------------------------------
+
+class NetworkConfig(_ConfigBase):
     """Neural network configuration."""
 
-    VALID_TYPES = frozenset({"mlp", "lstm", "transformer"})
-    VALID_ACTIVATIONS = frozenset({"tanh", "relu", "gelu", "silu", "softplus"})
-    VALID_INITS = frozenset({
+    model_config = ConfigDict(extra="forbid")
+
+    VALID_TYPES: ClassVar[frozenset] = frozenset({"mlp", "lstm", "transformer"})
+    VALID_ACTIVATIONS: ClassVar[frozenset] = frozenset({"tanh", "relu", "gelu", "silu", "softplus"})
+    VALID_INITS: ClassVar[frozenset] = frozenset({
         "default", "xavier_normal", "xavier_uniform",
         "he_normal", "he_uniform", "lecun_normal",
     })
@@ -167,28 +360,72 @@ class NetworkConfig:
     type: str = "mlp"
     hidden_sizes: Tuple[int, ...] = (64, 64)
     activation: str = "tanh"
-    activations: Optional[Tuple[str, ...]] = None  # per-layer override
+    activations: Optional[Tuple[str, ...]] = None
     init: str = "default"
-    multi_head: bool = False  # separate output head per policy
-    skip_connections: bool = False  # residual connections between hidden layers
-    history_len: int = 1  # 1=Markovian (MLP), >1=sequence (LSTM/Transformer)
-    num_heads: int = 4  # Transformer attention heads
-    n_layers: int = 2  # Transformer/LSTM depth (separate from hidden_sizes for Transformer)
+    multi_head: bool = False
+    skip_connections: bool = False
+    history_len: int = Field(default=1)
+    num_heads: int = Field(default=4)
+    n_layers: int = Field(default=2)
 
-    def __post_init__(self):
-        """Coerce and validate network configuration."""
-        if isinstance(self.hidden_sizes, list):
-            self.hidden_sizes = tuple(self.hidden_sizes)
-        if isinstance(self.activations, list):
-            self.activations = tuple(self.activations)
-        self.history_len = _coerce(self.history_len, int, "network.history_len")
-        self.num_heads = _coerce(self.num_heads, int, "network.num_heads")
-        self.n_layers = _coerce(self.n_layers, int, "network.n_layers")
-        _validate_field_types(self)
-        self.validate()
+    @field_validator("hidden_sizes", mode="before")
+    @classmethod
+    def _coerce_hidden_sizes(cls, v):
+        if isinstance(v, list):
+            return tuple(v)
+        if isinstance(v, str) or isinstance(v, int):
+            raise TypeError(
+                f"NetworkConfig.hidden_sizes: expected Tuple[int, ...], "
+                f"got {type(v).__name__} ({v!r})"
+            )
+        return v
 
-    def validate(self):
-        """Validate network configuration values."""
+    @field_validator("activations", mode="before")
+    @classmethod
+    def _coerce_activations(cls, v):
+        if isinstance(v, list):
+            return tuple(v)
+        return v
+
+    @field_validator("history_len", "num_heads", "n_layers", mode="before")
+    @classmethod
+    def _coerce_int_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"network.{info.field_name}: expected int, got bool ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"network.{info.field_name}: expected int, "
+                    f"got str ({v!r})"
+                ) from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator("type", "activation", "init", mode="before")
+    @classmethod
+    def _check_str_type(cls, v, info):
+        if not isinstance(v, str):
+            raise TypeError(
+                f"NetworkConfig.{info.field_name}: expected str, got {type(v).__name__} ({v!r})"
+            )
+        return v
+
+    @field_validator("multi_head", "skip_connections", mode="before")
+    @classmethod
+    def _check_bool_type(cls, v, info):
+        if not isinstance(v, bool):
+            raise TypeError(
+                f"NetworkConfig.{info.field_name}: expected bool, got {type(v).__name__} ({v!r})"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_ranges(self):
         if self.type not in self.VALID_TYPES:
             raise ValueError(
                 f"Unknown network type '{self.type}'. "
@@ -226,10 +463,14 @@ class NetworkConfig:
                     f"For transformer, hidden_dim ({hidden_dim}) must be divisible "
                     f"by num_heads ({self.num_heads})"
                 )
+        return self
 
 
-@dataclass
-class TrainConfig:
+# ---------------------------------------------------------------------------
+# TrainConfig
+# ---------------------------------------------------------------------------
+
+class TrainConfig(_ConfigBase):
     """Complete training configuration.
 
     Supports construction from:
@@ -239,27 +480,29 @@ class TrainConfig:
     - Overrides via with_overrides()
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     model: str = "brock_mirman"
-    episodes: int = 1000
-    batch_size: int = 64
-    episode_length: int = 100
-    mc_samples: int = 5
-    seed: int = 42
+    episodes: int = Field(default=1000)
+    batch_size: int = Field(default=64)
+    episode_length: int = Field(default=100)
+    mc_samples: int = Field(default=5)
+    seed: int = Field(default=42)
 
-    network: NetworkConfig = field(default_factory=NetworkConfig)
-    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig)
+    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
 
-    loss_type: str = "mse"  # "mse" or "composite"
-    composite_loss: CompositeLossConfig = field(default_factory=CompositeLossConfig)
+    loss_type: str = "mse"
+    composite_loss: CompositeLossConfig = Field(default_factory=CompositeLossConfig)
 
     warm_start: bool = False
-    warm_start_linearize: bool = False  # Use linearized (Blanchard-Kahn) warm start
-    warm_start_dynare: Optional[str] = None  # Path to Dynare results dir (ghx/ghu CSVs)
+    warm_start_linearize: bool = False
+    warm_start_dynare: Optional[str] = None
     loss_weights: Optional[List[float]] = None
     loss_reweight: str = "none"
-    reweight_alpha: float = 0.9
+    reweight_alpha: float = Field(default=0.9)
 
-    log_every: int = 100
+    log_every: int = Field(default=100)
     verbose: bool = True
     fp64: bool = False
 
@@ -270,60 +513,208 @@ class TrainConfig:
     max_checkpoints: Optional[int] = None
 
     rescale_equations: bool = False
-    gradient_surgery: str = "none"  # "none" or "pcgrad"
+    gradient_surgery: str = "none"
     resume: Optional[str] = None
     switch_optimizer: Optional[str] = None
     switch_episode: Optional[int] = None
     switch_lr: Optional[float] = None
 
-    early_stop_patience: Optional[int] = None  # Stop if no improvement for N episodes
-    early_stop_min_delta: float = 1e-6  # Minimum improvement to count as progress
+    early_stop_patience: Optional[int] = None
+    early_stop_min_delta: float = Field(default=1e-6)
 
-    curriculum_episodes: int = 0  # Ramp shock_scale from curriculum_start to 1.0 over N episodes
-    curriculum_start: float = 0.1  # Initial shock scale for curriculum
-    ss_reset_frac: float = 0.0  # Fraction of batch to reset to SS-neighborhood each episode
+    curriculum_episodes: int = Field(default=0)
+    curriculum_start: float = Field(default=0.1)
+    ss_reset_frac: float = Field(default=0.0)
 
-    expectation_type: str = "mc"  # "mc" or "quadrature" (Gauss-Hermite)
-    n_quadrature_points: int = 3  # Points per dimension (3^5=243 nodes for 5 shocks)
+    expectation_type: str = "mc"
+    n_quadrature_points: int = Field(default=3)
 
-    episode_soft_clip: bool = True   # Differentiable soft clip in episode trajectories
-    barrier_weight: float = 0.0      # State barrier penalty weight (0 = off)
+    episode_soft_clip: bool = True
+    barrier_weight: float = Field(default=0.0)
+    shock_mask: Optional[List[float]] = None
 
-    VALID_LOSS_TYPES = frozenset({"mse", "composite"})
-    VALID_LOSS_REWEIGHTS = frozenset({"none", "lr_annealing", "relobralo"})
-    VALID_GRADIENT_SURGERY = frozenset({"none", "pcgrad"})
-    VALID_EXPECTATION_TYPES = frozenset({"mc", "quadrature", "gh", "gauss_hermite"})
+    target_update_every: int = Field(default=0)  # 0=off, >0=update target net every N episodes
+    target_tau: float = Field(default=1.0)        # 1.0=hard copy, <1=Polyak averaging
 
-    def __post_init__(self):
-        """Coerce YAML string values to proper numeric types."""
-        self.episodes = _coerce(self.episodes, int, "episodes")
-        self.batch_size = _coerce(self.batch_size, int, "batch_size")
-        self.episode_length = _coerce(self.episode_length, int, "episode_length")
-        self.mc_samples = _coerce(self.mc_samples, int, "mc_samples")
-        self.seed = _coerce(self.seed, int, "seed")
-        self.reweight_alpha = _coerce(self.reweight_alpha, float, "reweight_alpha")
-        self.log_every = _coerce(self.log_every, int, "log_every")
-        self.curriculum_episodes = _coerce(self.curriculum_episodes, int, "curriculum_episodes")
-        self.curriculum_start = _coerce(self.curriculum_start, float, "curriculum_start")
-        self.ss_reset_frac = _coerce(self.ss_reset_frac, float, "ss_reset_frac")
-        self.early_stop_min_delta = _coerce(self.early_stop_min_delta, float, "early_stop_min_delta")
-        self.n_quadrature_points = _coerce(self.n_quadrature_points, int, "n_quadrature_points")
-        self.barrier_weight = _coerce(self.barrier_weight, float, "barrier_weight")
-        if self.switch_lr is not None:
-            self.switch_lr = _coerce(self.switch_lr, float, "switch_lr")
-        if self.switch_episode is not None:
-            self.switch_episode = _coerce(self.switch_episode, int, "switch_episode")
-        if self.checkpoint_every is not None:
-            self.checkpoint_every = _coerce(self.checkpoint_every, int, "checkpoint_every")
-        if self.max_checkpoints is not None:
-            self.max_checkpoints = _coerce(self.max_checkpoints, int, "max_checkpoints")
-        if self.early_stop_patience is not None:
-            self.early_stop_patience = _coerce(self.early_stop_patience, int, "early_stop_patience")
-        _validate_field_types(self)
-        self.validate()
+    VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
+    VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
+    VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
+    VALID_EXPECTATION_TYPES: ClassVar[frozenset] = frozenset({"mc", "quadrature", "gh", "gauss_hermite"})
 
-    def validate(self):
-        """Validate training configuration values."""
+    # -- before-mode validators for type coercion --
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _check_model_type(cls, v):
+        if not isinstance(v, str):
+            raise TypeError(
+                f"TrainConfig.model: expected str, got {type(v).__name__} ({v!r})"
+            )
+        return v
+
+    @field_validator(
+        "episodes", "batch_size", "episode_length", "mc_samples", "seed",
+        "log_every", "curriculum_episodes", "n_quadrature_points",
+        "target_update_every",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_int_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"episodes: expected int, got bool ({v!r})"
+                if info.field_name == "episodes"
+                else f"{info.field_name}: expected int, got bool ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"{info.field_name}: expected int, "
+                    f"got str ({v!r})"
+                ) from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator(
+        "reweight_alpha", "early_stop_min_delta", "curriculum_start",
+        "ss_reset_frac", "barrier_weight", "target_tau",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_float_reject_bool(cls, v, info):
+        if isinstance(v, bool):
+            raise TypeError(
+                f"{info.field_name}: expected float, got bool ({v!r})"
+            )
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"{info.field_name}: expected float, "
+                    f"got str ({v!r})"
+                ) from None
+        return v
+
+    @field_validator("switch_lr", mode="before")
+    @classmethod
+    def _coerce_switch_lr(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, bool):
+            raise TypeError(f"switch_lr: expected float, got bool ({v!r})")
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                raise TypeError(f"switch_lr: expected float, got str ({v!r})") from None
+        return v
+
+    @field_validator("switch_episode", mode="before")
+    @classmethod
+    def _coerce_switch_episode(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, bool):
+            raise TypeError(f"switch_episode: expected int, got bool ({v!r})")
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(f"switch_episode: expected int, got str ({v!r})") from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator("checkpoint_every", mode="before")
+    @classmethod
+    def _coerce_checkpoint_every(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, bool):
+            raise TypeError(f"checkpoint_every: expected int, got bool ({v!r})")
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(f"checkpoint_every: expected int, got str ({v!r})") from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator("max_checkpoints", mode="before")
+    @classmethod
+    def _coerce_max_checkpoints(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, bool):
+            raise TypeError(f"max_checkpoints: expected int, got bool ({v!r})")
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(f"max_checkpoints: expected int, got str ({v!r})") from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator("early_stop_patience", mode="before")
+    @classmethod
+    def _coerce_early_stop_patience(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, bool):
+            raise TypeError(f"early_stop_patience: expected int, got bool ({v!r})")
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                raise TypeError(f"early_stop_patience: expected int, got str ({v!r})") from None
+        if isinstance(v, float):
+            return int(v)
+        return v
+
+    @field_validator("verbose", "warm_start", "warm_start_linearize", "fp64",
+                     "rescale_equations", "episode_soft_clip", mode="before")
+    @classmethod
+    def _check_bool_type(cls, v, info):
+        if not isinstance(v, bool):
+            raise TypeError(
+                f"TrainConfig.{info.field_name}: expected bool, got {type(v).__name__} ({v!r})"
+            )
+        return v
+
+    @field_validator("loss_weights", mode="before")
+    @classmethod
+    def _check_loss_weights_type(cls, v):
+        if v is not None and not isinstance(v, list):
+            raise TypeError(
+                f"TrainConfig.loss_weights: expected Optional[List[float]], "
+                f"got {type(v).__name__} ({v!r})"
+            )
+        return v
+
+    @field_validator("optimizer", mode="before")
+    @classmethod
+    def _coerce_optimizer_str(cls, v):
+        """Allow `optimizer: "adam"` shorthand in YAML."""
+        if isinstance(v, str):
+            return OptimizerConfig(name=v)
+        return v
+
+    @field_validator("network", mode="before")
+    @classmethod
+    def _coerce_network_str(cls, v):
+        """Allow `network: "mlp"` shorthand in YAML."""
+        if isinstance(v, str):
+            return NetworkConfig(type=v)
+        return v
+
+    @model_validator(mode="after")
+    def _validate_ranges(self):
         if not self.model or not isinstance(self.model, str):
             raise ValueError(f"model must be a non-empty string, got {self.model!r}")
         if self.episodes <= 0:
@@ -389,6 +780,16 @@ class TrainConfig:
                 raise ValueError(
                     f"All loss_weights must be >= 0, got {self.loss_weights}"
                 )
+        if self.shock_mask is not None:
+            if not all(0 <= m <= 1 for m in self.shock_mask):
+                raise ValueError(
+                    f"All shock_mask values must be in [0, 1], got {self.shock_mask}"
+                )
+        if self.target_update_every < 0:
+            raise ValueError(f"target_update_every must be >= 0, got {self.target_update_every}")
+        if not (0 < self.target_tau <= 1):
+            raise ValueError(f"target_tau must be in (0, 1], got {self.target_tau}")
+        return self
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TrainConfig":
@@ -421,11 +822,11 @@ class TrainConfig:
         if "loss_weights" in d and isinstance(d["loss_weights"], list):
             d["loss_weights"] = list(d["loss_weights"])
 
-        # Validate: reject unknown keys
-        opt_fields = {f.name for f in fields(OptimizerConfig)}
-        net_fields = {f.name for f in fields(NetworkConfig)}
-        comp_fields = {f.name for f in fields(CompositeLossConfig)}
-        train_fields = {f.name for f in fields(TrainConfig)}
+        # Validate: reject unknown keys (with did-you-mean suggestions)
+        opt_fields = set(OptimizerConfig.model_fields.keys())
+        net_fields = set(NetworkConfig.model_fields.keys())
+        comp_fields = set(CompositeLossConfig.model_fields.keys())
+        train_fields = set(TrainConfig.model_fields.keys())
 
         _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
         _check_unknown_keys(set(net_dict.keys()), net_fields, "network")
@@ -462,7 +863,7 @@ class TrainConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to nested dictionary."""
-        return asdict(self)
+        return self.model_dump()
 
     def to_yaml(self, path: str) -> None:
         """Write config to a YAML file."""
@@ -479,112 +880,9 @@ class TrainConfig:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)
 
 
-def _coerce(value: Any, target: type, field_name: str) -> Any:
-    """Coerce *value* to *target* type with a clear error on failure.
-
-    Handles the common YAML case where numbers arrive as strings.
-    Booleans are never coerced to int/float (``True`` is not ``1``).
-    """
-    if isinstance(value, target) and not (target in (int, float) and isinstance(value, bool)):
-        return value
-    # Reject bool -> int/float coercion
-    if isinstance(value, bool):
-        raise TypeError(
-            f"{field_name}: expected {target.__name__}, got bool ({value!r})"
-        )
-    try:
-        return target(value)
-    except (TypeError, ValueError):
-        raise TypeError(
-            f"{field_name}: expected {target.__name__}, "
-            f"got {type(value).__name__} ({value!r})"
-        ) from None
-
-
-def _type_name(tp: type) -> str:
-    """Human-readable name for a type annotation."""
-    origin = get_origin(tp)
-    if origin is Union:
-        args = get_args(tp)
-        # Optional[X] is Union[X, None]
-        non_none = [a for a in args if a is not type(None)]
-        if len(non_none) == 1 and type(None) in args:
-            return f"Optional[{_type_name(non_none[0])}]"
-        return " | ".join(_type_name(a) for a in args)
-    if origin is list:
-        (inner,) = get_args(tp)
-        return f"List[{_type_name(inner)}]"
-    if origin is tuple:
-        args = get_args(tp)
-        if len(args) == 2 and args[1] is Ellipsis:
-            return f"Tuple[{_type_name(args[0])}, ...]"
-        return f"Tuple[{', '.join(_type_name(a) for a in args)}]"
-    return getattr(tp, "__name__", str(tp))
-
-
-def _check_type(value: Any, tp: type) -> bool:
-    """Check if *value* matches type annotation *tp*.
-
-    Handles: str, int, float, bool, Optional[X], Tuple[X, ...],
-    List[X], and nested dataconfig classes.
-    """
-    origin = get_origin(tp)
-
-    # Optional[X] = Union[X, None]
-    if origin is Union:
-        return any(_check_type(value, arg) for arg in get_args(tp))
-
-    # List[X]
-    if origin is list:
-        if not isinstance(value, list):
-            return False
-        (inner,) = get_args(tp)
-        return all(_check_type(v, inner) for v in value)
-
-    # Tuple[X, ...]
-    if origin is tuple:
-        if not isinstance(value, tuple):
-            return False
-        args = get_args(tp)
-        if len(args) == 2 and args[1] is Ellipsis:
-            return all(_check_type(v, args[0]) for v in value)
-        if len(args) != len(value):
-            return False
-        return all(_check_type(v, a) for v, a in zip(value, args))
-
-    # NoneType
-    if tp is type(None):
-        return value is None
-
-    # bool must be checked before int (bool is subclass of int)
-    if tp is bool:
-        return isinstance(value, bool)
-    if tp is int:
-        return isinstance(value, int) and not isinstance(value, bool)
-    if tp is float:
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-    return isinstance(value, tp)
-
-
-def _validate_field_types(obj: Any) -> None:
-    """Validate all dataclass field types on *obj*.
-
-    Call after coercion in ``__post_init__`` to catch type mismatches
-    with clear error messages.  Skips class-var frozensets (VALID_*).
-    """
-    hints = get_type_hints(type(obj))
-    for f in fields(type(obj)):
-        tp = hints.get(f.name)
-        if tp is None:
-            continue
-        value = getattr(obj, f.name)
-        if not _check_type(value, tp):
-            raise TypeError(
-                f"{type(obj).__name__}.{f.name}: expected {_type_name(tp)}, "
-                f"got {type(value).__name__} ({value!r})"
-            )
-
+# ---------------------------------------------------------------------------
+# Helpers (kept from original)
+# ---------------------------------------------------------------------------
 
 def _check_unknown_keys(
     provided: Set[str],
@@ -615,19 +913,19 @@ def _check_unknown_keys(
 def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
     """Flatten a TrainConfig into dot-notation keys."""
     flat: Dict[str, Any] = {}
-    for f in fields(TrainConfig):
-        val = getattr(config, f.name)
-        if f.name == "optimizer":
-            for of in fields(OptimizerConfig):
-                flat[f"optimizer.{of.name}"] = getattr(val, of.name)
-        elif f.name == "network":
-            for nf in fields(NetworkConfig):
-                flat[f"network.{nf.name}"] = getattr(val, nf.name)
-        elif f.name == "composite_loss":
-            for cf in fields(CompositeLossConfig):
-                flat[f"composite_loss.{cf.name}"] = getattr(val, cf.name)
+    for name in TrainConfig.model_fields:
+        val = getattr(config, name)
+        if name == "optimizer":
+            for of in OptimizerConfig.model_fields:
+                flat[f"optimizer.{of}"] = getattr(val, of)
+        elif name == "network":
+            for nf in NetworkConfig.model_fields:
+                flat[f"network.{nf}"] = getattr(val, nf)
+        elif name == "composite_loss":
+            for cf in CompositeLossConfig.model_fields:
+                flat[f"composite_loss.{cf}"] = getattr(val, cf)
         else:
-            flat[f.name] = val
+            flat[name] = val
     return flat
 
 
@@ -638,10 +936,10 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     comp_kw: Dict[str, Any] = {}
     train_kw: Dict[str, Any] = {}
 
-    opt_fields = {f.name for f in fields(OptimizerConfig)}
-    net_fields = {f.name for f in fields(NetworkConfig)}
-    comp_fields = {f.name for f in fields(CompositeLossConfig)}
-    train_fields = {f.name for f in fields(TrainConfig)} - {"optimizer", "network", "composite_loss"}
+    opt_fields = set(OptimizerConfig.model_fields.keys())
+    net_fields = set(NetworkConfig.model_fields.keys())
+    comp_fields = set(CompositeLossConfig.model_fields.keys())
+    train_fields = set(TrainConfig.model_fields.keys()) - {"optimizer", "network", "composite_loss"}
 
     # Build set of all valid flat keys for validation
     valid_flat_keys = set(train_fields)
