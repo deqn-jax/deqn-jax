@@ -17,7 +17,7 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
 
     At SS: state = next_state, policy = next_policy, shocks = 0.
     Unknowns: 11 policy variables (s, L, omega_bar computed analytically).
-    State constructed from them. Uses JAX autodiff Jacobian.
+    11 equations.
     """
     c = constants
 
@@ -27,8 +27,8 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     def _build_state(x):
         """Construct SS state from 11 policy variables.
 
-        s (marginal cost), L (leverage), and omega_bar (default threshold)
-        are computed analytically.
+        s (marginal cost), L (leverage), omega_bar (default threshold)
+        are computed analytically. K_p, K_w are direct policy outputs.
         """
         lambda_z, i, pi, cc, w_tilda, h, F_w, F_p, q, K_p, K_w = x
         mu_z = c["mu_z_ss"]

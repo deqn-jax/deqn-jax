@@ -29,10 +29,12 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     g_next = jnp.exp(c["rho_g"] * safe_log(st.g) + (1 - c["rho_g"]) * safe_log(c["g_ss"]) + c["sigma_g"] * g_shock)
     m_p_next = c["sigma_mp"] * mp_shock
 
-    return jnp.stack([
+    next_state = jnp.stack([
         p.pi, defs["k"], defs["c"], p.q, p.i, defs["R"], p.w_tilda, defs["L"],
         eps_next, mu_ups_next, g_next, mu_z_next, m_p_next
     ], axis=1)
+
+    return soft_clip_state(next_state)
 
 
 # ---------- State bounds ----------
@@ -41,12 +43,14 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
 _SIM_LOWER = jnp.array([0.8, 5.0, 0.1, 0.3, 0.1, 0.99, 0.5, 0.5, 0.7, 0.8, 0.3, 0.97, -3.0])
 _SIM_UPPER = jnp.array([1.3, 80.0, 5.0, 3.0, 3.0, 1.15, 5.0, 8.0, 1.4, 1.3, 1.2, 1.04, 3.0])
 
-# Soft clip bounds: ~3x the plausible deviation from SS.
-# Tighter than "NaN-prevention" but differentiable (gradient never zero).
-# All margins > 0.5 from SS so softplus(k=5) distortion is < 1%.
-#              pi    k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
-_SOFT_LOWER = jnp.array([0.5, 1.0, 0.05, 0.05, 0.05, 0.5, 0.2, 0.2, 0.5, 0.5, 0.1, 0.5, -5.0])
-_SOFT_UPPER = jnp.array([1.5, 100.0, 8.0, 5.0, 5.0, 1.5, 6.0, 10.0, 1.6, 1.6, 1.5, 1.5, 5.0])
+# Soft clip bounds: very wide, margins >= 2.0 from SS for all variables.
+# With k=5 softplus, margin=2.0 gives distortion < 5e-5 at SS.
+# Negative lower bounds are OK for positive quantities — the dynamics keep
+# states positive via exp(), so the lower softplus never activates in practice.
+#              pi     k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
+# SS values: 1.014  27.35  1.59  1.00  0.79  1.02  1.92  1.97  1.00  1.00  0.62  1.00  0.00
+_SOFT_LOWER = jnp.array([-1.0, 1.0, -1.0, -1.5, -1.5, -1.0, -0.5, -0.5, -1.5, -1.5, -2.0, -1.5, -5.0])
+_SOFT_UPPER = jnp.array([ 3.5, 100.0, 8.0,  5.0,  5.0,  3.5,  6.0, 10.0,  3.5,  3.5,  3.0,  3.5,  5.0])
 
 
 def clip_state(state: Array) -> Array:
