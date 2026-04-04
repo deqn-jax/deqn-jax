@@ -159,12 +159,6 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Output
     y_z = st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
 
-    # Consumption from network output (not eliminated — avoids habit singularity)
-    monitoring_cost = c["mu_mon"] * G_val * R_k * st.q_lag * st.k_lag / (st.mu_z * p.pi)
-    entrepreneur_cons = c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (n - c["w_e"])
-    # c_target is what the resource constraint implies; eq9 penalizes |p.c - c_target|
-    c_target = y_z - st.g - p.i / st.mu_ups - entrepreneur_cons - monitoring_cost
-
     y_gdp = st.g + p.c + p.i / st.mu_ups
 
     # Interest rate (Taylor rule)
@@ -186,7 +180,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "omega_bar": omega_bar,
         "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
         "newton_h_prime": newton_h_prime, "newton_residual": newton_residual,
-        "s": s, "L": L, "c": p.c, "c_target": c_target,
+        "s": s, "L": L, "c": p.c,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": p.K_p, "K_w": p.K_w,
         "K_p_inner": K_p_inner, "K_w_inner": K_w_inner, "i_ratio": i_ratio,

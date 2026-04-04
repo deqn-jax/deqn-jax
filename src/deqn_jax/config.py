@@ -529,7 +529,6 @@ class TrainConfig(_ConfigBase):
     expectation_type: str = "mc"
     n_quadrature_points: int = Field(default=3)
 
-    episode_soft_clip: bool = True
     barrier_weight: float = Field(default=0.0)
     shock_mask: Optional[List[float]] = None
 
@@ -678,7 +677,7 @@ class TrainConfig(_ConfigBase):
         return v
 
     @field_validator("verbose", "warm_start", "warm_start_linearize", "fp64",
-                     "rescale_equations", "episode_soft_clip", mode="before")
+                     "rescale_equations", mode="before")
     @classmethod
     def _check_bool_type(cls, v, info):
         if not isinstance(v, bool):

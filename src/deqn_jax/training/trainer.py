@@ -1383,9 +1383,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
     quad_nodes_jax = None
     quad_weights_jax = None
-    exp_type = getattr(config, "expectation_type", "mc")
+    exp_type = config.expectation_type
     if exp_type in ("quadrature", "gh", "gauss_hermite"):
-        n_qp = getattr(config, "n_quadrature_points", 3)
+        n_qp = config.n_quadrature_points
         quad = gauss_hermite_nd(n_qp, model.n_shocks)
         if quad is not None:
             quad_nodes_jax = jnp.array(quad[0])
@@ -1400,19 +1400,16 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Determine history length from network (Python-level, before JIT) ----
     history_len = get_history_len(state.params)
 
-    # Soft clip is baked into disaster model's step() — no runtime switch needed.
-    # The episode_soft_clip config field is kept for backward compat but ignored.
-
     # ---- Shock mask ----
     if config.shock_mask is not None and config.verbose:
-        shock_names = model.shock_names if hasattr(model, 'shock_names') and model.shock_names else [f"shock_{i}" for i in range(model.n_shocks)]
+        shock_names = model.shock_names if model.shock_names else tuple(f"shock_{i}" for i in range(model.n_shocks))
         active = [n for n, m in zip(shock_names, config.shock_mask) if m > 0]
         zeroed = [n for n, m in zip(shock_names, config.shock_mask) if m == 0]
         print(f"  Shock mask: active={active}, zeroed={zeroed}")
 
     # ---- Build composite loss if configured ----
     custom_loss_fn = None
-    if getattr(config, "loss_type", "mse") == "composite":
+    if config.loss_type == "composite":
         from deqn_jax.training.linearize import linearize_model
         from deqn_jax.training.composite_loss import prepare_composite_data, make_composite_loss
 
@@ -1443,7 +1440,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             print("  Composite loss ready.")
 
     # ---- State barrier penalty ----
-    barrier_weight = getattr(config, "barrier_weight", 0.0)
+    barrier_weight = config.barrier_weight
     if barrier_weight > 0 and custom_loss_fn is None and model.state_barrier_fn is not None:
         from functools import partial
         custom_loss_fn = partial(compute_loss, barrier_weight=barrier_weight)
@@ -1459,7 +1456,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                   f" (tau={config.target_tau})")
 
     # ---- Create JIT-compiled train step ----
-    gradient_surgery = getattr(config, "gradient_surgery", "none")
+    gradient_surgery = config.gradient_surgery
     train_step = make_train_step(
         model, opt, config.episode_length, config.mc_samples, config.batch_size,
         loss_reweight=config.loss_reweight,
@@ -1471,7 +1468,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         quad_weights=quad_weights_jax,
         history_len=history_len,
         compute_loss_fn=custom_loss_fn,
-        ss_reset_frac=getattr(config, "ss_reset_frac", 0.0),
+        ss_reset_frac=config.ss_reset_frac,
         use_target_network=use_target,
     )
 
@@ -1542,7 +1539,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 quad_weights=quad_weights_jax,
                 history_len=history_len,
                 compute_loss_fn=custom_loss_fn,
-                ss_reset_frac=getattr(config, "ss_reset_frac", 0.0),
+                ss_reset_frac=config.ss_reset_frac,
                 use_target_network=use_target,
             )
             switched = True

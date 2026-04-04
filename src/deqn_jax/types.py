@@ -75,13 +75,12 @@ class ModelSpec(NamedTuple):
     # clip_state_fn(state) -> state
     clip_state_fn: Optional[Callable[..., Array]] = None
 
-    # Optional: differentiable clip for episode trajectories (training)
-    # soft_clip_state_fn(state) -> state
-    soft_clip_state_fn: Optional[Callable[..., Array]] = None
-
     # Optional: box barrier penalty on states (added to loss)
     # state_barrier_fn(state) -> penalty [batch]
     state_barrier_fn: Optional[Callable[..., Array]] = None
+
+    # Optional: shock names for diagnostics/logging
+    shock_names: Optional[Tuple[str, ...]] = None
 
 
 class ReweightState(NamedTuple):

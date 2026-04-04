@@ -57,7 +57,7 @@ def run_irf(
     n_shocks = model.n_shocks
 
     # Shock index mapping
-    shock_names = ["eps", "mu_ups", "mu_z", "g", "m_p"]
+    shock_names = list(model.shock_names) if model.shock_names else [f"shock_{i}" for i in range(n_shocks)]
     if shock_name not in shock_names:
         raise ValueError(f"Unknown shock '{shock_name}'. Choose from: {shock_names}")
     shock_idx = shock_names.index(shock_name)
