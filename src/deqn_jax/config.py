@@ -99,6 +99,54 @@ def _pydantic_type_to_name(err_type: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Shared coercion helpers (called from field_validator one-liners)
+# ---------------------------------------------------------------------------
+
+def _coerce_float(v: Any, prefix: str) -> Any:
+    """Reject bool, coerce str→float, reject list/dict/tuple."""
+    if isinstance(v, bool):
+        raise TypeError(f"{prefix}: expected float, got bool ({v!r})")
+    if isinstance(v, (list, dict, tuple)):
+        raise TypeError(
+            f"{prefix}: expected float, got {type(v).__name__} ({v!r})"
+        )
+    if isinstance(v, str):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            raise TypeError(f"{prefix}: expected float, got str ({v!r})") from None
+    return v
+
+
+def _coerce_int(v: Any, prefix: str) -> Any:
+    """Reject bool, coerce str→int, coerce float→int."""
+    if isinstance(v, bool):
+        raise TypeError(f"{prefix}: expected int, got bool ({v!r})")
+    if isinstance(v, str):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            raise TypeError(f"{prefix}: expected int, got str ({v!r})") from None
+    if isinstance(v, float):
+        return int(v)
+    return v
+
+
+def _coerce_optional_float(v: Any, prefix: str) -> Any:
+    """Like _coerce_float but passes None through."""
+    if v is None:
+        return v
+    return _coerce_float(v, prefix)
+
+
+def _coerce_optional_int(v: Any, prefix: str) -> Any:
+    """Like _coerce_int but passes None through."""
+    if v is None:
+        return v
+    return _coerce_int(v, prefix)
+
+
+# ---------------------------------------------------------------------------
 # OptimizerConfig
 # ---------------------------------------------------------------------------
 
@@ -143,43 +191,12 @@ class OptimizerConfig(_ConfigBase):
     )
     @classmethod
     def _coerce_float_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"optimizer.{info.field_name}: expected float, got bool ({v!r})"
-            )
-        if isinstance(v, (list, dict, tuple)):
-            raise TypeError(
-                f"optimizer.{info.field_name}: expected float, "
-                f"got {type(v).__name__} ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"optimizer.{info.field_name}: expected float, "
-                    f"got str ({v!r})"
-                ) from None
-        return v
+        return _coerce_float(v, f"optimizer.{info.field_name}")
 
     @field_validator("grad_clip", mode="before")
     @classmethod
     def _coerce_grad_clip(cls, v, info):
-        if v is None:
-            return v
-        if isinstance(v, bool):
-            raise TypeError(
-                f"optimizer.{info.field_name}: expected float, got bool ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"optimizer.{info.field_name}: expected float, "
-                    f"got str ({v!r})"
-                ) from None
-        return v
+        return _coerce_optional_float(v, f"optimizer.{info.field_name}")
 
     @field_validator(
         "block_size", "precond_update_freq", "memory_size", "ns_steps",
@@ -188,21 +205,7 @@ class OptimizerConfig(_ConfigBase):
     )
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"optimizer.{info.field_name}: expected int, got bool ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"optimizer.{info.field_name}: expected int, "
-                    f"got str ({v!r})"
-                ) from None
-        if isinstance(v, float):
-            return int(v)
-        return v
+        return _coerce_int(v, f"optimizer.{info.field_name}")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -286,43 +289,12 @@ class CompositeLossConfig(_ConfigBase):
     )
     @classmethod
     def _coerce_float_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"composite_loss.{info.field_name}: expected float, got bool ({v!r})"
-            )
-        if isinstance(v, (list, dict, tuple)):
-            raise TypeError(
-                f"composite_loss.{info.field_name}: expected float, "
-                f"got {type(v).__name__} ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"composite_loss.{info.field_name}: expected float, "
-                    f"got str ({v!r})"
-                ) from None
-        return v
+        return _coerce_float(v, f"composite_loss.{info.field_name}")
 
     @field_validator("n_anchor_points", mode="before")
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"composite_loss.{info.field_name}: expected int, got bool ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"composite_loss.{info.field_name}: expected int, "
-                    f"got str ({v!r})"
-                ) from None
-        if isinstance(v, float):
-            return int(v)
-        return v
+        return _coerce_int(v, f"composite_loss.{info.field_name}")
 
     @model_validator(mode="after")
     def _validate_ranges(self):
@@ -390,21 +362,7 @@ class NetworkConfig(_ConfigBase):
     @field_validator("history_len", "num_heads", "n_layers", mode="before")
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"network.{info.field_name}: expected int, got bool ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"network.{info.field_name}: expected int, "
-                    f"got str ({v!r})"
-                ) from None
-        if isinstance(v, float):
-            return int(v)
-        return v
+        return _coerce_int(v, f"network.{info.field_name}")
 
     @field_validator("type", "activation", "init", mode="before")
     @classmethod
@@ -559,23 +517,7 @@ class TrainConfig(_ConfigBase):
     )
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"episodes: expected int, got bool ({v!r})"
-                if info.field_name == "episodes"
-                else f"{info.field_name}: expected int, got bool ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"{info.field_name}: expected int, "
-                    f"got str ({v!r})"
-                ) from None
-        if isinstance(v, float):
-            return int(v)
-        return v
+        return _coerce_int(v, info.field_name)
 
     @field_validator(
         "reweight_alpha", "early_stop_min_delta", "curriculum_start",
@@ -584,97 +526,18 @@ class TrainConfig(_ConfigBase):
     )
     @classmethod
     def _coerce_float_reject_bool(cls, v, info):
-        if isinstance(v, bool):
-            raise TypeError(
-                f"{info.field_name}: expected float, got bool ({v!r})"
-            )
-        if isinstance(v, str):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                raise TypeError(
-                    f"{info.field_name}: expected float, "
-                    f"got str ({v!r})"
-                ) from None
-        return v
+        return _coerce_float(v, info.field_name)
 
     @field_validator("switch_lr", mode="before")
     @classmethod
-    def _coerce_switch_lr(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, bool):
-            raise TypeError(f"switch_lr: expected float, got bool ({v!r})")
-        if isinstance(v, str):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                raise TypeError(f"switch_lr: expected float, got str ({v!r})") from None
-        return v
+    def _coerce_switch_lr(cls, v, info):
+        return _coerce_optional_float(v, info.field_name)
 
-    @field_validator("switch_episode", mode="before")
+    @field_validator("switch_episode", "checkpoint_every", "max_checkpoints",
+                     "early_stop_patience", mode="before")
     @classmethod
-    def _coerce_switch_episode(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, bool):
-            raise TypeError(f"switch_episode: expected int, got bool ({v!r})")
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(f"switch_episode: expected int, got str ({v!r})") from None
-        if isinstance(v, float):
-            return int(v)
-        return v
-
-    @field_validator("checkpoint_every", mode="before")
-    @classmethod
-    def _coerce_checkpoint_every(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, bool):
-            raise TypeError(f"checkpoint_every: expected int, got bool ({v!r})")
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(f"checkpoint_every: expected int, got str ({v!r})") from None
-        if isinstance(v, float):
-            return int(v)
-        return v
-
-    @field_validator("max_checkpoints", mode="before")
-    @classmethod
-    def _coerce_max_checkpoints(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, bool):
-            raise TypeError(f"max_checkpoints: expected int, got bool ({v!r})")
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(f"max_checkpoints: expected int, got str ({v!r})") from None
-        if isinstance(v, float):
-            return int(v)
-        return v
-
-    @field_validator("early_stop_patience", mode="before")
-    @classmethod
-    def _coerce_early_stop_patience(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, bool):
-            raise TypeError(f"early_stop_patience: expected int, got bool ({v!r})")
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                raise TypeError(f"early_stop_patience: expected int, got str ({v!r})") from None
-        if isinstance(v, float):
-            return int(v)
-        return v
+    def _coerce_optional_int_fields(cls, v, info):
+        return _coerce_optional_int(v, info.field_name)
 
     @field_validator("verbose", "warm_start", "warm_start_linearize", "fp64",
                      "rescale_equations", mode="before")

@@ -11,7 +11,7 @@ Three step variants dispatched at construction time (before JIT):
 import math
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple as _NamedTuple, Optional, Tuple
 from functools import partial
 
 import jax
@@ -618,7 +618,58 @@ def _update_reweighting(eq_losses, state, loss_reweight, reweight_alpha, n_eq):
 
 
 # ---------------------------------------------------------------------------
-# Three step variants
+# Shared step preamble / postamble
+# ---------------------------------------------------------------------------
+
+class _StepContext(_NamedTuple):
+    """Pre-computed values shared by all train step variants."""
+    train_states: Array
+    final_state: Any
+    loss_key: Array
+    key: Array
+    target_fn: Any  # None or frozen params
+
+
+def _prepare_step(model, state, episode_length, batch_size, history_len,
+                  ss_reset_frac, use_target_network):
+    """Common preamble for all train step variants.
+
+    Runs episode, samples training batch, and resolves target network.
+    Called inside JIT; use_target_network is a Python bool resolved at trace time.
+    """
+    train_states, final_state, loss_key, key = _run_episode_and_sample(
+        model, state, episode_length, batch_size, history_len,
+        ss_reset_frac=ss_reset_frac,
+    )
+    target_fn = state.target_params if use_target_network else None
+    return _StepContext(train_states, final_state, loss_key, key, target_fn)
+
+
+def _finalize_step(state, ctx, new_params, new_opt_state, loss, eq_losses,
+                   grad_norm, loss_reweight, reweight_alpha, n_eq):
+    """Common postamble: reweighting + TrainState construction + Metrics.
+
+    Called inside JIT. All arguments are arrays/pytrees (JAX-compatible).
+    """
+    new_weights, new_rw = _update_reweighting(
+        eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+    )
+    new_state = TrainState(
+        params=new_params,
+        opt_state=new_opt_state,
+        episode_state=ctx.final_state,
+        key=ctx.key,
+        step=state.step + 1,
+        episode=state.episode + 1,
+        loss_weights=new_weights,
+        reweight_state=new_rw,
+        target_params=state.target_params,
+    )
+    return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
+
+# ---------------------------------------------------------------------------
+# Five step variants
 # ---------------------------------------------------------------------------
 
 def _make_standard_step(
@@ -642,20 +693,15 @@ def _make_standard_step(
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
-        train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size, history_len,
-            ss_reset_frac=ss_reset_frac,
-        )
-
-        # Target network: frozen copy for next_policy (breaks self-referential loop)
-        target_fn = state.target_params if use_target_network else None
+        ctx = _prepare_step(model, state, episode_length, batch_size,
+                            history_len, ss_reset_frac, use_target_network)
 
         def loss_fn(params):
             loss, eq_losses = _compute_loss(
-                model, params, train_states, loss_key, mc_samples,
+                model, params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return loss, eq_losses
 
@@ -670,22 +716,9 @@ def _make_standard_step(
         new_params = eqx.combine(new_params_arrays, state.params)
 
         grad_norm = optax.global_norm(grads_arrays)
-        new_weights, new_rw = _update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
-        )
-
-        new_state = TrainState(
-            params=new_params,
-            opt_state=new_opt_state,
-            episode_state=final_state,
-            key=key,
-            step=state.step + 1,
-            episode=state.episode + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
-            target_params=state.target_params,
-        )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+        return _finalize_step(state, ctx, new_params, new_opt_state,
+                              loss, eq_losses, grad_norm,
+                              loss_reweight, reweight_alpha, n_eq)
 
     return train_step
 
@@ -720,30 +753,26 @@ def _make_pcgrad_step(
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
-        train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size, history_len,
-            ss_reset_frac=ss_reset_frac,
-        )
-
-        target_fn = state.target_params if use_target_network else None
+        ctx = _prepare_step(model, state, episode_length, batch_size,
+                            history_len, ss_reset_frac, use_target_network)
 
         # Per-equation loss vector for jacrev (always base compute_loss)
         def eq_loss_vector(params):
             _, eq_losses = compute_loss(
-                model, params, train_states, loss_key, mc_samples,
+                model, params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return eq_losses_to_array(eq_losses)
 
         # Also need total loss + eq_losses for logging
         def total_loss_fn(params):
             loss, eq_losses = _compute_loss_total(
-                model, params, train_states, loss_key, mc_samples,
+                model, params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return loss, eq_losses
 
@@ -794,22 +823,9 @@ def _make_pcgrad_step(
         loss, eq_losses = total_loss_fn(state.params)
 
         grad_norm = jnp.sqrt(jnp.sum(final_flat_grad ** 2))
-        new_weights, new_rw = _update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
-        )
-
-        new_state = TrainState(
-            params=new_params,
-            opt_state=new_opt_state,
-            episode_state=final_state,
-            key=key,
-            step=state.step + 1,
-            episode=state.episode + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
-            target_params=state.target_params,
-        )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+        return _finalize_step(state, ctx, new_params, new_opt_state,
+                              loss, eq_losses, grad_norm,
+                              loss_reweight, reweight_alpha, n_eq)
 
     return train_step
 
@@ -837,12 +853,9 @@ def _make_mao_step(
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
-        train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size, history_len,
-            ss_reset_frac=ss_reset_frac,
-        )
+        ctx = _prepare_step(model, state, episode_length, batch_size,
+                            history_len, ss_reset_frac, use_target_network)
 
-        target_fn = state.target_params if use_target_network else None
         params_arrays = eqx.filter(state.params, eqx.is_array)
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
 
@@ -850,11 +863,11 @@ def _make_mao_step(
         def per_eq_loss_fn(p_arrays):
             full_params = eqx.combine(p_arrays, params_static)
             _, eq_losses = compute_loss(
-                model, full_params, train_states, loss_key, mc_samples,
+                model, full_params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=None,  # MAO handles weighting internally
                 shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return eq_losses_to_array(eq_losses)
 
@@ -864,10 +877,10 @@ def _make_mao_step(
         # Also compute scalar loss + grad norm for metrics
         def total_loss_fn(params):
             loss, eq_losses = _compute_loss_total(
-                model, params, train_states, loss_key, mc_samples,
+                model, params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return loss, eq_losses
 
@@ -889,22 +902,9 @@ def _make_mao_step(
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
-        new_weights, new_rw = _update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
-        )
-
-        new_state = TrainState(
-            params=new_params,
-            opt_state=new_opt_state,
-            episode_state=final_state,
-            key=key,
-            step=state.step + 1,
-            episode=state.episode + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
-            target_params=state.target_params,
-        )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+        return _finalize_step(state, ctx, new_params, new_opt_state,
+                              loss, eq_losses, grad_norm,
+                              loss_reweight, reweight_alpha, n_eq)
 
     return train_step
 
@@ -930,21 +930,18 @@ def _make_lbfgs_step(
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
-        train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size, history_len,
-            ss_reset_frac=ss_reset_frac,
-        )
+        ctx = _prepare_step(model, state, episode_length, batch_size,
+                            history_len, ss_reset_frac, use_target_network)
 
-        target_fn = state.target_params if use_target_network else None
         params_arrays = eqx.filter(state.params, eqx.is_array)
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
 
         def loss_fn(params):
             loss, eq_losses = _compute_loss(
-                model, params, train_states, loss_key, mc_samples,
+                model, params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return loss, eq_losses
 
@@ -956,10 +953,10 @@ def _make_lbfgs_step(
         def value_fn(p_arrays):
             full_params = eqx.combine(p_arrays, params_static)
             v, _ = _compute_loss(
-                model, full_params, train_states, loss_key, mc_samples,
+                model, full_params, ctx.train_states, ctx.loss_key, mc_samples,
                 weights=state.loss_weights, shock_scale=shock_scale,
                 quad_nodes=quad_nodes, quad_weights=quad_weights,
-                target_policy_fn=target_fn,
+                target_policy_fn=ctx.target_fn,
             )
             return v
 
@@ -975,22 +972,9 @@ def _make_lbfgs_step(
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
-        new_weights, new_rw = _update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
-        )
-
-        new_state = TrainState(
-            params=new_params,
-            opt_state=new_opt_state,
-            episode_state=final_state,
-            key=key,
-            step=state.step + 1,
-            episode=state.episode + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
-            target_params=state.target_params,
-        )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+        return _finalize_step(state, ctx, new_params, new_opt_state,
+                              loss, eq_losses, grad_norm,
+                              loss_reweight, reweight_alpha, n_eq)
 
     return train_step
 
@@ -1022,12 +1006,8 @@ def _make_gn_step(
 
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
-        train_states, final_state, loss_key, key = _run_episode_and_sample(
-            model, state, episode_length, batch_size, history_len,
-            ss_reset_frac=ss_reset_frac,
-        )
-
-        target_fn = state.target_params if use_target_network else None
+        ctx = _prepare_step(model, state, episode_length, batch_size,
+                            history_len, ss_reset_frac, use_target_network)
 
         # Residual function: params -> [n_eq * batch] per-batch E_shock[r]
 
@@ -1041,14 +1021,14 @@ def _make_gn_step(
                 sample_weights = quad_weights
             else:
                 shocks = sample_antithetic_shocks(
-                    loss_key, mc_samples, batch_size, model.n_shocks, shock_scale,
+                    ctx.loss_key, mc_samples, batch_size, model.n_shocks, shock_scale,
                 )
                 n_samples = shocks.shape[0]
                 sample_weights = jnp.ones(n_samples) / n_samples
 
             def sample_residuals(shock):
-                return compute_residuals(model, params, train_states, shock,
-                                         target_policy_fn=target_fn)
+                return compute_residuals(model, params, ctx.train_states, shock,
+                                         target_policy_fn=ctx.target_fn)
 
             all_residuals = jax.vmap(sample_residuals)(shocks)
             # all_residuals: Dict[str, [n_samples, batch]]
@@ -1062,10 +1042,10 @@ def _make_gn_step(
 
         # Also get loss + eq_losses for logging
         loss, eq_losses = _compute_loss_log(
-            model, state.params, train_states, loss_key, mc_samples,
+            model, state.params, ctx.train_states, ctx.loss_key, mc_samples,
             weights=state.loss_weights, shock_scale=shock_scale,
             quad_nodes=quad_nodes, quad_weights=quad_weights,
-            target_policy_fn=target_fn,
+            target_policy_fn=ctx.target_fn,
         )
 
         # GN update: optimizer handles Jacobian computation internally
@@ -1077,22 +1057,9 @@ def _make_gn_step(
             return jnp.sum(r ** 2)
         grad_norm = optax.global_norm(eqx.filter(jax.grad(scalar_loss)(state.params), eqx.is_array))
 
-        new_weights, new_rw = _update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
-        )
-
-        new_state = TrainState(
-            params=new_params,
-            opt_state=new_opt_state,
-            episode_state=final_state,
-            key=key,
-            step=state.step + 1,
-            episode=state.episode + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
-            target_params=state.target_params,
-        )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+        return _finalize_step(state, ctx, new_params, new_opt_state,
+                              loss, eq_losses, grad_norm,
+                              loss_reweight, reweight_alpha, n_eq)
 
     return train_step
 
