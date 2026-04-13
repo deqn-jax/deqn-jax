@@ -55,9 +55,15 @@ STEADY_STATE = {
 # omega_bar SS value (computed analytically from bank participation constraint)
 OMEGA_BAR_SS = 0.488466
 
-# Per-variable bounding — tight to prevent pathological local minima.
-# Eliminated analytically: s (cost min), L (balance sheet), omega_bar (bank participation).
-# K_p, K_w are direct network outputs (analytical computation amplifies pi errors via ^(-5) exponent).
+# Per-variable bounding.
+#
+# CRITICAL: pi upper bound is PINNED AT CALVO VALIDITY EDGE. With xi_p=0.6
+# and lambda_f=1.2, the Calvo price dispersion formula
+#   K_p_inner = (1 - xi_p * (pi_tilda/pi)^-5) / (1 - xi_p)
+# requires pi < ~1.1*pi_tilda for K_p_inner > 0 (i.e., for the equations
+# to admit a nonlinear solution). Widening pi upper is UNSAFE — network
+# will enter regions where eq2a/eq2b have no valid solution, triggering
+# gradient explosion through the soft_floor at 0.01.
 #
 # Policy:     lambda_z  i     pi    c     w_tilda  h     F_w   F_p   q     K_p   K_w
 # SS:         0.602     0.795 1.012 1.594 1.920    0.944 0.885 4.736 1.000 4.78  2.18
