@@ -21,6 +21,10 @@ CONSTANTS = {
     # Production
     "alpha": 0.4, "delta": 0.025, "kappa": 2.0, "Phi": 0.606,
     # Price/wage setting
+    # NOTE: xi=0.6 is load-bearing for Blanchard-Kahn determinacy under this
+    # calibration. Attempted xi=0.5 to widen the Calvo validity edge; broke
+    # determinacy (14 stable eigenvalues vs expected 13). ξ cannot be lowered
+    # without recalibrating other constants simultaneously.
     "lambda_f": 1.2, "lambda_w": 1.2, "xi_p": 0.6, "xi_w": 0.6,
     "iota": 0.9, "iota_w": 0.49, "iota_mu": 0.94,
     # Monetary policy

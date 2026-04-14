@@ -101,6 +101,12 @@ def _soft_floor(x: Array, eps: float, sharpness: float = 10.0) -> Array:
     - x >> eps: result ≈ x (error ~ exp(-sharpness*(x-eps))/sharpness)
     - x << eps: result ≈ eps (gradient = sigmoid(sharpness*(x-eps)) → 0 smoothly)
     - x = eps: result = eps + ln(2)/sharpness, gradient = 0.5
+
+    NOTE: Attempted straight-through gradient leak to prevent vanishing
+    gradients in the pathological Calvo region; leak of 0.01 hurt valid-
+    region convergence, leak of 1e-4 didn't prevent explosion either.
+    The fundamental issue is not the floor's gradient but the Calvo
+    equation's ill-definedness beyond xi*(pi_tilda/pi)^-5 = 1.
     """
     return eps + jax.nn.softplus(sharpness * (x - eps)) / sharpness
 
