@@ -98,17 +98,32 @@ def _soft_floor(x: Array, eps: float, sharpness: float = 10.0) -> Array:
     """Smooth approximation of max(x, eps) with non-vanishing gradients.
 
     Uses scaled softplus: eps + softplus(sharpness*(x - eps)) / sharpness
-    - x >> eps: result ≈ x (error ~ exp(-sharpness*(x-eps))/sharpness)
-    - x << eps: result ≈ eps (gradient = sigmoid(sharpness*(x-eps)) → 0 smoothly)
-    - x = eps: result = eps + ln(2)/sharpness, gradient = 0.5
-
-    NOTE: Attempted straight-through gradient leak to prevent vanishing
-    gradients in the pathological Calvo region; leak of 0.01 hurt valid-
-    region convergence, leak of 1e-4 didn't prevent explosion either.
-    The fundamental issue is not the floor's gradient but the Calvo
-    equation's ill-definedness beyond xi*(pi_tilda/pi)^-5 = 1.
     """
     return eps + jax.nn.softplus(sharpness * (x - eps)) / sharpness
+
+
+def _log1mexp(x: Array, max_x: float = -0.05) -> Array:
+    """Numerically stable log(1 - exp(x)) for x <= 0.
+
+    Used in log-space Calvo aggregator:
+        K_p_inner = (1 - xi * r^a) / (1 - xi)
+        log(K_p_inner) = log1mexp(log(xi) + a*log(r)) - log(1 - xi)
+
+    Clamps x to max_x = -0.05 to prevent NaN near the Calvo validity
+    edge (x -> 0). At the clamp boundary, log1mexp ≈ -3.0. Callers
+    should apply their own residual-level saturation (e.g. tanh-based
+    soft clip) if further magnitude bounding is needed.
+
+    Stable split at -log(2):
+    - x > -log(2): log(-expm1(x))    [avoids catastrophic cancellation]
+    - x <= -log(2): log1p(-exp(x))   [avoids log of near-zero negative]
+    """
+    x_safe = jnp.minimum(x, max_x)
+    return jnp.where(
+        x_safe > -jnp.log(2.0),
+        jnp.log(-jnp.expm1(x_safe)),
+        jnp.log1p(-jnp.exp(x_safe)),
+    )
 
 
 def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array]:
@@ -172,13 +187,30 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         (p.pi / c["pi_ss"]) ** c["alpha_pi"] * (y_gdp / c["y_ss"]) ** c["alpha_y"]
     ) ** (1 - c["rho_p"]) * jnp.exp(st.m_p)
 
-    # K_p_inner, K_w_inner — needed for definition equations (eq2a, eq4a)
-    # K_p, K_w are direct network outputs (not computed here)
+    # Calvo inner terms — used by eq2a and eq4a.
+    # K_p_inner = (1 - xi*(pi_tilda/pi)^-5) / (1-xi). Passed through
+    # _soft_floor because the subtraction can go negative past the
+    # Calvo validity edge (pi > ~1.1*pi_tilda).
     K_p_inner = (1 - c["xi_p"] * (pi_tilda / p.pi) ** (1 / (1 - c["lambda_f"]))) / (1 - c["xi_p"])
     K_p_inner = _soft_floor(K_p_inner, 0.01)
 
     K_w_inner = (1 - c["xi_w"] * (pi_w_tilda / pi_w * c["mu_z_ss"]) ** (1 / (1 - c["lambda_w"]))) / (1 - c["xi_w"])
     K_w_inner = _soft_floor(K_w_inner, 0.01)
+
+    # log-space versions — NOT used by equations (reformulation didn't
+    # improve convergence, see commit history). Kept as diagnostics
+    # showing how close the network is to the Calvo validity edge:
+    # log_K_p_inner -> -inf as pi approaches ~1.1*pi_tilda.
+    log_r_p = jnp.log(pi_tilda + 1e-12) - jnp.log(p.pi + 1e-12)
+    log_z_p = jnp.log(c["xi_p"]) + (1.0 / (1.0 - c["lambda_f"])) * log_r_p
+    log_K_p_inner = _log1mexp(log_z_p) - jnp.log(1.0 - c["xi_p"])
+
+    log_r_w = (
+        jnp.log(pi_w_tilda + 1e-12) - jnp.log(pi_w + 1e-12)
+        + jnp.log(c["mu_z_ss"])
+    )
+    log_z_w = jnp.log(c["xi_w"]) + (1.0 / (1.0 - c["lambda_w"])) * log_r_w
+    log_K_w_inner = _log1mexp(log_z_w) - jnp.log(1.0 - c["xi_w"])
 
     return {
         "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
@@ -190,6 +222,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
         "R": R, "K_p": p.K_p, "K_w": p.K_w,
         "K_p_inner": K_p_inner, "K_w_inner": K_w_inner, "i_ratio": i_ratio,
+        "log_K_p_inner": log_K_p_inner, "log_K_w_inner": log_K_w_inner,
     }
 
 
@@ -220,6 +253,10 @@ def equations(
     ) / (p.F_p + 1e-8) - 1.0
 
     # Eq 2a: K_p definition — log-space (K_p = F_p * K_p_inner^(1-lambda_f))
+    # Uses _soft_floor'd K_p_inner from definitions().
+    # Alternative log_K_p_inner (via log1mexp) available in defs but not
+    # used here — see commit history for why pure log-space reformulation
+    # was attempted and reverted.
     K_p_analytical = p.F_p * defs["K_p_inner"] ** (1 - c["lambda_f"])
     residuals["eq2a_Kp_definition"] = jnp.log(p.K_p + 1e-8) - jnp.log(K_p_analytical + 1e-8)
 
