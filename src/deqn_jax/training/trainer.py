@@ -21,7 +21,7 @@ import equinox as eqx
 import optax
 
 from deqn_jax.types import ModelSpec, TrainState, Metrics, ReweightState, make_reweight_state
-from deqn_jax.networks import create_mlp, create_lstm, create_transformer
+from deqn_jax.networks import create_mlp, create_lstm, create_transformer, create_linear_plus_mlp
 from deqn_jax.training.loss import compute_loss, compute_residuals, eq_losses_to_array, sample_antithetic_shocks, gauss_hermite_nd
 from deqn_jax.training.episode import run_episode, run_episode_with_history, sample_initial_states
 from deqn_jax.training.history import get_history_len, make_constant_history, build_history_windows
@@ -428,6 +428,24 @@ def create_train_state(
             history_len=history_len,
             policy_lower=model.policy_lower,
             policy_upper=model.policy_upper,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            key=net_key,
+        )
+    elif net_type == "linear_plus_mlp":
+        # Residual parameterization: policy = linear(state) + mlp(state).
+        # Requires model.steady_state_fn to compute linearization.
+        if model.steady_state_fn is None:
+            raise ValueError(
+                f"network.type='linear_plus_mlp' requires model.steady_state_fn"
+            )
+        init_scale = getattr(network_config, "init_scale", 0.0)
+        policy_net = create_linear_plus_mlp(
+            model=model,
+            hidden_sizes=hidden_sizes,
+            activation=activation,
+            init=init,
+            init_scale=init_scale,
             input_shift=input_shift,
             input_scale=input_scale,
             key=net_key,
@@ -1266,7 +1284,13 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         )
 
         # Warm start from steady state (only for fresh training)
-        if config.warm_start:
+        # For linear_plus_mlp: the network IS already the linearized policy by
+        # construction (delta starts at zero). Skip fitting.
+        is_linear_plus_mlp = config.network.type == "linear_plus_mlp"
+        if config.warm_start and is_linear_plus_mlp:
+            if config.verbose:
+                print("  Warm start skipped: linear_plus_mlp architecture starts at linear policy by construction.")
+        elif config.warm_start:
             _hl = get_history_len(state.params)
             if _hl > 1:
                 # Sequence net warm start: fit to constant-SS policy

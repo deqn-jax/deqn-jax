@@ -322,7 +322,7 @@ class NetworkConfig(_ConfigBase):
 
     model_config = ConfigDict(extra="forbid")
 
-    VALID_TYPES: ClassVar[frozenset] = frozenset({"mlp", "lstm", "transformer"})
+    VALID_TYPES: ClassVar[frozenset] = frozenset({"mlp", "lstm", "transformer", "linear_plus_mlp"})
     VALID_ACTIVATIONS: ClassVar[frozenset] = frozenset({"tanh", "relu", "gelu", "silu", "softplus"})
     VALID_INITS: ClassVar[frozenset] = frozenset({
         "default", "xavier_normal", "xavier_uniform",
@@ -339,6 +339,9 @@ class NetworkConfig(_ConfigBase):
     history_len: int = Field(default=1)
     num_heads: int = Field(default=4)
     n_layers: int = Field(default=2)
+    # For linear_plus_mlp: scale of the MLP delta's final layer at init.
+    # 0.0 means policy starts exactly at the linear solution.
+    init_scale: float = Field(default=0.0)
 
     @field_validator("hidden_sizes", mode="before")
     @classmethod
@@ -363,6 +366,11 @@ class NetworkConfig(_ConfigBase):
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
         return _coerce_int(v, f"network.{info.field_name}")
+
+    @field_validator("init_scale", mode="before")
+    @classmethod
+    def _coerce_init_scale(cls, v, info):
+        return _coerce_float(v, f"network.{info.field_name}")
 
     @field_validator("type", "activation", "init", mode="before")
     @classmethod
