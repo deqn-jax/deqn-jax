@@ -41,11 +41,16 @@ wandb/
 *.tfevents*
 *.ckpt
 
-# Project-specific
-configs/
+# Project-specific: archive old experimental configs, track canonical ones.
+configs/archive/
+configs/_diag_*.yaml
+configs/dgx_*.yaml
+# Experiment scripts and working notes
 scripts/
 dynare/
 PLAN.md
+docs/session_log.md
+irf_results/
 
 # Claude Code
 .claude/

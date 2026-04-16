@@ -1,15 +1,23 @@
 """Aiyagari (1994) incomplete-markets savings model.
 
+INTERNAL / NOT PUBLICLY REGISTERED as of v0.1.0. This module exists in
+source but is intentionally not exposed through the public model
+registry (``deqn_jax.models.load_model``). It has no test coverage yet
+and should not be relied upon for release-quality results.
+
 Partial-equilibrium individual problem:
 - State: (k, a) = (individual capital, log idiosyncratic productivity)
 - Policy: c_share (consumption share of cash-on-hand)
 - One Euler equation with borrowing constraint
 - Prices fixed at representative-agent steady-state levels
 
-This tests DEQN/GRPO on a model with:
+Testbed for DEQN/GRPO on a model with:
 - Borrowing constraint (k >= 0)
 - Idiosyncratic risk (precautionary savings motive)
 - Nonlinear optimal policy (savings rate depends on wealth)
+
+To promote to a public model: add to ``deqn_jax/models/__init__.py``
+registry dict and add smoke tests under ``tests/``.
 """
 
 from deqn_jax.types import ModelSpec

@@ -49,6 +49,50 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/deqn_jax"]
 
+[tool.hatch.build.targets.sdist]
+# Ship a clean source distribution: published code, tests, license, top-level
+# docs, and configs. Exclude internal notes, experiment outputs, and
+# iteration archive (research-workspace material).
+include = [
+    "src/deqn_jax/**",
+    "tests/**",
+    "configs/brock_mirman.yaml",
+    "configs/default.yaml",
+    "configs/disaster.yaml",
+    "docs/disaster_corrected.tex",
+    "docs/disaster_model_errata.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+exclude = [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/*.egg-info",
+    "docs/session_log.md",
+    "docs/composite_loss.md",
+    "docs/cmr_paper.pdf",
+    "docs/disaster_paper.pdf",
+    "docs/ollie_slides.pdf",
+    "docs/disaster.tex",
+    "checkpoints/**",
+    "runs/**",
+    "irf_results/**",
+    "dynare/**",
+    "scripts/**",
+    "configs/_diag_*.yaml",
+    "configs/dgx_*.yaml",
+    "configs/disaster_gpu_*.yaml",
+    "configs/disaster_lstm_*.yaml",
+    "configs/disaster_staged_*.yaml",
+    "configs/disaster_mao.yaml",
+    "configs/disaster_v*.yaml",
+    "PLAN.md",
+    ".github/**",
+    ".claude/**",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

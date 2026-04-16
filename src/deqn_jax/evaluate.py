@@ -35,7 +35,7 @@ def euler_equation_errors(
     model,
     n_periods: int = 10_000,
     seed: int = 123,
-    burn_in: int = 500,
+    burn_in: Optional[int] = None,
 ) -> Dict[str, Array]:
     """Simulate a long stochastic path and compute Euler residuals everywhere.
 
@@ -47,14 +47,22 @@ def euler_equation_errors(
         model: ModelSpec
         n_periods: Length of simulation (default: 10,000)
         seed: Random seed for shock draws
-        burn_in: Discard first N periods (reach ergodic distribution)
+        burn_in: Discard first N periods (reach ergodic distribution). If
+            None, uses min(500, n_periods // 5) so short simulations still
+            produce some output.
 
     Returns:
         Dict with:
-            "residuals": [n_periods - burn_in, n_equations] array of log10 |residuals|
+            "residuals": [n_periods - burn_in, n_equations] array of residuals
             "equation_names": list of equation names
             "states": [n_periods - burn_in, n_states] simulated states
     """
+    if burn_in is None:
+        burn_in = min(500, max(0, n_periods // 5))
+    elif burn_in >= n_periods:
+        # Guard against caller passing a too-large burn_in. Leave at least
+        # one sample so downstream stack()/mean() don't crash.
+        burn_in = max(0, n_periods - 1)
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
     n_shocks = model.n_shocks
@@ -286,9 +294,14 @@ def simulated_moments(
     return moments
 
 
-def print_moments(moments: Dict[str, Dict[str, float]], label: str = ""):
+def print_moments(
+    moments: Dict[str, Dict[str, float]],
+    label: str = "",
+    n_periods: Optional[int] = None,
+):
     """Print simulated moments table."""
-    header = "Simulated Moments (10,000 periods)"
+    period_str = f"{n_periods:,}" if n_periods is not None else "simulated"
+    header = f"Simulated Moments ({period_str} periods)"
     if label:
         header += f" — {label}"
     print(f"\n{header}")
@@ -438,7 +451,7 @@ def run_evaluate_cli(args):
     moments = simulated_moments(
         policy_net, model, n_periods=args.periods, seed=args.seed
     )
-    print_moments(moments, label=label)
+    print_moments(moments, label=label, n_periods=args.periods)
 
     # Save results
     if args.output:

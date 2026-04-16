@@ -6,7 +6,7 @@ Toggle via `loss_type: "composite"` in the config (default `"mse"` is unchanged)
 
 ## Base loss (unchanged)
 
-Standard DEQN: for each batch of states, evaluate all 9 equilibrium equations under stochastic shocks (Gauss-Hermite quadrature or Monte Carlo), square the mean residuals, sum them. This is what `compute_loss()` returns.
+Standard DEQN: for each batch of states, evaluate all equilibrium equations (11 for the disaster model) under stochastic shocks (Gauss-Hermite quadrature or Monte Carlo), square the mean residuals, sum them. This is what `compute_loss()` returns.
 
 ## Anchor loss (`aux_anchor`)
 

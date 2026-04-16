@@ -235,7 +235,10 @@ class OptimizerConfig(_ConfigBase):
             raise ValueError(f"beta2 must be in (0, 1), got {self.beta2}")
         if self.epsilon <= 0:
             raise ValueError(f"epsilon must be > 0, got {self.epsilon}")
-        if self.damping <= 0:
+        if self.name in {"gn", "lm"}:
+            if self.damping < 0:
+                raise ValueError(f"damping must be >= 0 for {self.name}, got {self.damping}")
+        elif self.damping <= 0:
             raise ValueError(f"damping must be > 0, got {self.damping}")
         if not (0 < self.decay < 1):
             raise ValueError(f"decay must be in (0, 1), got {self.decay}")

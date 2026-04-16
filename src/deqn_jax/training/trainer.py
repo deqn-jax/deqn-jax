@@ -1067,7 +1067,9 @@ def _make_gn_step(
         )
 
         # GN update: optimizer handles Jacobian computation internally
-        new_params, new_opt_state = opt.update(residual_fn, state.params, state.opt_state)
+        new_params, new_opt_state = opt.update(
+            residual_fn, state.params, state.opt_state, lr_scale=lr_scale
+        )
 
         # Compute grad norm from residual gradient for logging
         def scalar_loss(p):

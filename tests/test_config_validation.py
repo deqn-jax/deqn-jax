@@ -101,6 +101,10 @@ class TestOptimizerConfigValidation:
         with pytest.raises(ValueError, match="damping"):
             OptimizerConfig(damping=0.0)
 
+    def test_gn_and_lm_allow_zero_damping(self):
+        OptimizerConfig(name="gn", damping=0.0)
+        OptimizerConfig(name="lm", damping=0.0)
+
     def test_decay_out_of_range_raises(self):
         with pytest.raises(ValueError, match="decay"):
             OptimizerConfig(decay=1.0)

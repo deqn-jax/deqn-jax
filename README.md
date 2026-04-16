@@ -1,92 +1,161 @@
 # DEQN-JAX
 
-Pure JAX implementation of Deep Equilibrium Networks for solving economic models.
+**Pure-JAX framework for solving economic equilibrium models with deep equilibrium networks.**
 
-## Overview
-
-DEQN-JAX trains neural networks to satisfy economic equilibrium conditions. It's a Physics-Informed Neural Network (PINN) approach for economics:
+Train a neural network to satisfy a dynamic model's equilibrium conditions across the full state space, rather than solving point-by-point. DEQN-JAX is designed as a general framework: models, networks, optimizers, and loss terms are independent plug-in layers.
 
 ```
-State (K, Z) → Policy Network → Policy (C, L) → Equilibrium Equations → Loss = Σ residuals²
+state  →  Network  →  policy  →  Equilibrium equations  →  Loss = Σ residuals²
 ```
+
+**Status:** alpha (`v0.1.0`). API may change. Core plumbing is solid (226 tests pass; `uv build` produces both wheel and sdist; CLI subcommands `check`, `list`, `info`, `train`, `irf`, `evaluate`, `optimizers` all work). The package is intended to support multiple research papers — it is not paper-specific.
+
+## What's implemented
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Brock–Mirman model | stable | 2 states, 1 policy, analytical SS. Canonical smoke test. |
+| Disaster model (CMR + capital destruction) | experimental | 13 states, 11 policies, numerical SS. Baseline CMR converges reliably; disaster block implemented. |
+| Networks: MLP, LSTM, Transformer | stable | History-dependent (sequence) policies supported. |
+| Networks: `LinearPlusMLP` (residual over Blanchard-Kahn solution) | stable | Recommended for medium-scale DSGE — see `networks/linear_plus_mlp.py`. |
+| Optimizers: Adam, SGD, AdamW, Lion, Muon, NGD, Shampoo, MAO, MAO-KFAC, L-BFGS, Gauss-Newton, Levenberg-Marquardt | varying | Adam + `LinearPlusMLP` is the validated stack. Second-order methods work but are less tested. |
+| Composite loss (anchor + Jacobian + barrier + Newton) | stable | Supervised priors toward the linearized policy. |
+| Warm start | stable | L-BFGS fit to steady state, or Dynare linearization import. |
+| Curriculum on shock magnitude | stable | Ramp shocks from small to full over N episodes. |
+| Quadrature / MC expectations | stable | Gauss-Hermite nodes or Monte Carlo with antithetic variates. |
+| Checkpointing, TensorBoard, W&B | stable | Resume training from checkpoint supported. |
+| `aiyagari` module | internal | Present in source; not registered in the public model registry. May be exposed in a later release. |
 
 ## Installation
 
-```bash
-# CPU only
-uv sync
-
-# With CUDA 12 support
-uv sync
-uv pip install -U "jax[cuda12]"
-
-# Or for older CUDA 11
-uv pip install -U "jax[cuda11_local]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-```
-
-### Verify CUDA
-```python
-import jax
-print(jax.devices())  # Should show CudaDevice
-```
-
-## Quick Start
-
-```python
-from deqn_jax import train
-
-# Train Brock-Mirman model
-params, history = train("brock_mirman", episodes=1000)
-```
-
-Or via CLI:
+From a source checkout (alpha is not yet on PyPI):
 
 ```bash
-# Basic training
-deqn-jax train brock_mirman -n 1000
-
-# With warm start from steady state
-deqn-jax train brock_mirman -n 500 --warm-start
-
-# Float64 precision (recommended for disaster model)
-deqn-jax train disaster -n 1000 --fp64 --warm-start --lr 0.0001
+git clone <repo>
+cd deqn-jax
+uv sync
+uv pip install -e .            # optional: editable mode for hacking
 ```
 
-## Features
+CUDA-enabled install (Linux aarch64 / x86_64, CUDA 12 or 13):
 
-- **Pure JAX**: Single JIT boundary for maximum performance
-- **CUDA support**: Same code runs on CPU/GPU, ~10-50x speedup on GPU
-- **Warm start**: L-BFGS initialization from steady state (~20 iters)
-- **Named variables**: `s.k`, `p.sav_rate` instead of fragile index slicing
-- **Equinox networks**: Clean, Pythonic neural network definitions
-- **Optax optimizers**: Composable, well-maintained optimizer library
-- **Monte Carlo expectations**: Antithetic variates for variance reduction
-- **Gauss-Newton/LM**: Second-order optimizers with JAX autodiff Jacobians
+```bash
+uv pip install -U "jax[cuda13]"  # or "jax[cuda12]" for CUDA 12
+```
 
-## Models
+Verify:
 
-- `brock_mirman`: Classic optimal growth model (Brock & Mirman, 1972)
-- `disaster`: NK-DSGE with financial frictions (coming soon)
+```bash
+uv run deqn-jax check
+uv run deqn-jax list
+```
+
+## Quick start
+
+Train the 5-minute smoke-test model:
+
+```bash
+uv run deqn-jax train brock_mirman -n 1000 --warm-start
+```
+
+Train the disaster model with the validated stack:
+
+```bash
+uv run deqn-jax train --config configs/disaster.yaml
+```
+
+Evaluate a checkpoint:
+
+```bash
+uv run deqn-jax evaluate path/to/checkpoint.eqx -n 2000
+```
+
+Impulse-response functions:
+
+```bash
+uv run deqn-jax irf path/to/checkpoint.eqx --shock eps
+```
+
+## Extending the framework
+
+### Adding a new model
+
+1. Create `src/deqn_jax/models/your_model/` with four files:
+   - `variables.py` — `VariableSpec`, `CONSTANTS`, steady-state reference values
+   - `equations.py` — `equations(state, policy, next_state, next_policy, constants)` returns a dict of residuals. Also `definitions()` for derived quantities.
+   - `dynamics.py` — `step(state, policy, shock, constants)` returns next state.
+   - `steady_state.py` — `steady_state(constants)` returns `(ss_state, ss_policy)`; analytical or numerical.
+2. Build a `ModelSpec` in `__init__.py` pulling those pieces together.
+3. Register it in `src/deqn_jax/models/__init__.py`.
+4. Add a test in `tests/test_basic.py` that trains for 20 episodes and checks loss decreases.
+
+See `src/deqn_jax/models/brock_mirman/` for the minimal reference and `src/deqn_jax/models/disaster/` for a full-scale DSGE.
+
+### Adding a new optimizer
+
+1. Create `src/deqn_jax/optimizers/your_opt.py`.
+2. Either return an `optax.GradientTransformation` (standard) or implement a custom class with `.init(params)` and `.update(...)`.
+3. Register with `@register_optimizer("name", kind=OptimizerKind.STANDARD)`.
+4. Import in `src/deqn_jax/optimizers/__init__.py` so registration runs.
+
+Five kinds of train-step variants are dispatched from `make_train_step`: STANDARD, PCGRAD, MAO, LBFGS, GN. Pick the right `OptimizerKind` for yours (or add a new one if needed).
+
+### Adding a new loss term
+
+Composite-loss auxiliary terms live in `src/deqn_jax/training/composite_loss.py`. Each term takes a policy network + precomputed data and returns a scalar. Prefix keys with `aux_` so adaptive reweighting correctly ignores them for per-equation gradient surgery.
+
+### Adding a new network
+
+Subclass `eqx.Module`, add a `create_your_net(...)` factory in `src/deqn_jax/networks/your_net.py`, and wire `network.type: "your_net"` into the trainer's construction block (search for `create_mlp` in `training/trainer.py`).
 
 ## Architecture
 
 ```
-deqn-jax/
-├── src/deqn_jax/
-│   ├── types.py           # ModelSpec, TrainState
-│   ├── networks/
-│   │   ├── mlp.py         # Equinox MLP
-│   │   └── lstm.py        # Equinox LSTM
-│   ├── training/
-│   │   ├── loss.py        # MC expectations, residual MSE
-│   │   ├── episode.py     # lax.scan trajectory simulation
-│   │   └── trainer.py     # Main training loop
-│   ├── optimizers/
-│   │   └── gauss_newton.py
-│   └── models/
-│       └── brock_mirman.py
+src/deqn_jax/
+  config.py               Pydantic model configs + YAML + CLI overrides
+  cli.py                  Entry point: train, list, info, evaluate, irf, ...
+  types.py                ModelSpec, TrainState, Metrics (NamedTuples)
+  metrics.py              TensorBoard / W&B / null logger
+
+  models/
+    <name>/               Per-model: variables, equations, dynamics, SS
+    __init__.py           Model registry
+
+  networks/
+    mlp.py                Equinox MLP with output bounding
+    lstm.py               Sequence policy (history-dependent)
+    transformer.py        Transformer sequence policy
+    linear_plus_mlp.py    Residual over Blanchard-Kahn linearization
+
+  optimizers/
+    registry.py           @register_optimizer, OptimizerKind, factory
+    {adam,sgd,ngd,shampoo,mao,lbfgs,gauss_newton}.py
+
+  training/
+    trainer.py            Main loop; 5 train-step variants (STANDARD, PCGRAD, MAO, LBFGS, GN)
+    loss.py               MC/quadrature expectations, residual MSE
+    composite_loss.py     Anchor + Jacobian + barrier + Newton terms
+    episode.py            lax.scan trajectory simulation
+    linearize.py          Blanchard-Kahn policy rule via QZ decomposition
+    warm_start.py         L-BFGS fit to SS or Dynare solution
+```
+
+## Design principles
+
+- **Single JIT boundary** around the entire train step (loss + grad + opt-step) — keeps XLA fusion opportunities alive.
+- **Pytree-everywhere** state. `TrainState` is a `NamedTuple`; `jax.jit`, `vmap`, `grad` compose cleanly.
+- **Equinox modules** for networks: `eqx.filter(model, eqx.is_array)` separates trainable from static.
+- **Optax optimizers** for gradient transformations, with a thin registry on top for DEQN-specific extras (NGD, MAO, GN).
+- **Pydantic-validated configs** with YAML + CLI overrides in a single priority chain.
+
+## Tests
+
+```bash
+uv run pytest tests/ -v               # 226 tests
+uv run pytest tests/test_basic.py     # 12 core tests
+uv run pytest tests/test_optimizers.py # optimizer + short training tests
 ```
 
 ## License
 
-MIT
+MIT — see `LICENSE`.

@@ -214,6 +214,75 @@ class TestLBFGS:
         assert kind == OptimizerKind.LBFGS
 
 
+class TestGaussNewtonIntegration:
+    """Integration checks for GN/LM-specific trainer behavior."""
+
+    @pytest.mark.parametrize("optimizer_name", ["gn", "lm"])
+    def test_train_step_respects_lr_scale(self, optimizer_name):
+        import equinox as eqx
+
+        from deqn_jax.config import OptimizerConfig
+        from deqn_jax.models import load_model
+        from deqn_jax.training.trainer import create_train_state, make_train_step
+
+        model = load_model("brock_mirman")
+        key = jax.random.PRNGKey(0)
+        n_eq = len(model.equation_names) if model.equation_names else 1
+
+        state, opt, kind = create_train_state(
+            model=model,
+            key=key,
+            hidden_sizes=(8,),
+            batch_size=4,
+            n_equations=n_eq,
+            optimizer_config=OptimizerConfig(name=optimizer_name, learning_rate=1.0),
+        )
+        train_step = make_train_step(
+            model=model,
+            opt=opt,
+            episode_length=5,
+            mc_samples=2,
+            batch_size=4,
+            kind=kind,
+        )
+
+        state_zero, _ = train_step(state, jnp.array(0.0), jnp.array(1.0))
+        state_one, _ = train_step(state, jnp.array(1.0), jnp.array(1.0))
+
+        params0 = eqx.filter(state.params, eqx.is_array)
+        params_zero = eqx.filter(state_zero.params, eqx.is_array)
+        params_one = eqx.filter(state_one.params, eqx.is_array)
+
+        def maxdiff(lhs, rhs):
+            leaves = jax.tree.leaves(
+                jax.tree.map(lambda x, y: jnp.max(jnp.abs(x - y)), lhs, rhs)
+            )
+            return max(float(x) for x in leaves)
+
+        assert maxdiff(params_zero, params0) == pytest.approx(0.0, abs=1e-10)
+        assert maxdiff(params_one, params0) > 1e-8
+        assert maxdiff(params_zero, params_one) > 1e-8
+
+    def test_lm_rejects_loss_increase_and_raises_damping(self):
+        from deqn_jax.optimizers.gauss_newton import levenberg_marquardt
+
+        # This configuration produces an uphill tentative step; LM should
+        # reject it and increase damping for the next iteration.
+        params = jnp.array([-0.9749998450279236])
+        opt = levenberg_marquardt(learning_rate=2.0, initial_damping=0.01)
+        state = opt.init(params)
+
+        def residual_fn(p):
+            return jnp.array([p[0] ** 2 - 1.0])
+
+        new_params, new_state = opt.update(residual_fn, params, state)
+        current_loss = jnp.sum(residual_fn(params) ** 2)
+
+        assert jnp.allclose(new_params, params)
+        assert jnp.isclose(new_state.last_loss, current_loss)
+        assert new_state.damping > state.damping
+
+
 class TestShortTraining:
     """Integration tests: short training runs with different optimizers."""
 
@@ -263,6 +332,16 @@ class TestShortTraining:
 
     def test_mao_kfac(self):
         h = self._train_short("mao_kfac")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
+    def test_gn(self):
+        h = self._train_short("gn")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
+    def test_lm(self):
+        h = self._train_short("lm")
         assert len(h["loss"]) == 3
         assert all(jnp.isfinite(l) for l in h["loss"])
 

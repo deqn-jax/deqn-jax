@@ -55,6 +55,7 @@ class GaussNewton:
         residual_fn: Callable,
         params: Any,
         state: GaussNewtonState,
+        lr_scale: Any = 1.0,
     ) -> Tuple[Any, GaussNewtonState]:
         """Perform one GN step.
 
@@ -102,8 +103,11 @@ class GaussNewton:
             JtJ = J.T @ J + damping * jnp.eye(n_params)
             delta = jnp.linalg.solve(JtJ, -(J.T @ r))
 
-        # Apply update with learning rate
-        new_flat_params = flat_params + self.learning_rate * delta
+        # Match the train_step contract used by the other optimizers: when a
+        # schedule is active, self.learning_rate is 1.0 and lr_scale carries
+        # the per-step learning rate.
+        step_size = self.learning_rate * lr_scale
+        new_flat_params = flat_params + step_size * delta
         new_params = unflatten(new_flat_params)
 
         # Compute new loss (from updated params, not old residuals)
@@ -164,6 +168,7 @@ class LevenbergMarquardt:
         residual_fn: Callable,
         params: Any,
         state: GaussNewtonState,
+        lr_scale: Any = 1.0,
     ) -> Tuple[Any, GaussNewtonState]:
         """Perform one LM step with adaptive damping."""
         # Flatten params
@@ -194,8 +199,11 @@ class LevenbergMarquardt:
             JtJ = J.T @ J + damping * jnp.eye(n_params)
             delta = jnp.linalg.solve(JtJ, -(J.T @ r))
 
-        # Tentative update
-        new_flat_params = flat_params + self.learning_rate * delta
+        # Match the train_step contract used by the other optimizers: when a
+        # schedule is active, self.learning_rate is 1.0 and lr_scale carries
+        # the per-step learning rate.
+        step_size = self.learning_rate * lr_scale
+        new_flat_params = flat_params + step_size * delta
         new_r = flat_residual_fn(new_flat_params)
         new_loss = jnp.sum(new_r ** 2)
 
@@ -216,15 +224,16 @@ class LevenbergMarquardt:
             ),
         )
 
-        # Accept or reject step (broadcast for pytree leaves)
-        accept = new_loss < current_loss * 1.1
+        # LM should only accept steps that improve the actual objective.
+        accept = actual > 0.0
         final_params = jnp.where(accept, new_flat_params, flat_params)
         final_loss = jnp.where(accept, new_loss, current_loss)
-        new_damping = jnp.where(accept, new_damping, state.damping)
+        reject_damping = jnp.minimum(self.max_damping, state.damping * self.damping_increase)
+        final_damping = jnp.where(accept, new_damping, reject_damping)
 
         new_state = GaussNewtonState(
             count=state.count + 1,
-            damping=new_damping,
+            damping=final_damping,
             last_loss=final_loss,
         )
 
