@@ -7,14 +7,10 @@
 >
 > - Azinovic, M., Gaegauf, L., Scheidegger, S. (2022). *Deep Equilibrium Nets.* International Economic Review 63(4), 1471–1525.
 > - Scheidegger, S., Bilionis, I. (2019). *Machine learning for high-dimensional dynamic stochastic economies.* Journal of Computational Science 33, 68–82.
-> - Jondeau, E., Pauli, A., Scheidegger, S. (2022). *Anatomy of Disasters in New Keynesian Models.*
 >
-> The original reference implementation and supporting materials for DEQN:
-> <https://github.com/SciComp-Stoch/Deep-Equilibrium-Nets> (canonical repo — verify URL).
->
-> This fork/reimplementation migrates the approach to JAX + Equinox, adds architectural
-> priors (`LinearPlusMLP`) and composite loss terms, and extends the disaster-model
-> plumbing. All credit for the original method belongs to the upstream authors.
+> This reimplementation migrates the approach to JAX + Equinox, adds architectural
+> priors (`LinearPlusMLP`) and composite loss terms. All credit for the original method
+> belongs to the upstream authors.
 
 Train a neural network to satisfy a dynamic model's equilibrium conditions across the full state space, rather than solving point-by-point. DEQN-JAX is designed as a general framework: models, networks, optimizers, and loss terms are independent plug-in layers.
 

@@ -165,7 +165,7 @@ def compute_residuals(
     # Choose which function computes next_policy
     next_fn = target_policy_fn if target_policy_fn is not None else policy_fn
 
-    # Disaster probability (Jondeau-Pauli-Scheidegger 2022):
+    # Disaster probability — discrete mixture over disaster realisation:
     # E_t[x'] = (1-p) E_t[x' | no disaster] + p E_t[x' | disaster]
     # We compute both branches and combine residuals at the end.
     # p_disaster = 0 (default) skips the disaster branch entirely so models

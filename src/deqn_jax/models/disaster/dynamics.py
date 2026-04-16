@@ -22,7 +22,7 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict,
         d_disaster: Disaster indicator in [0, 1]. 0 = no disaster (default),
             1 = disaster. When d_disaster=1, the capital k entering next period
             is multiplied by exp(-theta_disaster) to represent capital
-            destruction (Jondeau-Pauli-Scheidegger 2022 Eq. 10).
+            destruction.
     """
     st = SPEC.unpack_state(state)
     p = SPEC.unpack_policy(policy)

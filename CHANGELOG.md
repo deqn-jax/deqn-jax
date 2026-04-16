@@ -20,7 +20,7 @@ in any minor version bump.
 
 - **Models**
   - `brock_mirman` — canonical RBC smoke test (2 states, 1 policy, analytical SS).
-  - `disaster` — CMR NK-DSGE with financial frictions (13 states, 11 policies). Includes optional capital-destruction disaster block (Jondeau–Pauli–Scheidegger 2022).
+  - `disaster` — CMR NK-DSGE with financial frictions (13 states, 11 policies). Includes optional capital-destruction disaster block.
   - Risky steady state solver for disaster calibrations.
 
 - **Networks**
@@ -80,6 +80,6 @@ in any minor version bump.
 ### Notes
 
 This is a research-framework alpha. The package is designed to support
-multiple papers, not a single study. The `disaster` model is the test
-bed for the Jondeau–Pauli–Scheidegger (2022) "Anatomy of Disasters in
-New Keynesian Models" line of work, but the framework is model-agnostic.
+multiple papers, not a single study. The `disaster` model is a testbed
+for ongoing research on NK-DSGE with financial frictions, but the
+framework itself is model-agnostic.
