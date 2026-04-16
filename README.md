@@ -8,6 +8,8 @@
 > - Azinovic, M., Gaegauf, L., Scheidegger, S. (2022). *Deep Equilibrium Nets.* International Economic Review 63(4), 1471–1525.
 > - Scheidegger, S., Bilionis, I. (2019). *Machine learning for high-dimensional dynamic stochastic economies.* Journal of Computational Science 33, 68–82.
 >
+> Upstream reference implementation: <https://github.com/sischei/DeepEquilibriumNets>.
+>
 > This reimplementation migrates the approach to JAX + Equinox, adds architectural
 > priors (`LinearPlusMLP`) and composite loss terms. All credit for the original method
 > belongs to the upstream authors.
