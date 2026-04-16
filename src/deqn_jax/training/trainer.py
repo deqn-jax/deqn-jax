@@ -1207,13 +1207,21 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # supervise toward the SS the equilibrium actually contains under disaster
     # risk. Locally-flat policy approximation (Gourio-style) — see
     # disaster.steady_state.risky_steady_state.
+    # Set config.use_risky_steady_state=False to force deterministic SS even
+    # under disaster risk (for anchor/residual ablation experiments).
     if (model.name == "disaster"
             and float(model.constants.get("p_disaster", 0.0)) > 0.0):
-        from deqn_jax.models.disaster.steady_state import risky_steady_state
-        model = model._replace(steady_state_fn=risky_steady_state)
-        if config.verbose:
-            print(f"  Anchor: risky steady state (p_disaster="
-                  f"{model.constants['p_disaster']:.4f})")
+        if config.use_risky_steady_state:
+            from deqn_jax.models.disaster.steady_state import risky_steady_state
+            model = model._replace(steady_state_fn=risky_steady_state)
+            if config.verbose:
+                print(f"  Anchor: risky steady state (p_disaster="
+                      f"{model.constants['p_disaster']:.4f})")
+        else:
+            if config.verbose:
+                print(f"  Anchor: DETERMINISTIC SS forced "
+                      f"(use_risky_steady_state=False, "
+                      f"p_disaster={model.constants['p_disaster']:.4f})")
 
     n_equations = len(model.equation_names) if model.equation_names else 1
 

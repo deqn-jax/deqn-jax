@@ -508,6 +508,13 @@ class TrainConfig(_ConfigBase):
     # Empty dict = use the model's built-in calibration unchanged.
     constants: Dict[str, float] = Field(default_factory=dict)
 
+    # When True (default) and the model has p_disaster > 0, the trainer
+    # auto-swaps steady_state_fn to the risky steady state for use as the
+    # composite-loss anchor and Blanchard-Kahn linearization point.
+    # Set False to force the deterministic SS as anchor even under disaster
+    # risk — useful for ablating anchor/residual disagreement.
+    use_risky_steady_state: bool = True
+
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
@@ -555,7 +562,7 @@ class TrainConfig(_ConfigBase):
         return _coerce_optional_int(v, info.field_name)
 
     @field_validator("verbose", "warm_start", "warm_start_linearize", "fp64",
-                     "rescale_equations", mode="before")
+                     "rescale_equations", "use_risky_steady_state", mode="before")
     @classmethod
     def _check_bool_type(cls, v, info):
         if not isinstance(v, bool):
