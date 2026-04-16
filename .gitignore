@@ -50,6 +50,7 @@ scripts/
 dynare/
 PLAN.md
 docs/session_log.md
+docs/design_notes.md
 irf_results/
 
 # Claude Code

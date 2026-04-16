@@ -127,6 +127,14 @@ class TrainState(NamedTuple):
         episode: Current episode number
         loss_weights: Per-equation loss weights [n_eq]
         reweight_state: Adaptive reweighting running statistics
+        target_params: Frozen policy copy for target-network style training
+        aux_params: Slot for a second trainable module (e.g. value network
+            in actor-critic, critic network, learned expectation operator).
+            None by default. Default training loop ignores it; only loss
+            functions that know about ``aux_params`` will use it.
+        aux_opt_state: Optimizer state for ``aux_params`` if trained with
+            its own optimizer. ``None`` if aux is trained jointly with the
+            primary optimizer.
     """
 
     params: Any  # Equinox model
@@ -138,6 +146,8 @@ class TrainState(NamedTuple):
     loss_weights: Array  # [n_eq] per-equation weights
     reweight_state: ReweightState  # adaptive reweighting state
     target_params: Any = None  # Frozen policy for target network (DQN-style)
+    aux_params: Any = None      # Auxiliary trainable module (value net, critic, ...)
+    aux_opt_state: Any = None   # Optimizer state for aux_params if separate
 
 
 class EpisodeState(NamedTuple):

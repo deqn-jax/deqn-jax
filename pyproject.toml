@@ -71,6 +71,7 @@ exclude = [
     "**/.pytest_cache",
     "**/*.egg-info",
     "docs/session_log.md",
+    "docs/design_notes.md",
     "docs/composite_loss.md",
     "docs/cmr_paper.pdf",
     "docs/disaster_paper.pdf",
