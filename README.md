@@ -76,6 +76,26 @@ Impulse-response functions:
 uv run deqn-jax irf path/to/checkpoint.eqx --shock eps
 ```
 
+## Resuming training & switching optimizers
+
+Any checkpoint can be resumed — including with a *different* optimizer:
+
+```bash
+# Train 3000 episodes with Adam
+uv run deqn-jax train --config configs/disaster.yaml
+
+# Continue from checkpoint with NGD (Natural Gradient Descent)
+uv run deqn-jax train --config configs/disaster.yaml \
+    --resume checkpoints/disaster/checkpoint_003000.eqx \
+    --set optimizer.name=ngd
+```
+
+The trainer detects the optimizer change, re-initializes optimizer state for
+the new method, and keeps the network weights. Useful for Adam-then-L-BFGS
+style pipelines where you do rough exploration with a first-order method
+and polish with a second-order one. The original config is read from
+`<checkpoint_dir>/config.yaml` to reconstruct the pytree template.
+
 ## Extending the framework
 
 ### Adding a new model

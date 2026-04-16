@@ -223,13 +223,23 @@ def simulated_moments(
     model,
     n_periods: int = 10_000,
     seed: int = 123,
-    burn_in: int = 500,
+    burn_in: Optional[int] = None,
 ) -> Dict[str, Dict[str, float]]:
     """Compute ergodic moments from long simulation.
 
     Returns moments for each state and policy variable:
     mean, std, min, max, and deviation from steady state.
+
+    Args:
+        burn_in: Discard first N periods. If None, auto-clamps to
+            ``min(500, n_periods // 5)`` so short simulations still produce
+            non-empty results.
     """
+    if burn_in is None:
+        burn_in = min(500, max(0, n_periods // 5))
+    elif burn_in >= n_periods:
+        burn_in = max(0, n_periods - 1)
+
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
     n_shocks = model.n_shocks
