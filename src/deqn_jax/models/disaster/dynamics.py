@@ -10,8 +10,20 @@ from deqn_jax.models.disaster.variables import SPEC
 from deqn_jax.models.disaster.equations import definitions
 
 
-def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
-    """State transition."""
+def step(state: Array, policy: Array, shock: Array, constants: Dict,
+         d_disaster: float = 0.0) -> Array:
+    """State transition.
+
+    Args:
+        state: Current state [batch, n_states]
+        policy: Current policy [batch, n_policies]
+        shock: Gaussian shock realizations [batch, n_shocks]
+        constants: Model parameters
+        d_disaster: Disaster indicator in [0, 1]. 0 = no disaster (default),
+            1 = disaster. When d_disaster=1, the capital k entering next period
+            is multiplied by exp(-theta_disaster) to represent capital
+            destruction (Jondeau-Pauli-Scheidegger 2022 Eq. 10).
+    """
     st = SPEC.unpack_state(state)
     p = SPEC.unpack_policy(policy)
     defs = definitions(state, policy, constants)
@@ -29,8 +41,13 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     g_next = jnp.exp(c["rho_g"] * safe_log(st.g) + (1 - c["rho_g"]) * safe_log(c["g_ss"]) + c["sigma_g"] * g_shock)
     m_p_next = c["sigma_mp"] * mp_shock
 
+    # Capital destruction in disaster branch: k_effective = k_raw * exp(-theta)
+    theta = c.get("theta_disaster", 0.0)
+    k_factor = jnp.exp(-theta * d_disaster)
+    k_next = defs["k"] * k_factor
+
     next_state = jnp.stack([
-        p.pi, defs["k"], defs["c"], p.q, p.i, defs["R"], p.w_tilda, defs["L"],
+        p.pi, k_next, defs["c"], p.q, p.i, defs["R"], p.w_tilda, defs["L"],
         eps_next, mu_ups_next, g_next, mu_z_next, m_p_next
     ], axis=1)
 

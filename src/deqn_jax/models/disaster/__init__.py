@@ -36,5 +36,6 @@ MODEL = ModelSpec(
     policy_upper=POLICY_UPPER,  # None → softplus bounding (no gradient death)
     clip_state_fn=clip_state,          # Hard clip for eval/irf only
     state_barrier_fn=compute_state_barrier,  # Box penalty for loss
-    shock_names=("eps", "mu_ups", "g", "mu_z", "m_p"),
+    # Order MUST match dynamics.step()'s shock[:, i] unpacking order.
+    shock_names=("eps", "mu_ups", "mu_z", "g", "m_p"),
 )

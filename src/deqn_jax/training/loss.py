@@ -165,30 +165,52 @@ def compute_residuals(
     # Choose which function computes next_policy
     next_fn = target_policy_fn if target_policy_fn is not None else policy_fn
 
-    if train_batch.ndim == 3:
-        # Sequence path: [B, H, D]
-        states = train_batch[:, -1, :]  # current state from last timestep
-        policy = policy_fn(train_batch)
-        next_state = model.step_fn(states, policy, shock, model.constants)
-        # Shift history: drop oldest, append next_state
-        next_batch = jnp.concatenate(
-            [train_batch[:, 1:, :], next_state[:, None, :]], axis=1
+    # Disaster probability (Jondeau-Pauli-Scheidegger 2022):
+    # E_t[x'] = (1-p) E_t[x' | no disaster] + p E_t[x' | disaster]
+    # We compute both branches and combine residuals at the end.
+    # p_disaster = 0 (default) skips the disaster branch entirely so models
+    # whose step_fn doesn't accept d_disaster still work.
+    p_disaster = float(model.constants.get("p_disaster", 0.0))
+
+    def _branch(d_disaster):
+        """Compute equation residuals under a given disaster indicator.
+
+        When d_disaster is None, call step_fn without the kwarg (baseline
+        models like brock_mirman whose step_fn has no disaster path).
+        """
+        step_kwargs = {} if d_disaster is None else {"d_disaster": d_disaster}
+        if train_batch.ndim == 3:
+            states_local = train_batch[:, -1, :]
+            policy_local = policy_fn(train_batch)
+            next_state_local = model.step_fn(
+                states_local, policy_local, shock, model.constants, **step_kwargs,
+            )
+            next_batch_local = jnp.concatenate(
+                [train_batch[:, 1:, :], next_state_local[:, None, :]], axis=1
+            )
+            next_policy_local = next_fn(next_batch_local)
+        else:
+            states_local = train_batch
+            policy_local = policy_fn(states_local)
+            next_state_local = model.step_fn(
+                states_local, policy_local, shock, model.constants, **step_kwargs,
+            )
+            next_policy_local = next_fn(next_state_local)
+        if target_policy_fn is not None:
+            next_policy_local = jax.lax.stop_gradient(next_policy_local)
+        return model.equations_fn(
+            states_local, policy_local, next_state_local, next_policy_local,
+            model.constants,
         )
-        next_policy = next_fn(next_batch)
-    else:
-        # MLP path: [B, D]
-        states = train_batch
-        policy = policy_fn(states)
-        next_state = model.step_fn(states, policy, shock, model.constants)
-        next_policy = next_fn(next_state)
 
-    # stop_gradient on next_policy when using target network
-    if target_policy_fn is not None:
-        next_policy = jax.lax.stop_gradient(next_policy)
+    if p_disaster <= 0.0:
+        # Call without d_disaster kwarg so baseline models work unchanged.
+        return _branch(None)
 
-    return model.equations_fn(
-        states, policy, next_state, next_policy, model.constants
-    )
+    r_normal = _branch(jnp.array(0.0))
+    r_disaster = _branch(jnp.array(1.0))
+    return {k: (1.0 - p_disaster) * r_normal[k] + p_disaster * r_disaster[k]
+            for k in r_normal}
 
 
 # ---------------------------------------------------------------------------

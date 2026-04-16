@@ -98,12 +98,37 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     return ss_state, x
 
 
-# Cache the numerical solution at module load
-_SS_STATE, _SS_POLICY = _solve_steady_state(CONSTANTS)
+# Cache of solved steady states, keyed by frozenset(constants.items()).
+# Prevents stale results when the caller passes modified constants (e.g.
+# disaster calibration with different p_disaster / theta_disaster).
+#
+# NOTE: this solver computes the DETERMINISTIC steady state (no disaster
+# realizations). For the RISKY steady state under disaster risk, the Euler
+# equations need mixture expectations over (1-p) * no-disaster + p * disaster.
+# That solver is pending — see session_log.md Part 9.
+_ss_cache: dict = {}
+
+
+def _constants_key(constants: Dict) -> tuple:
+    """Hashable key for a constants dict. Sorted for determinism."""
+    return tuple(sorted(constants.items()))
 
 
 def steady_state(constants: Dict) -> Tuple[Array, Array]:
-    return jnp.array(_SS_STATE), jnp.array(_SS_POLICY)
+    """Return (deterministic) steady state for the given calibration.
+
+    Caches solutions keyed on constants so repeat calls with the same
+    calibration are fast, but a different calibration triggers a re-solve.
+    """
+    key = _constants_key(constants)
+    if key not in _ss_cache:
+        _ss_cache[key] = _solve_steady_state(constants)
+    ss_state_np, ss_policy_np = _ss_cache[key]
+    return jnp.array(ss_state_np), jnp.array(ss_policy_np)
+
+
+# Pre-populate cache with the module-default calibration so first call is fast.
+steady_state(CONSTANTS)
 
 
 def init_state(key: Array, batch_size: int, constants: Dict) -> Array:

@@ -43,6 +43,12 @@ CONSTANTS = {
     "rho_mu_z": 0.146, "sigma_mu_z": 0.00715,
     "rho_g": 0.94, "sigma_g": 0.023,
     "sigma_mp": 0.0049,
+    # Disaster parameters (Jondeau-Pauli-Scheidegger 2022)
+    # p_disaster: per-period disaster probability. 0 = baseline CMR (no disasters).
+    # theta_disaster: capital destruction magnitude (fraction destroyed = 1 - exp(-theta)).
+    # Default 0 → acts as identity, no disaster code path activates.
+    "p_disaster": 0.0,
+    "theta_disaster": 0.05,
 }
 
 STEADY_STATE = {

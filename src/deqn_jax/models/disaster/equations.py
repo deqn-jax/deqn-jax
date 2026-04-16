@@ -260,10 +260,15 @@ def equations(
     K_p_analytical = p.F_p * defs["K_p_inner"] ** (1 - c["lambda_f"])
     residuals["eq2a_Kp_definition"] = jnp.log(p.K_p + 1e-8) - jnp.log(K_p_analytical + 1e-8)
 
-    # Eq 2b: K_p recursion — log-space (penalizes wrong fixed points harder than ratio form)
+    # Eq 2b: K_p recursion — ratio form K_p = E[RHS] → RHS/K_p - 1 = 0.
+    # Ratio form is LINEAR in next-period terms (after dividing by K_p which
+    # is current-period, hence outside the expectation). Linear averaging
+    # across shock samples therefore correctly computes E[RHS]/K_p - 1.
+    # The previous log-space form enforced E[log(RHS)] = log(K_p), which
+    # by Jensen's inequality is a different (geometric-mean) fixed point.
     eq2_ratio_next = (defs_n["pi_tilda"] / p_n.pi) ** (c["lambda_f"] / (1 - c["lambda_f"]))
     eq2_rhs = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_ratio_next * p_n.K_p
-    residuals["eq2b_Kp_recursion"] = jnp.log(eq2_rhs + 1e-8) - jnp.log(p.K_p + 1e-8)
+    residuals["eq2b_Kp_recursion"] = eq2_rhs / (p.K_p + 1e-8) - 1.0
 
     # Eq 3: Wage Phillips (F_w recursion) — divide by F_w
     eq3_coef = st_n.mu_z ** (c["iota_mu"] / (1 - c["lambda_w"]) - 1) * c["mu_z_ss"] ** ((1 - c["iota_mu"]) / (1 - c["lambda_w"]))
@@ -277,10 +282,11 @@ def equations(
     K_w_analytical = (1.0 / c["psi_L"]) * defs["K_w_inner"] ** (1 - c["lambda_w"] * (1 + c["sigma_L"])) * p.w_tilda * p.F_w
     residuals["eq4a_Kw_definition"] = jnp.log(p.K_w + 1e-8) - jnp.log(K_w_analytical + 1e-8)
 
-    # Eq 4b: K_w recursion — log-space (penalizes wrong fixed points harder than ratio form)
+    # Eq 4b: K_w recursion — ratio form K_w = E[RHS] → RHS/K_w - 1 = 0.
+    # Same Jensen-correctness argument as Eq 2b.
     eq4_ratio_next = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"]))
     eq4_rhs = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio_next * p_n.K_w
-    residuals["eq4b_Kw_recursion"] = jnp.log(eq4_rhs + 1e-8) - jnp.log(p.K_w + 1e-8)
+    residuals["eq4b_Kw_recursion"] = eq4_rhs / (p.K_w + 1e-8) - 1.0
 
     # Eq 5: Consumption Euler — multiply by habit_now, divide by mu_z
     habit_now = _soft_floor(p.c * st.mu_z - c["b"] * st.c_lag, 1e-2)
