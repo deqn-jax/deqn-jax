@@ -37,7 +37,12 @@ logging = [
     "orbax-checkpoint>=0.5.0",
 ]
 wandb = ["wandb>=0.15.0"]
-all = ["deqn-jax[logging,wandb]"]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+]
+all = ["deqn-jax[logging,wandb,docs]"]
 
 [project.scripts]
 deqn-jax = "deqn_jax.cli:main"
@@ -92,6 +97,10 @@ exclude = [
     "PLAN.md",
     ".github/**",
     ".claude/**",
+    "site/**",
+    "mkdocs.yml",
+    "docs/site/**",
+    "docs/figures/training_step_spec.md",
 ]
 
 [tool.pytest.ini_options]

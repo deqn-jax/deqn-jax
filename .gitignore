@@ -58,3 +58,6 @@ irf_results/
 
 # Docs (PDFs are binary, keep .tex in version control)
 docs/*.pdf
+
+# mkdocs build output (regenerated; only docs/site/ source is tracked)
+/site/

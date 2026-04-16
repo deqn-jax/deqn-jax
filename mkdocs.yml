@@ -1,0 +1,99 @@
+site_name: DEQN-JAX
+site_description: Pure-JAX framework for Deep Equilibrium Networks
+site_url: https://mechanicpanic.github.io/deqn-jax/
+repo_url: https://github.com/mechanicpanic/deqn-jax
+repo_name: mechanicpanic/deqn-jax
+docs_dir: docs/site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.snippets
+  - tables
+  - footnotes
+  - attr_list
+  - md_in_html
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Configuration: getting-started/configuration.md
+  - Examples:
+      - CLI: examples/cli.md
+      - Python API: examples/api.md
+  - Models:
+      - Brock-Mirman: models/brock_mirman.md
+      - Disaster (NK-DSGE): models/disaster.md
+      - Adding a model: models/adding.md
+  - Networks:
+      - MLP / LSTM / Transformer: networks/sequence.md
+      - LinearPlusMLP: networks/linear_plus_mlp.md
+      - Adding a network: networks/adding.md
+  - Optimizers:
+      - Built-in optimizers: optimizers/index.md
+      - Adding an optimizer: optimizers/adding.md
+  - Training:
+      - Composite loss: training/composite_loss.md
+      - Curriculum & warm start: training/curriculum.md
+      - Checkpointing & resume: training/checkpointing.md
+  - API reference:
+      - Config: api/config.md
+      - Types: api/types.md
+      - Trainer: api/trainer.md
+      - Loss: api/loss.md
+      - Models: api/models.md
+      - Networks: api/networks.md
+      - Optimizers: api/optimizers.md
