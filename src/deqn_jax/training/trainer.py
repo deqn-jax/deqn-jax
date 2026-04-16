@@ -1194,6 +1194,27 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
 
     model = load_model(config.model)
 
+    # Per-run override of model constants (e.g. {p_disaster: 0.02}).
+    if config.constants:
+        model = model._replace(
+            constants={**model.constants, **config.constants}
+        )
+        if config.verbose:
+            print(f"  Constants override: {dict(config.constants)}")
+
+    # Disaster + p_disaster > 0 → anchor to risky SS, not deterministic SS.
+    # Why: composite-loss anchor and Blanchard-Kahn linearization should
+    # supervise toward the SS the equilibrium actually contains under disaster
+    # risk. Locally-flat policy approximation (Gourio-style) — see
+    # disaster.steady_state.risky_steady_state.
+    if (model.name == "disaster"
+            and float(model.constants.get("p_disaster", 0.0)) > 0.0):
+        from deqn_jax.models.disaster.steady_state import risky_steady_state
+        model = model._replace(steady_state_fn=risky_steady_state)
+        if config.verbose:
+            print(f"  Anchor: risky steady state (p_disaster="
+                  f"{model.constants['p_disaster']:.4f})")
+
     n_equations = len(model.equation_names) if model.equation_names else 1
 
     if config.loss_weights is not None and len(config.loss_weights) != n_equations:

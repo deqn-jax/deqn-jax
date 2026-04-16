@@ -1,0 +1,63 @@
+# Disaster model with disaster risk priced in (p_disaster > 0).
+#
+# Inherits the validated stack from configs/disaster.yaml:
+#   LinearPlusMLP + composite loss + quadrature expectations.
+#
+# Differences from disaster.yaml:
+#   - constants.p_disaster = 0.02 enables the discrete mixture branch in
+#     compute_residuals: E[x'] = (1-p)·E[x'|no disaster] + p·E[x'|disaster].
+#   - Trainer detects p_disaster > 0 and anchors composite-loss /
+#     Blanchard-Kahn linearization to the RISKY steady state (Gourio-style
+#     locally-flat solver in disaster.steady_state.risky_steady_state).
+#
+# theta_disaster = 0.05 inherited from variables.py CONSTANTS — capital
+# destruction magnitude (1 - exp(-0.05) ≈ 4.9% of K destroyed in disaster).
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+constants:
+  p_disaster: 0.02
+
+network:
+  type: linear_plus_mlp
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_pdis
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_pdis

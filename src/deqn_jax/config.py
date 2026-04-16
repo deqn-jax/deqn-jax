@@ -504,6 +504,10 @@ class TrainConfig(_ConfigBase):
     target_update_every: int = Field(default=0)  # 0=off, >0=update target net every N episodes
     target_tau: float = Field(default=1.0)        # 1.0=hard copy, <1=Polyak averaging
 
+    # Per-run override of model.constants (e.g. {p_disaster: 0.02}).
+    # Empty dict = use the model's built-in calibration unchanged.
+    constants: Dict[str, float] = Field(default_factory=dict)
+
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
@@ -568,6 +572,28 @@ class TrainConfig(_ConfigBase):
                 f"TrainConfig.loss_weights: expected Optional[List[float]], "
                 f"got {type(v).__name__} ({v!r})"
             )
+        return v
+
+    @field_validator("constants", mode="before")
+    @classmethod
+    def _check_constants_type(cls, v):
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise TypeError(
+                f"TrainConfig.constants: expected Dict[str, float], "
+                f"got {type(v).__name__} ({v!r})"
+            )
+        for k, val in v.items():
+            if not isinstance(k, str):
+                raise TypeError(
+                    f"TrainConfig.constants: keys must be str, got {type(k).__name__} ({k!r})"
+                )
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                raise TypeError(
+                    f"TrainConfig.constants[{k!r}]: expected number, "
+                    f"got {type(val).__name__} ({val!r})"
+                )
         return v
 
     @field_validator("optimizer", mode="before")
