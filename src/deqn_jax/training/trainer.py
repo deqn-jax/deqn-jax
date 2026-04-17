@@ -311,6 +311,26 @@ def _print_final(
     print("=" * w)
 
 
+def _save_best_checkpoint(state: TrainState, checkpoint_dir: str, episode: int, loss: float, config=None):
+    """Overwrite checkpoint_best.eqx + record the episode and loss.
+
+    Called whenever loss improves past the running minimum. The resulting
+    file is the "best achievable" artifact across the whole run — useful
+    when training finds a good solution mid-run and then gets destabilised.
+    """
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    path = os.path.join(checkpoint_dir, "checkpoint_best.eqx")
+    eqx.tree_serialise_leaves(path, state)
+    # Write a tiny metadata file so it's obvious which episode this was.
+    meta_path = os.path.join(checkpoint_dir, "checkpoint_best.meta")
+    with open(meta_path, "w") as f:
+        f.write(f"episode {episode}\nloss {loss:.6e}\n")
+    if config is not None and getattr(config, "checkpoint_dir", None):
+        cfg_path = os.path.join(checkpoint_dir, "config.yaml")
+        if not os.path.exists(cfg_path):
+            config.to_yaml(cfg_path)
+
+
 def _save_checkpoint(state: TrainState, checkpoint_dir: str, episode: int, config=None):
     """Save training state checkpoint and optionally config snapshot."""
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -1528,6 +1548,15 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     best_loss = float("inf")
     patience_counter = 0
 
+    # Best-checkpoint tracking (separate from early-stop `best_loss` because
+    # we always want to preserve the best snapshot even without early stop).
+    best_save_loss = float("inf")
+    best_save_episode = start_episode
+    # Grace period: don't save as "best" during curriculum ramp (shocks
+    # are reduced → loss is artificially low). Falls back to log_every
+    # when no curriculum is configured.
+    best_save_grace = max(config.curriculum_episodes, config.log_every)
+
     for ep_num in range(start_episode + 1, total_episodes + 1):
         # Mid-training optimizer switch
         if (
@@ -1813,6 +1842,22 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             last_good_state = state
             last_good_episode = ep_num
 
+        # ---- Save-best tracking ----
+        # Always writes checkpoint_best.eqx on improvement (after grace
+        # period). Independent of early_stop and of checkpoint_every.
+        if (
+            config.save_best_checkpoint
+            and config.checkpoint_dir is not None
+            and ep_num > best_save_grace
+            and not math.isnan(loss_val)
+            and loss_val < best_save_loss
+        ):
+            best_save_loss = loss_val
+            best_save_episode = ep_num
+            _save_best_checkpoint(
+                state, config.checkpoint_dir, ep_num, loss_val, config=config,
+            )
+
     elapsed = time.perf_counter() - t_start
 
     if config.verbose and last_metrics is not None:
@@ -1822,6 +1867,11 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             final_loss=float(last_metrics.loss),
             final_residuals=last_metrics.residuals,
         )
+        if best_save_loss < float("inf"):
+            print(
+                f"Best checkpoint: {best_save_loss:.2e} at episode "
+                f"{best_save_episode} → {config.checkpoint_dir}/checkpoint_best.eqx"
+            )
 
     logger.close()
     return state.params, history

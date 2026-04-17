@@ -515,6 +515,15 @@ class TrainConfig(_ConfigBase):
     # risk — useful for ablating anchor/residual disagreement.
     use_risky_steady_state: bool = True
 
+    # When True (default) and checkpoint_dir is set, the trainer writes
+    # checkpoint_best.eqx whenever the training loss improves past the
+    # running minimum (after curriculum_episodes grace period).
+    # Motivation: disaster-block training can find a good solution then be
+    # destabilised by a rare huge-gradient event. Keeping the best snapshot
+    # separate from the latest snapshot makes "best achievable" the
+    # shippable artifact instead of "last episode".
+    save_best_checkpoint: bool = True
+
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
@@ -562,7 +571,8 @@ class TrainConfig(_ConfigBase):
         return _coerce_optional_int(v, info.field_name)
 
     @field_validator("verbose", "warm_start", "warm_start_linearize", "fp64",
-                     "rescale_equations", "use_risky_steady_state", mode="before")
+                     "rescale_equations", "use_risky_steady_state",
+                     "save_best_checkpoint", mode="before")
     @classmethod
     def _check_bool_type(cls, v, info):
         if not isinstance(v, bool):
