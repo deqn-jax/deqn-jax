@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Anna Smirnova", email = "anna@example.com"},
+    {name = "Anna Smirnova", email = "anna.smirnova@unil.ch"},
 ]
 keywords = ["jax", "deep-learning", "economics", "equilibrium", "pinn"]
 classifiers = [
