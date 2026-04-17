@@ -29,6 +29,12 @@ CONSTANTS = {
     "iota": 0.9, "iota_w": 0.49, "iota_mu": 0.94,
     # Monetary policy
     "rho_p": 0.85, "alpha_pi": 1.5, "alpha_y": 0.36,
+    # Effective lower bound on gross nominal rate (1.0 = 0% nominal floor).
+    # Taylor-rule output R is soft-floored to R_lb in definitions() via a
+    # high-sharpness softplus so SS distortion is negligible (~0.1% shift).
+    # To disable, set R_lb very low (e.g. 0.5). Raising sharpness tightens
+    # the floor at the cost of gradient transition.
+    "R_lb": 1.0, "R_lb_sharpness": 500.0,
     # Taxes
     "tau_c": 0.047, "tau_k": 0.32, "tau_l": 0.24,
     # Financial frictions

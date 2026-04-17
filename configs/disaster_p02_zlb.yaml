@@ -1,0 +1,52 @@
+# ZLB + disaster-aware linearization + risky SS.
+# Soft floor on R at 1.0 (0% nominal) via softplus(500) — preserves SS.
+# Should prevent trajectories drifting into R<1 pathological regions.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+constants:
+  p_disaster: 0.02
+
+network:
+  type: linear_plus_mlp
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_p02_zlb
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_p02_zlb

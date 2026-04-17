@@ -182,10 +182,18 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
 
     y_gdp = st.g + p.c + p.i / st.mu_ups
 
-    # Interest rate (Taylor rule)
-    R = c["R_ss"] * (st.R_lag / c["R_ss"]) ** c["rho_p"] * (
+    # Interest rate (Taylor rule) with effective lower bound.
+    # The raw Taylor prescription can go below 1 in deep-disaster or
+    # deep-recession states, which is counterfactual (central banks can't
+    # push nominal rates much below zero). Apply a soft floor at R_lb so
+    # R stays ≥ R_lb in expectation. Sharpness=100 keeps SS distortion
+    # below ~0.1% while giving a sharp floor.
+    R_taylor = c["R_ss"] * (st.R_lag / c["R_ss"]) ** c["rho_p"] * (
         (p.pi / c["pi_ss"]) ** c["alpha_pi"] * (y_gdp / c["y_ss"]) ** c["alpha_y"]
     ) ** (1 - c["rho_p"]) * jnp.exp(st.m_p)
+    R_lb = c.get("R_lb", 1.0)
+    R_lb_sharpness = c.get("R_lb_sharpness", 100.0)
+    R = _soft_floor(R_taylor, R_lb, sharpness=R_lb_sharpness)
 
     # Calvo inner terms — used by eq2a and eq4a.
     # K_p_inner = (1 - xi*(pi_tilda/pi)^-5) / (1-xi). Passed through
@@ -220,7 +228,8 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         "newton_h_prime": newton_h_prime, "newton_residual": newton_residual,
         "s": s, "L": L, "c": p.c,
         "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
-        "R": R, "K_p": p.K_p, "K_w": p.K_w,
+        "R": R, "R_taylor": R_taylor, "R_zlb_binding": (R - R_taylor),
+        "K_p": p.K_p, "K_w": p.K_w,
         "K_p_inner": K_p_inner, "K_w_inner": K_w_inner, "i_ratio": i_ratio,
         "log_K_p_inner": log_K_p_inner, "log_K_w_inner": log_K_w_inner,
     }
