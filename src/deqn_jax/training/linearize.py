@@ -61,11 +61,34 @@ def linearize_model(
         )
         return jnp.stack([v[0] for v in res.values()])
 
-    # State transition wrapper: unbatched, zero shock
-    def G_vec(s, p):
-        shock = jnp.zeros((1, model.n_shocks))
-        ns = model.step_fn(s[None, :], p[None, :], shock, constants)
-        return ns[0]
+    # State transition wrapper: unbatched, zero shock.
+    # Disaster-aware: when constants["p_disaster"] > 0, compute
+    #   G_expected(s, p) = (1-p)·step(...,d=0) + p·step(...,d=1)
+    # so the Jacobians reflect how next-period state moves IN EXPECTATION
+    # under the disaster mixture. This matches the law of motion that
+    # agents at the risky steady state actually face. Without this, the
+    # P matrix is computed as if disasters never happen, even though the
+    # SS location already prices them in — an internal inconsistency.
+    p_disaster = float(constants.get("p_disaster", 0.0))
+
+    if p_disaster > 0.0:
+        def G_vec(s, p):
+            shock = jnp.zeros((1, model.n_shocks))
+            ns_0 = model.step_fn(
+                s[None, :], p[None, :], shock, constants,
+                d_disaster=jnp.array(0.0),
+            )
+            ns_1 = model.step_fn(
+                s[None, :], p[None, :], shock, constants,
+                d_disaster=jnp.array(1.0),
+            )
+            ns = (1.0 - p_disaster) * ns_0 + p_disaster * ns_1
+            return ns[0]
+    else:
+        def G_vec(s, p):
+            shock = jnp.zeros((1, model.n_shocks))
+            ns = model.step_fn(s[None, :], p[None, :], shock, constants)
+            return ns[0]
 
     # F Jacobians: ∂F/∂(s, p, s', p') at SS
     F_s = jax.jacobian(F_vec, argnums=0)(ss_state, ss_policy, ss_state, ss_policy)
@@ -169,11 +192,27 @@ def compute_ergodic_covariance(
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
 
-    # Compute B = d(step)/d(shock) at SS with zero shock
-    def step_wrt_shock(shock):
-        return model.step_fn(
-            ss_state[None, :], ss_policy[None, :], shock[None, :], constants
-        )[0]
+    # Compute B = d(step)/d(shock) at SS with zero shock.
+    # Disaster-aware: use the disaster-mixture-expected step function so
+    # the ergodic covariance reflects the actual linearized dynamics.
+    p_disaster = float(constants.get("p_disaster", 0.0))
+
+    if p_disaster > 0.0:
+        def step_wrt_shock(shock):
+            ns_0 = model.step_fn(
+                ss_state[None, :], ss_policy[None, :], shock[None, :],
+                constants, d_disaster=jnp.array(0.0),
+            )[0]
+            ns_1 = model.step_fn(
+                ss_state[None, :], ss_policy[None, :], shock[None, :],
+                constants, d_disaster=jnp.array(1.0),
+            )[0]
+            return (1.0 - p_disaster) * ns_0 + p_disaster * ns_1
+    else:
+        def step_wrt_shock(shock):
+            return model.step_fn(
+                ss_state[None, :], ss_policy[None, :], shock[None, :], constants
+            )[0]
 
     zero_shock = jnp.zeros(model.n_shocks)
     B = jax.jacobian(step_wrt_shock)(zero_shock)  # [n_states, n_shocks]
