@@ -1,0 +1,66 @@
+# CMR-calibrated disaster run: posterior modes from AER 2014 Table 2.
+# κ=10.78 (was 2), ξ_p=0.74 (was 0.6), ξ_w=0.81 (was 0.6), α_π=2.40 (was 1.5),
+# λ_w=1.05 (was 1.2). All other params left as-is.
+#
+# Purpose: isolate whether training instability at p>0 is a calibration
+# issue vs a methodology issue. If this converges to baseline loss, the
+# "paper's convenience calibration" was the main obstacle.
+#
+# NOTE: changing these many constants may perturb Blanchard-Kahn
+# determinacy. The linearization step will warn if stable eigenvalues
+# ≠ 13 and training may fail to converge — that would itself be
+# informative.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+constants:
+  p_disaster: 0.02
+  kappa: 10.78
+  xi_p: 0.74
+  xi_w: 0.81
+  alpha_pi: 2.40
+  lambda_w: 1.05
+
+network:
+  type: linear_plus_mlp
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_p02_cmrlib
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_p02_cmrlib

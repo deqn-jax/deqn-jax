@@ -8,7 +8,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While the version is `0.x.y` the public API is unstable and may change
 in any minor version bump.
 
-## [0.1.0] — Unreleased
+## [0.2.0] — 2026-04-17
+
+The disaster block now converges. Between v0.1.0 and v0.2.0 the disaster
+model went from "trains only at p=0" to "trains to baseline-level
+residuals (~1e-4) across p ∈ [0, 0.1]". The fix was three layered changes:
+a disaster-aware Blanchard–Kahn linearization, an effective lower bound
+on the Taylor-rule interest rate, and improved checkpoint tracking.
+
+### Added
+
+- **Per-run constants override**: `TrainConfig.constants: Dict[str, float]`
+  patches `model.constants` at train-time. Enables calibration sweeps
+  from YAML without editing model code.
+
+- **Effective lower bound on R**: smooth-softfloor ZLB applied to the
+  Taylor-rule output in `models/disaster/equations.py`. Configurable via
+  `R_lb` (default 1.0 = zero nominal) and `R_lb_sharpness` (default 500,
+  chosen so SS distortion is ~1e-7 — negligible). Eliminates the
+  economically-nonsensical R<1 trajectories that destabilised disaster
+  training in v0.1.0. Exposes `R_taylor` and `R_zlb_binding` in
+  `definitions()` for post-hoc diagnostics.
+
+- **Best-checkpoint tracking**: `TrainConfig.save_best_checkpoint`
+  (default True) writes `checkpoint_best.eqx` + `checkpoint_best.meta`
+  whenever running-min loss improves past a curriculum-aware grace
+  period. Shippable artifact is now the best achievable snapshot, not
+  the last episode.
+
+- **`use_risky_steady_state` flag** on `TrainConfig` (default True):
+  controls the auto-swap to `risky_steady_state` when `p_disaster > 0`.
+  Set False to force deterministic SS as anchor for ablations.
+
+- **Sweep configs** for the disaster model across p ∈ {0, 0.001, 0.005,
+  0.02, 0.05, 0.1}: `disaster_p{…}_zlb.yaml` (validated stack) plus
+  supporting ablation configs (`_detss`, `_riskylin`, `_anchor…`,
+  `_kappaonly`, `_cmrlib`).
+
+- **mkdocs-material documentation site** (`docs/site/`, `mkdocs.yml`)
+  with getting-started, models, networks, optimizers, training topics,
+  and auto-generated API reference via mkdocstrings.
+
+- **Developer reading guide** (`docs/dev/reading_guide.md`):
+  code-level narrative following one train step end-to-end; documents
+  load-bearing constraints (single JIT boundary, `aux_` prefix, xi_p
+  determinacy pinning, log-vs-ratio Jensen fix, target net
+  `stop_gradient`, SS caching).
+
+- **Training-step diagram spec** (`docs/figures/training_step_spec.md`):
+  structural description for digitising the hand-drawn training-step
+  diagram.
+
+### Changed
+
+- **`linearize.py` is disaster-aware**. When `p_disaster > 0`, both
+  `G_vec` in `linearize_model` and `step_wrt_shock` in
+  `compute_ergodic_covariance` use the disaster-mixture-expected step
+  function, so the resulting `P` matrix and ergodic covariance match
+  the law of motion that agents at the risky SS actually face. In v0.1.0
+  these were computed with `d_disaster=0` regardless, producing an
+  internally-inconsistent linearization that caused disaster-run
+  divergence. At p=0.02 the expected-Jacobian P differs from the d=0
+  P by up to ~3% on the Phillips-block rows.
+
+- **Trainer** auto-swaps `model.steady_state_fn` to
+  `disaster.risky_steady_state` when `model.name == "disaster"` and
+  `p_disaster > 0` and `use_risky_steady_state` is True. Single entry
+  point in `train_from_config`.
+
+- **Stability check in `evaluate.py`** fixed. Two bugs: max-SS-deviation
+  divided by max(|ss|, 1e-8), which produced billion-percent values
+  for zero-SS states like `m_p`; bound-hit counter treated every policy
+  as bound-hitting when the upper bound was infinite. Both corrected.
+
+### Known limits for 0.2.0
+
+- **Tail residuals concentrate at ZLB-binding states**. Typical mean
+  Euler-residual is ~1%, but max can reach ~11% at states where the
+  ZLB softfloor transitions from non-binding to binding (R_taylor
+  near R_lb). This is the known-hard regime of occasionally-binding
+  constraints for smooth-network approximations (see OccBin,
+  Fernández-Villaverde et al.). Future work: treat ZLB regime-switch
+  explicitly.
+
+- **Calibration is the paper's working calibration**, not CMR (2014)'s
+  Bayesian posterior modes. In particular κ=2 (vs CMR 10.78), ξ_p=0.6
+  (vs 0.74), ξ_w=0.6 (vs 0.81), α_π=1.5 (vs 2.4), λ_w=1.2 (vs 1.05).
+  Our calibration is uniformly more volatile/less sticky than CMR's
+  estimates. Sweep configs for CMR-calibrated runs are included but
+  not validated; a principled sensitivity analysis is v0.3.0 territory.
+
+- **Disaster IRF** (forcing d=1 at a specific period to trace out
+  disaster-response dynamics) is not exposed in the CLI. Gaussian IRFs
+  work and show textbook responses.
+
+- **Capital-quality-dispersion and capital-immobilization** disaster
+  variants remain unimplemented (only capital destruction).
+
+## [0.1.0] — 2026-04-15
 
 ### Added
 
