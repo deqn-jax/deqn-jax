@@ -355,7 +355,15 @@ def stability_check(
     policy_lower = model.policy_lower
     policy_upper = model.policy_upper
 
-    margin = 0.01 * (policy_upper - policy_lower) if (policy_lower is not None and policy_upper is not None) else None
+    # Bound-check margin — compute only for finite bounds so policies with
+    # infinite upper (softplus-bounded) don't pollute the statistic.
+    if policy_lower is not None and policy_upper is not None:
+        finite = jnp.isfinite(policy_upper) & jnp.isfinite(policy_lower)
+        span = jnp.where(finite, policy_upper - policy_lower, 0.0)
+        margin = 0.01 * span
+    else:
+        margin = None
+        finite = None
 
     @eqx.filter_jit
     def _sim_step(state, shock):
@@ -380,19 +388,24 @@ def stability_check(
             has_nan = True
             break
 
-        # Check bound hitting (within 1% of bounds)
-        if margin is not None:
+        # Check bound hitting (within 1% of bounds) — only over policies
+        # whose bounds are finite, so softplus-bounded (inf upper) policies
+        # don't artificially inflate the count.
+        if margin is not None and finite is not None:
             p = policy[0]
-            near_lower = jnp.sum(p < policy_lower + margin)
-            near_upper = jnp.sum(p > policy_upper - margin)
-            bound_hits += int(near_lower + near_upper)
-            total_outputs += len(policy_names)
+            lower_ok = finite & (p < policy_lower + margin)
+            upper_ok = finite & (p > policy_upper - margin)
+            bound_hits += int(jnp.sum(lower_ok) + jnp.sum(upper_ok))
+            total_outputs += int(jnp.sum(finite))
 
         state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
 
-    # Check final state deviation from SS
+    # Check final state deviation from SS. Floor the normalisation at
+    # 0.1 so states with SS = 0 (e.g. m_p, the monetary-policy shock) or
+    # near zero don't produce spuriously large relative deviations from
+    # tiny absolute moves.
     final_state = state[0] if state.ndim == 2 else state
-    ss_dev = jnp.abs(final_state - ss_state) / jnp.maximum(jnp.abs(ss_state), 1e-8)
+    ss_dev = jnp.abs(final_state - ss_state) / jnp.maximum(jnp.abs(ss_state), 0.1)
     max_dev = float(jnp.max(ss_dev))
 
     bound_pct = bound_hits / max(total_outputs, 1) * 100
