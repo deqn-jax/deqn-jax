@@ -33,7 +33,7 @@ from deqn_jax.networks.mlp import MLP
 
 
 class LinearPlusMLP(eqx.Module):
-    """Policy = linear(state) + mlp_correction(state).
+    """Policy = linear(state) + mlp_correction(state[, regime_feature]).
 
     Attributes:
         mlp: Unbounded MLP that outputs the correction (delta) in output space.
@@ -42,6 +42,11 @@ class LinearPlusMLP(eqx.Module):
         ss_policy: Steady-state policy vector [n_policies], static.
         policy_lower / policy_upper: Hard clipping bounds (safety fence; the
             linear + delta should normally keep policies well inside these).
+        use_zlb_feature: If True, prepend (state[r_lag_idx] - r_lb) as an
+            extra MLP input so the delta can learn ELB-regime-dependent
+            corrections. Linear part is unchanged (it operates on raw state).
+        r_lag_idx / r_lb: Index into the state vector for the lagged interest
+            rate, and the ELB floor. Disaster-model defaults (5 and 1.0).
     """
 
     mlp: MLP
@@ -53,6 +58,9 @@ class LinearPlusMLP(eqx.Module):
     ss_policy: Array
     policy_lower: Optional[Array]
     policy_upper: Optional[Array]
+    use_zlb_feature: bool = eqx.field(static=True)
+    r_lag_idx: int = eqx.field(static=True)
+    r_lb: float = eqx.field(static=True)
 
     def __init__(
         self,
@@ -69,14 +77,31 @@ class LinearPlusMLP(eqx.Module):
         init_scale: float = 0.01,
         input_shift: Optional[Array] = None,
         input_scale: Optional[Array] = None,
+        use_zlb_feature: bool = False,
+        r_lag_idx: int = 5,
+        r_lb: float = 1.0,
         *,
         key: Array,
     ):
+        self.use_zlb_feature = bool(use_zlb_feature)
+        self.r_lag_idx = int(r_lag_idx)
+        self.r_lb = float(r_lb)
+        n_extra = 1 if self.use_zlb_feature else 0
+
+        # When the ZLB regime feature is on, the MLP's input dimension grows
+        # by 1. Pad any caller-supplied input_shift/input_scale so they
+        # match (shift 0, scale 1 on the extra dim — no rescaling applied
+        # to the regime coordinate, which is already O(1e-2)).
+        if n_extra > 0 and input_shift is not None:
+            input_shift = jnp.concatenate([jnp.asarray(input_shift), jnp.zeros(n_extra)])
+        if n_extra > 0 and input_scale is not None:
+            input_scale = jnp.concatenate([jnp.asarray(input_scale), jnp.ones(n_extra)])
+
         # UNBOUNDED MLP for the correction. The linear component provides
         # the "raw" output, so we don't want sigmoid/softplus on top.
         act_fn = _resolve_activation(activation)
         self.mlp = MLP(
-            in_features=n_states,
+            in_features=n_states + n_extra,
             out_features=n_policies,
             hidden_sizes=hidden_sizes,
             activations=[act_fn] * len(hidden_sizes),
@@ -120,7 +145,17 @@ class LinearPlusMLP(eqx.Module):
         P = jax.lax.stop_gradient(self.P)
         linear = ss_policy + P @ (state - ss_state)
 
-        delta = self.mlp(state)
+        if self.use_zlb_feature:
+            # Regime feature: distance of lagged rate from the ELB. Tells
+            # the delta MLP how close we are to the kink so it can learn
+            # regime-specific corrections. Linear part still operates on
+            # raw state only.
+            zlb_prox = state[self.r_lag_idx] - self.r_lb
+            mlp_input = jnp.concatenate([state, jnp.array([zlb_prox])])
+        else:
+            mlp_input = state
+
+        delta = self.mlp(mlp_input)
         raw = linear + delta
         if self.policy_lower is not None:
             lower = jax.lax.stop_gradient(self.policy_lower)
@@ -145,14 +180,29 @@ def create_linear_plus_mlp(
     init_scale: float = 0.01,
     input_shift: Optional[Array] = None,
     input_scale: Optional[Array] = None,
+    use_zlb_feature: bool = False,
     *,
     key: Array,
 ) -> LinearPlusMLP:
-    """Factory: build a LinearPlusMLP using the model's linearization."""
+    """Factory: build a LinearPlusMLP using the model's linearization.
+
+    When ``use_zlb_feature`` is set and the model exposes ``R_lb`` and an
+    ``R_lag`` state, the MLP receives an extra input (R_lag - R_lb) so it
+    can learn regime-dependent corrections near the ELB.
+    """
     from deqn_jax.training.linearize import linearize_model
 
     P, _Q = linearize_model(model, verbose=False)
     ss_state, ss_policy = model.steady_state_fn(model.constants)
+
+    # Disaster-specific regime-feature setup. Other models can set
+    # use_zlb_feature=False (the default) and this is inert.
+    r_lag_idx = 5
+    r_lb = 1.0
+    if use_zlb_feature:
+        if model.state_names is not None and "R_lag" in model.state_names:
+            r_lag_idx = list(model.state_names).index("R_lag")
+        r_lb = float(model.constants.get("R_lb", 1.0))
 
     return LinearPlusMLP(
         n_states=model.n_states,
@@ -168,5 +218,8 @@ def create_linear_plus_mlp(
         init_scale=init_scale,
         input_shift=input_shift,
         input_scale=input_scale,
+        use_zlb_feature=use_zlb_feature,
+        r_lag_idx=r_lag_idx,
+        r_lb=r_lb,
         key=key,
     )

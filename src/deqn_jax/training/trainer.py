@@ -460,6 +460,7 @@ def create_train_state(
                 f"network.type='linear_plus_mlp' requires model.steady_state_fn"
             )
         init_scale = getattr(network_config, "init_scale", 0.0)
+        use_zlb_feature = getattr(network_config, "use_zlb_feature", False)
         policy_net = create_linear_plus_mlp(
             model=model,
             hidden_sizes=hidden_sizes,
@@ -468,6 +469,7 @@ def create_train_state(
             init_scale=init_scale,
             input_shift=input_shift,
             input_scale=input_scale,
+            use_zlb_feature=use_zlb_feature,
             key=net_key,
         )
     else:

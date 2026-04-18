@@ -346,6 +346,12 @@ class NetworkConfig(_ConfigBase):
     # 0.0 means policy starts exactly at the linear solution.
     init_scale: float = Field(default=0.0)
 
+    # For linear_plus_mlp + disaster model: prepend (R_lag - R_lb) as an
+    # extra feature so the delta MLP is explicitly told how close R is to
+    # the ELB. Experiment path for v0.3.0 kink-approximation fix. Only
+    # honoured by LinearPlusMLP and only meaningful for the disaster model.
+    use_zlb_feature: bool = Field(default=False)
+
     @field_validator("hidden_sizes", mode="before")
     @classmethod
     def _coerce_hidden_sizes(cls, v):
@@ -384,7 +390,7 @@ class NetworkConfig(_ConfigBase):
             )
         return v
 
-    @field_validator("multi_head", "skip_connections", mode="before")
+    @field_validator("multi_head", "skip_connections", "use_zlb_feature", mode="before")
     @classmethod
     def _check_bool_type(cls, v, info):
         if not isinstance(v, bool):
