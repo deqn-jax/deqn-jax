@@ -530,6 +530,16 @@ class TrainConfig(_ConfigBase):
     # shippable artifact instead of "last episode".
     save_best_checkpoint: bool = True
 
+    # DEQN-style rollout schedule: per outer iteration, do 1 rollout that
+    # fills a trajectory of (episode_length × batch_size) states, then
+    # sweep that trajectory in minibatches of size batch_size. n_epochs is
+    # the number of sweeps; n_minibatches_per_epoch is how many minibatches
+    # per sweep (None = use all available = episode_length).
+    # Default (1 epoch × all minibatches) matches DEQN_MAO's run_cycle.
+    # Set n_minibatches_per_epoch=1 for legacy one-grad-per-rollout behavior.
+    n_epochs_per_rollout: int = Field(default=1)
+    n_minibatches_per_epoch: Optional[int] = Field(default=None)
+
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
@@ -549,12 +559,17 @@ class TrainConfig(_ConfigBase):
     @field_validator(
         "episodes", "batch_size", "episode_length", "mc_samples", "seed",
         "log_every", "curriculum_episodes", "n_quadrature_points",
-        "target_update_every",
+        "target_update_every", "n_epochs_per_rollout",
         mode="before",
     )
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
         return _coerce_int(v, info.field_name)
+
+    @field_validator("n_minibatches_per_epoch", mode="before")
+    @classmethod
+    def _coerce_n_minibatches(cls, v):
+        return _coerce_optional_int(v, "n_minibatches_per_epoch")
 
     @field_validator(
         "reweight_alpha", "early_stop_min_delta", "curriculum_start",
@@ -711,6 +726,12 @@ class TrainConfig(_ConfigBase):
             raise ValueError(f"target_update_every must be >= 0, got {self.target_update_every}")
         if not (0 < self.target_tau <= 1):
             raise ValueError(f"target_tau must be in (0, 1], got {self.target_tau}")
+        if self.n_epochs_per_rollout < 1:
+            raise ValueError(f"n_epochs_per_rollout must be >= 1, got {self.n_epochs_per_rollout}")
+        if self.n_minibatches_per_epoch is not None and self.n_minibatches_per_epoch < 1:
+            raise ValueError(
+                f"n_minibatches_per_epoch must be >= 1 or None, got {self.n_minibatches_per_epoch}"
+            )
         return self
 
     @classmethod

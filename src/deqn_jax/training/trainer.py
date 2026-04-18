@@ -709,6 +709,193 @@ def _finalize_step(state, ctx, new_params, new_opt_state, loss, eq_losses,
 
 
 # ---------------------------------------------------------------------------
+# Rollout-and-sweep path (matches reference DEQN: one rollout → many
+# minibatch gradient steps over state_episode).
+# ---------------------------------------------------------------------------
+
+def _make_rollout_fn(
+    model: ModelSpec,
+    episode_length: int,
+    history_len: int,
+    ss_reset_frac: float,
+):
+    """JIT'd: run one rollout → return (trajectory, final_state, new_key).
+
+    The trajectory has shape [episode_length, batch, n_states] (MLP) or
+    needs to be wrapped into windows for sequence nets. The outer loop
+    then draws minibatches from it and calls the grad step many times.
+    """
+    @jax.jit
+    def rollout_fn(state: TrainState) -> Tuple[Array, Array, Array]:
+        key, episode_key, reset_key = jax.random.split(state.key, 3)
+        ep_states = state.episode_state
+        if ss_reset_frac > 0.0:
+            batch_n = ep_states.shape[0]
+            n_reset = int(ss_reset_frac * batch_n)
+            if n_reset > 0:
+                ss_state, _ = model.steady_state_fn(model.constants)
+                noise = jax.random.uniform(
+                    reset_key, (n_reset, model.n_states), minval=-0.05, maxval=0.05,
+                )
+                fresh = ss_state * (1 + noise)
+                ep_states = ep_states.at[:n_reset].set(fresh)
+        if history_len > 1:
+            trajectory, final_state = run_episode_with_history(
+                model, state.params, ep_states, episode_key, episode_length, history_len,
+            )
+        else:
+            trajectory, final_state = run_episode(
+                model, state.params, ep_states, episode_key, episode_length,
+            )
+        return trajectory, final_state, key
+    return rollout_fn
+
+
+def _make_grad_step_standard(
+    model: ModelSpec,
+    opt: Any,
+    mc_samples: int,
+    quad_nodes: Optional[Array],
+    quad_weights: Optional[Array],
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn: Optional[Callable],
+):
+    """JIT'd: one STANDARD gradient update on an explicit minibatch.
+
+    The minibatch replaces what was ``ctx.train_states`` in the legacy
+    single-batch train step; no rollout is run. Optimizer state, loss
+    reweighting, and Metrics construction are identical to the legacy
+    path so consumers see no difference per step.
+    """
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss = compute_loss_fn or compute_loss
+
+    @jax.jit
+    def grad_step(
+        state: TrainState,
+        batch: Array,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        def loss_fn(params):
+            loss, eq_losses = _compute_loss(
+                model, params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return loss, eq_losses
+
+        (loss, eq_losses), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(state.params)
+
+        params_arrays = eqx.filter(state.params, eqx.is_array)
+        grads_arrays = eqx.filter(grads, eqx.is_array)
+
+        updates, new_opt_state = opt.update(grads_arrays, state.opt_state, params_arrays)
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
+        new_params_arrays = optax.apply_updates(params_arrays, updates)
+        new_params = eqx.combine(new_params_arrays, state.params)
+        grad_norm = optax.global_norm(grads_arrays)
+
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params,
+            opt_state=new_opt_state,
+            episode_state=state.episode_state,  # unchanged; rollout already done
+            key=new_key,
+            step=state.step + 1,
+            episode=state.episode,  # episode counter bumped in outer loop
+            loss_weights=new_weights,
+            reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
+    return grad_step
+
+
+def _make_cycle_step_standard(
+    model: ModelSpec,
+    opt: Any,
+    episode_length: int,
+    mc_samples: int,
+    batch_size: int,
+    n_epochs_per_rollout: int,
+    n_minibatches_per_epoch: Optional[int],
+    loss_reweight: str = "none",
+    reweight_alpha: float = 0.9,
+    quad_nodes: Optional[Array] = None,
+    quad_weights: Optional[Array] = None,
+    history_len: int = 1,
+    compute_loss_fn: Optional[Callable] = None,
+    ss_reset_frac: float = 0.0,
+    use_target_network: bool = False,
+):
+    """DEQN-style cycle: one rollout followed by n_epochs × minibatch sweep.
+
+    The returned function has the same external signature as the legacy
+    train_step (state, lr_scale, shock_scale) → (new_state, metrics), so
+    the outer training loop stays unchanged. Metrics from the last
+    minibatch gradient step of the cycle are returned (so ``loss`` /
+    ``grad_norm`` / per-equation residuals track the most-recent update
+    rather than an average; this matches reference DEQN_MAO's logging
+    convention of reporting the final batch loss per cycle).
+    """
+    rollout_fn = _make_rollout_fn(model, episode_length, history_len, ss_reset_frac)
+    grad_step = _make_grad_step_standard(
+        model, opt, mc_samples, quad_nodes, quad_weights,
+        loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
+    )
+
+    def cycle_step(
+        state: TrainState,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        # 1. Rollout — one JIT'd call.
+        trajectory, final_state, new_key = rollout_fn(state)
+        state = state._replace(episode_state=final_state, key=new_key)
+
+        # 2. Build the minibatch dataset from the full trajectory.
+        if history_len > 1:
+            dataset = build_history_windows(trajectory, history_len)
+        else:
+            dataset = trajectory.reshape(-1, model.n_states)
+
+        n_samples = dataset.shape[0]
+        n_mbs_available = max(1, n_samples // batch_size)
+        n_mbs = (
+            min(n_minibatches_per_epoch, n_mbs_available)
+            if n_minibatches_per_epoch is not None
+            else n_mbs_available
+        )
+
+        # 3. Sweep: n_epochs × n_minibatches gradient updates.
+        last_metrics = None
+        for _ in range(n_epochs_per_rollout):
+            perm_key, state_key = jax.random.split(state.key)
+            state = state._replace(key=state_key)
+            perm = jax.random.permutation(perm_key, n_samples)
+            for mb_idx in range(n_mbs):
+                idx = perm[mb_idx * batch_size:(mb_idx + 1) * batch_size]
+                minibatch = dataset[idx]
+                state, last_metrics = grad_step(state, minibatch, lr_scale, shock_scale)
+
+        # 4. Bump episode counter once per cycle.
+        state = state._replace(episode=state.episode + 1)
+        return state, last_metrics
+
+    return cycle_step
+
+
+# ---------------------------------------------------------------------------
 # Five step variants
 # ---------------------------------------------------------------------------
 
@@ -1127,6 +1314,8 @@ def make_train_step(
     compute_loss_fn: Optional[Callable] = None,
     ss_reset_frac: float = 0.0,
     use_target_network: bool = False,
+    n_epochs_per_rollout: int = 1,
+    n_minibatches_per_epoch: Optional[int] = None,
 ):
     """Create a JIT-compiled training step function.
 
@@ -1191,7 +1380,15 @@ def make_train_step(
     elif kind == OptimizerKind.GN:
         return _make_gn_step(**kwargs)
     else:
-        return _make_standard_step(**kwargs)
+        # STANDARD variant — use the rollout + minibatch-sweep cycle step.
+        # Matches reference DEQN (one rollout per cycle, N_epochs × N_mbs
+        # gradient updates over the full state_episode). Legacy "one grad
+        # step per rollout" is recoverable by setting n_minibatches_per_epoch=1.
+        return _make_cycle_step_standard(
+            n_epochs_per_rollout=n_epochs_per_rollout,
+            n_minibatches_per_epoch=n_minibatches_per_epoch,
+            **kwargs,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1514,7 +1711,29 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         compute_loss_fn=custom_loss_fn,
         ss_reset_frac=config.ss_reset_frac,
         use_target_network=use_target,
+        n_epochs_per_rollout=config.n_epochs_per_rollout,
+        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
     )
+
+    if config.verbose and kind == OptimizerKind.STANDARD and gradient_surgery != "pcgrad":
+        # Compute and report the effective schedule so users can see what
+        # the trainer is actually doing per outer iteration.
+        ep_samples = config.episode_length * config.batch_size
+        mbs_avail = max(1, ep_samples // config.batch_size)
+        mbs_this_epoch = (
+            min(config.n_minibatches_per_epoch, mbs_avail)
+            if config.n_minibatches_per_epoch is not None
+            else mbs_avail
+        )
+        updates_per_cycle = config.n_epochs_per_rollout * mbs_this_epoch
+        print(
+            f"  Schedule: 1 rollout ({config.episode_length}×{config.batch_size}="
+            f"{ep_samples} states) → {config.n_epochs_per_rollout} epoch(s) × "
+            f"{mbs_this_epoch} minibatch(es) of {config.batch_size} "
+            f"= {updates_per_cycle} grad updates/cycle "
+            f"({updates_per_cycle * config.episodes} total over "
+            f"{config.episodes} cycles)"
+        )
 
     # ---- Mid-training optimizer switch setup ----
     switch_episode = config.switch_episode
@@ -1594,6 +1813,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 compute_loss_fn=custom_loss_fn,
                 ss_reset_frac=config.ss_reset_frac,
                 use_target_network=use_target,
+                n_epochs_per_rollout=config.n_epochs_per_rollout,
+                n_minibatches_per_epoch=config.n_minibatches_per_epoch,
             )
             switched = True
             # Reset early stopping after optimizer switch
