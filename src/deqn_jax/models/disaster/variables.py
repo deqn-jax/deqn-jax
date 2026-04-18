@@ -29,11 +29,15 @@ CONSTANTS = {
     "iota": 0.9, "iota_w": 0.49, "iota_mu": 0.94,
     # Monetary policy
     "rho_p": 0.85, "alpha_pi": 1.5, "alpha_y": 0.36,
-    # Effective lower bound on gross nominal rate (1.0 = 0% nominal floor).
+    # Effective lower bound on gross nominal rate. Default 1.0 = 0% nominal,
+    # the textbook ZLB. Realistic ELBs are often slightly below 1: the SNB
+    # held a ~-0.75% annual policy rate for seven years (Jan 2015 - Sep 2022),
+    # equivalent to ~R_lb = 0.998 at quarterly frequency.
     # Taylor-rule output R is soft-floored to R_lb in definitions() via a
-    # high-sharpness softplus so SS distortion is negligible (~0.1% shift).
-    # To disable, set R_lb very low (e.g. 0.5). Raising sharpness tightens
-    # the floor at the cost of gradient transition.
+    # high-sharpness softplus so SS distortion is negligible (~1e-7 at
+    # sharpness=500). To disable the floor, set R_lb very low (e.g. 0.5).
+    # Raising sharpness tightens the floor at the cost of sharper gradient
+    # transition around R_lb.
     "R_lb": 1.0, "R_lb_sharpness": 500.0,
     # Taxes
     "tau_c": 0.047, "tau_k": 0.32, "tau_l": 0.24,

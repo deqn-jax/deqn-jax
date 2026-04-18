@@ -22,13 +22,17 @@ on the Taylor-rule interest rate, and improved checkpoint tracking.
   patches `model.constants` at train-time. Enables calibration sweeps
   from YAML without editing model code.
 
-- **Effective lower bound on R**: smooth-softfloor ZLB applied to the
+- **Effective lower bound on R**: smooth-softfloor ELB applied to the
   Taylor-rule output in `models/disaster/equations.py`. Configurable via
-  `R_lb` (default 1.0 = zero nominal) and `R_lb_sharpness` (default 500,
-  chosen so SS distortion is ~1e-7 — negligible). Eliminates the
-  economically-nonsensical R<1 trajectories that destabilised disaster
-  training in v0.1.0. Exposes `R_taylor` and `R_zlb_binding` in
-  `definitions()` for post-hoc diagnostics.
+  `R_lb` (default 1.0 = 0% nominal, matching the textbook ZLB;
+  real-world ELBs can be modestly negative — the SNB held ~−0.75%
+  gross-annual for seven years, equivalent to `R_lb ≈ 0.998` quarterly)
+  and `R_lb_sharpness` (default 500; SS distortion ~1e-7, negligible).
+  Without this bound the Taylor rule is unconstrained and trajectories
+  drift arbitrarily far into negative nominal rates, a regime the model
+  dynamics aren't designed for — which destabilised disaster training
+  in v0.1.0. Exposes `R_taylor` and `R_zlb_binding` in `definitions()`
+  for post-hoc diagnostics.
 
 - **Best-checkpoint tracking**: `TrainConfig.save_best_checkpoint`
   (default True) writes `checkpoint_best.eqx` + `checkpoint_best.meta`

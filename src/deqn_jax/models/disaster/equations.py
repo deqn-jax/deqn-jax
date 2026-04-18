@@ -183,11 +183,14 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     y_gdp = st.g + p.c + p.i / st.mu_ups
 
     # Interest rate (Taylor rule) with effective lower bound.
-    # The raw Taylor prescription can go below 1 in deep-disaster or
-    # deep-recession states, which is counterfactual (central banks can't
-    # push nominal rates much below zero). Apply a soft floor at R_lb so
-    # R stays ≥ R_lb in expectation. Sharpness=100 keeps SS distortion
-    # below ~0.1% while giving a sharp floor.
+    # The raw Taylor prescription can go deeply below 1 in disaster or
+    # recession states. Central banks face an empirical lower bound —
+    # historically slightly below 0% (SNB held -0.75% annual for seven
+    # years, ECB and BoJ similar), with the floor set by cash-storage
+    # costs and preferences for deposit holdings. Apply a soft floor at
+    # R_lb (configurable, default 1.0) so R stays ≥ R_lb in expectation.
+    # Sharpness=500 keeps SS distortion ~1e-7 while still giving a tight
+    # floor near R_lb.
     R_taylor = c["R_ss"] * (st.R_lag / c["R_ss"]) ** c["rho_p"] * (
         (p.pi / c["pi_ss"]) ** c["alpha_pi"] * (y_gdp / c["y_ss"]) ** c["alpha_y"]
     ) ** (1 - c["rho_p"]) * jnp.exp(st.m_p)
