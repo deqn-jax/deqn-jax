@@ -68,6 +68,18 @@ When you're hunting for a bug:
 
 ## 2. One train step, end-to-end
 
+![DEQN solver training loop](../figures/deqn_solver_loop.svg)
+
+*Overall solver loop, adapted from the original DEQN framing. The **cycle** is
+an outer repetition; each cycle runs a **rollout** (episode of length
+`N_episode_length` alternating random step, policy forward pass, and total
+step — fills `state_episode`) followed by a **training** pass
+(`N_epochs_per_episode` × `N_batches` minibatches through NN forward+backward).
+Our JAX port fuses forward, loss, and backward into a single JIT'd train step
+per episode; the conceptual decomposition above is preserved but collapsed.
+The raw hand-drawn original is in `docs/figures/deqn_solver_loop_orig_drawing.jpeg`.*
+
+
 Follow the path from `deqn-jax train --config configs/disaster.yaml` to a
 single weight update.
 

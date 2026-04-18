@@ -142,6 +142,15 @@ Subclass `eqx.Module`, add a `create_your_net(...)` factory in `src/deqn_jax/net
 
 ## Architecture
 
+![DEQN solver training loop](docs/figures/deqn_solver_loop.svg)
+
+*The conceptual flow: an outer **cycle** runs a **rollout** episode that fills
+`state_episode` by alternating random step / forward pass / total step, then a
+**training** phase does epochs × mini-batches of NN forward+backward passes over
+the rollout-produced dataset. The final rollout state seeds the next cycle.
+Our JAX implementation fuses forward, loss, and backward into a single JIT'd
+train step per episode — conceptually equivalent, implementation-optimised.*
+
 ```
 src/deqn_jax/
   config.py               Pydantic model configs + YAML + CLI overrides

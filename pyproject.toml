@@ -101,6 +101,9 @@ exclude = [
     "mkdocs.yml",
     "docs/site/**",
     "docs/figures/training_step_spec.md",
+    "docs/figures/*.jpeg",
+    "docs/figures/*.jpg",
+    "docs/figures/*.png",
 ]
 
 [tool.pytest.ini_options]

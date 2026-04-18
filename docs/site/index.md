@@ -10,6 +10,8 @@ across the full state space, rather than solving point-by-point.
 state  →  Network  →  policy  →  Equilibrium equations  →  Loss = Σ residuals²
 ```
 
+![DEQN solver training loop](figures/deqn_solver_loop.svg)
+
 ## Status
 
 Alpha (`v0.1.0`). API may change. Core plumbing is solid; 241 tests pass.
