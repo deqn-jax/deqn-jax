@@ -821,39 +821,336 @@ def _make_grad_step_standard(
     return grad_step
 
 
-def _make_cycle_step_standard(
+def _make_grad_step_pcgrad(
     model: ModelSpec,
     opt: Any,
-    episode_length: int,
     mc_samples: int,
+    quad_nodes: Optional[Array],
+    quad_weights: Optional[Array],
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn: Optional[Callable],
+):
+    """JIT'd: one PCGrad gradient update on an explicit minibatch."""
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss_total = compute_loss_fn or compute_loss
+
+    @jax.jit
+    def grad_step(
+        state: TrainState,
+        batch: Array,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        def eq_loss_vector(params):
+            _, eq_losses = compute_loss(
+                model, params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return eq_losses_to_array(eq_losses)
+
+        def total_loss_fn(params):
+            loss, eq_losses = _compute_loss_total(
+                model, params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return loss, eq_losses
+
+        eq_jac = jax.jacrev(eq_loss_vector)(state.params)
+        params_arrays = eqx.filter(state.params, eqx.is_array)
+        flat_params, unflatten_fn = jax.flatten_util.ravel_pytree(params_arrays)
+        eq_jac_arrays = eqx.filter(eq_jac, eqx.is_array)
+        flat_eq_grads = jnp.stack([
+            jax.flatten_util.ravel_pytree(jax.tree.map(lambda x: x[i], eq_jac_arrays))[0]
+            for i in range(n_eq)
+        ])
+        gram = flat_eq_grads @ flat_eq_grads.T
+        norms_sq = jnp.diag(gram)
+        coeffs = jnp.where(gram < 0, gram / (norms_sq[None, :] + 1e-8), 0.0)
+        coeffs = coeffs.at[jnp.diag_indices(n_eq)].set(0.0)
+        projected = flat_eq_grads - coeffs @ flat_eq_grads
+        final_flat_grad = jnp.sum(projected, axis=0)
+        grads_arrays = unflatten_fn(final_flat_grad)
+
+        updates, new_opt_state = opt.update(grads_arrays, state.opt_state, params_arrays)
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
+        new_params_arrays = optax.apply_updates(params_arrays, updates)
+        new_params = eqx.combine(new_params_arrays, state.params)
+
+        loss, eq_losses = total_loss_fn(state.params)
+        grad_norm = jnp.sqrt(jnp.sum(final_flat_grad ** 2))
+
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params, opt_state=new_opt_state,
+            episode_state=state.episode_state, key=new_key,
+            step=state.step + 1, episode=state.episode,
+            loss_weights=new_weights, reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+    return grad_step
+
+
+def _make_grad_step_mao(
+    model: ModelSpec,
+    mao_opt: Any,
+    mc_samples: int,
+    quad_nodes: Optional[Array],
+    quad_weights: Optional[Array],
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn: Optional[Callable],
+    grad_clip: Optional[float],
+):
+    """JIT'd: one MAO (per-equation Jacobian) gradient update on a minibatch."""
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss_total = compute_loss_fn or compute_loss
+
+    @jax.jit
+    def grad_step(
+        state: TrainState,
+        batch: Array,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        params_arrays = eqx.filter(state.params, eqx.is_array)
+        params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
+
+        def per_eq_loss_fn(p_arrays):
+            full_params = eqx.combine(p_arrays, params_static)
+            _, eq_losses = compute_loss(
+                model, full_params, batch, loss_key, mc_samples,
+                weights=None,
+                shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return eq_losses_to_array(eq_losses)
+
+        eq_jac = jax.jacrev(per_eq_loss_fn)(params_arrays)
+
+        def total_loss_fn(params):
+            loss, eq_losses = _compute_loss_total(
+                model, params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return loss, eq_losses
+
+        (loss, eq_losses), grads = eqx.filter_value_and_grad(total_loss_fn, has_aux=True)(
+            state.params
+        )
+        grad_norm = optax.global_norm(eqx.filter(grads, eqx.is_array))
+
+        updates, new_opt_state = mao_opt.update(eq_jac, state.opt_state, params_arrays)
+        if grad_clip is not None:
+            update_norm = optax.global_norm(updates)
+            clip_scale = jnp.minimum(1.0, grad_clip / (update_norm + 1e-8))
+            updates = jax.tree.map(lambda u: clip_scale * u, updates)
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
+        new_params_arrays = optax.apply_updates(params_arrays, updates)
+        new_params = eqx.combine(new_params_arrays, state.params)
+
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params, opt_state=new_opt_state,
+            episode_state=state.episode_state, key=new_key,
+            step=state.step + 1, episode=state.episode,
+            loss_weights=new_weights, reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+    return grad_step
+
+
+def _make_grad_step_lbfgs(
+    model: ModelSpec,
+    opt: Any,
+    mc_samples: int,
+    quad_nodes: Optional[Array],
+    quad_weights: Optional[Array],
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn: Optional[Callable],
+):
+    """JIT'd: one L-BFGS gradient update on a minibatch (with line search)."""
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss = compute_loss_fn or compute_loss
+
+    @jax.jit
+    def grad_step(
+        state: TrainState,
+        batch: Array,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        params_arrays = eqx.filter(state.params, eqx.is_array)
+        params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
+
+        def loss_fn(params):
+            loss, eq_losses = _compute_loss(
+                model, params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return loss, eq_losses
+
+        (loss, eq_losses), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(state.params)
+        grads_arrays = eqx.filter(grads, eqx.is_array)
+        grad_norm = optax.global_norm(grads_arrays)
+
+        def value_fn(p_arrays):
+            full_params = eqx.combine(p_arrays, params_static)
+            v, _ = _compute_loss(
+                model, full_params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return v
+
+        updates, new_opt_state = opt.update(
+            grads_arrays, state.opt_state, params_arrays,
+            value=loss, grad=grads_arrays, value_fn=value_fn,
+        )
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
+        new_params_arrays = optax.apply_updates(params_arrays, updates)
+        new_params = eqx.combine(new_params_arrays, state.params)
+
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params, opt_state=new_opt_state,
+            episode_state=state.episode_state, key=new_key,
+            step=state.step + 1, episode=state.episode,
+            loss_weights=new_weights, reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+    return grad_step
+
+
+def _make_grad_step_gn(
+    model: ModelSpec,
+    opt: Any,
+    mc_samples: int,
+    batch_size: int,
+    quad_nodes: Optional[Array],
+    quad_weights: Optional[Array],
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn: Optional[Callable],
+):
+    """JIT'd: one Gauss-Newton / Levenberg-Marquardt update on a minibatch."""
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss_log = compute_loss_fn or compute_loss
+    use_quadrature = quad_nodes is not None and quad_weights is not None
+
+    @jax.jit
+    def grad_step(
+        state: TrainState,
+        batch: Array,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        def residual_fn(params):
+            if use_quadrature:
+                n_nodes = quad_nodes.shape[0]
+                shocks = jnp.broadcast_to(
+                    quad_nodes[:, None, :],
+                    (n_nodes, batch_size, model.n_shocks),
+                ) * shock_scale
+                sample_weights = quad_weights
+            else:
+                shocks = sample_antithetic_shocks(
+                    loss_key, mc_samples, batch_size, model.n_shocks, shock_scale,
+                )
+                n_samples = shocks.shape[0]
+                sample_weights = jnp.ones(n_samples) / n_samples
+
+            def sample_residuals(shock):
+                return compute_residuals(model, params, batch, shock,
+                                         target_policy_fn=target_fn)
+            all_residuals = jax.vmap(sample_residuals)(shocks)
+            per_eq = []
+            for r in all_residuals.values():
+                mean_r = jnp.einsum('s,sb->b', sample_weights, r)
+                per_eq.append(mean_r)
+            return jnp.concatenate(per_eq)
+
+        loss, eq_losses = _compute_loss_log(
+            model, state.params, batch, loss_key, mc_samples,
+            weights=state.loss_weights, shock_scale=shock_scale,
+            quad_nodes=quad_nodes, quad_weights=quad_weights,
+            target_policy_fn=target_fn,
+        )
+
+        new_params, new_opt_state = opt.update(
+            residual_fn, state.params, state.opt_state, lr_scale=lr_scale
+        )
+
+        def scalar_loss(p):
+            r = residual_fn(p)
+            return jnp.sum(r ** 2)
+        grad_norm = optax.global_norm(eqx.filter(jax.grad(scalar_loss)(state.params), eqx.is_array))
+
+        new_weights, new_rw = _update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params, opt_state=new_opt_state,
+            episode_state=state.episode_state, key=new_key,
+            step=state.step + 1, episode=state.episode,
+            loss_weights=new_weights, reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+    return grad_step
+
+
+def _make_cycle_step(
+    rollout_fn: Callable,
+    grad_step: Callable,
+    model: ModelSpec,
     batch_size: int,
     n_epochs_per_rollout: int,
     n_minibatches_per_epoch: Optional[int],
-    loss_reweight: str = "none",
-    reweight_alpha: float = 0.9,
-    quad_nodes: Optional[Array] = None,
-    quad_weights: Optional[Array] = None,
     history_len: int = 1,
-    compute_loss_fn: Optional[Callable] = None,
-    ss_reset_frac: float = 0.0,
-    use_target_network: bool = False,
 ):
-    """DEQN-style cycle: one rollout followed by n_epochs × minibatch sweep.
+    """Generic DEQN-style cycle: 1 rollout + n_epochs × minibatch sweep.
 
-    The returned function has the same external signature as the legacy
-    train_step (state, lr_scale, shock_scale) → (new_state, metrics), so
-    the outer training loop stays unchanged. Metrics from the last
-    minibatch gradient step of the cycle are returned (so ``loss`` /
-    ``grad_norm`` / per-equation residuals track the most-recent update
-    rather than an average; this matches reference DEQN_MAO's logging
-    convention of reporting the final batch loss per cycle).
+    Works for any ``grad_step`` with signature
+    ``(state, batch, lr_scale, shock_scale) → (new_state, metrics)``.
+    The rollout is kind-agnostic; only the per-batch grad step differs.
     """
-    rollout_fn = _make_rollout_fn(model, episode_length, history_len, ss_reset_frac)
-    grad_step = _make_grad_step_standard(
-        model, opt, mc_samples, quad_nodes, quad_weights,
-        loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
-    )
-
     def cycle_step(
         state: TrainState,
         lr_scale: Array,
@@ -1356,39 +1653,49 @@ def make_train_step(
         use_target_network=use_target_network,
     )
 
+    # All kinds now use the DEQN-style rollout + minibatch-sweep cycle.
+    # Per outer iteration: 1 rollout (fills state_episode) + n_epochs ×
+    # n_minibatches gradient updates over the full trajectory. The kind
+    # determines only the per-batch grad step (standard / pcgrad / mao /
+    # lbfgs / gn); the rollout + sweep wrapper is shared.
+    rollout_fn = _make_rollout_fn(model, episode_length, history_len, ss_reset_frac)
+
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
-        return _make_pcgrad_step(**kwargs)
+        grad_step = _make_grad_step_pcgrad(
+            model, opt, mc_samples, quad_nodes, quad_weights,
+            loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
+        )
     elif kind == OptimizerKind.MAO:
-        return _make_mao_step(
-            model=model,
-            mao_opt=opt,
-            episode_length=episode_length,
-            mc_samples=mc_samples,
-            batch_size=batch_size,
-            loss_reweight=loss_reweight,
-            reweight_alpha=reweight_alpha,
-            grad_clip=grad_clip,
-            quad_nodes=quad_nodes,
-            quad_weights=quad_weights,
-            history_len=history_len,
-            compute_loss_fn=compute_loss_fn,
-            ss_reset_frac=ss_reset_frac,
-            use_target_network=use_target_network,
+        grad_step = _make_grad_step_mao(
+            model, opt, mc_samples, quad_nodes, quad_weights,
+            loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
+            grad_clip,
         )
     elif kind == OptimizerKind.LBFGS:
-        return _make_lbfgs_step(**kwargs)
-    elif kind == OptimizerKind.GN:
-        return _make_gn_step(**kwargs)
-    else:
-        # STANDARD variant — use the rollout + minibatch-sweep cycle step.
-        # Matches reference DEQN (one rollout per cycle, N_epochs × N_mbs
-        # gradient updates over the full state_episode). Legacy "one grad
-        # step per rollout" is recoverable by setting n_minibatches_per_epoch=1.
-        return _make_cycle_step_standard(
-            n_epochs_per_rollout=n_epochs_per_rollout,
-            n_minibatches_per_epoch=n_minibatches_per_epoch,
-            **kwargs,
+        grad_step = _make_grad_step_lbfgs(
+            model, opt, mc_samples, quad_nodes, quad_weights,
+            loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
         )
+    elif kind == OptimizerKind.GN:
+        grad_step = _make_grad_step_gn(
+            model, opt, mc_samples, batch_size, quad_nodes, quad_weights,
+            loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
+        )
+    else:
+        grad_step = _make_grad_step_standard(
+            model, opt, mc_samples, quad_nodes, quad_weights,
+            loss_reweight, reweight_alpha, use_target_network, compute_loss_fn,
+        )
+
+    return _make_cycle_step(
+        rollout_fn=rollout_fn,
+        grad_step=grad_step,
+        model=model,
+        batch_size=batch_size,
+        n_epochs_per_rollout=n_epochs_per_rollout,
+        n_minibatches_per_epoch=n_minibatches_per_epoch,
+        history_len=history_len,
+    )
 
 
 # ---------------------------------------------------------------------------
