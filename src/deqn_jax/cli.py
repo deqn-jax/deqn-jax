@@ -279,6 +279,14 @@ def main():
         default=None,
         help="Output directory (default: irf_results)",
     )
+    irf_parser.add_argument(
+        "--girf",
+        action="store_true",
+        help="Generalized IRF: subtract a no-shock baseline trajectory "
+             "(same initial state, zero shocks) from the shocked path. "
+             "Required for nonlinear models where the initial state is not "
+             "a fixed point of step(·, 0, d=0) — e.g. disaster with risky SS.",
+    )
 
     # Evaluate command
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate trained model accuracy")

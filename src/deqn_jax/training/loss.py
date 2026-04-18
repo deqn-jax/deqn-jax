@@ -217,6 +217,25 @@ def compute_residuals(
 # Loss computation (unified MC + quadrature)
 # ---------------------------------------------------------------------------
 
+def huber(x: Array, delta: float) -> Array:
+    """Huber function: quadratic near 0, linear beyond |x| = delta.
+
+    ``huber(x, δ) = 0.5·x²`` for ``|x| ≤ δ``
+    ``huber(x, δ) = δ·(|x| - 0.5·δ)`` for ``|x| > δ``
+
+    Matches DEQN_MAO's Huber_loss convention. Gradient saturates at
+    ±δ for large residuals, which limits the influence of outlier
+    batch elements on parameter updates — useful when a few ZLB-binding
+    or extreme-shock states produce residuals ≫ typical.
+    """
+    abs_x = jnp.abs(x)
+    return jnp.where(
+        abs_x <= delta,
+        0.5 * x ** 2,
+        delta * (abs_x - 0.5 * delta),
+    )
+
+
 def compute_loss(
     model: ModelSpec,
     policy_fn: Callable[[Array], Array],
@@ -229,6 +248,8 @@ def compute_loss(
     quad_weights: Optional[Array] = None,
     barrier_weight: float = 0.0,
     target_policy_fn: Optional[Callable[[Array], Array]] = None,
+    loss_choice: str = "mse",
+    huber_delta: float = 1.0,
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with MC or quadrature expectations.
 
@@ -291,8 +312,16 @@ def compute_loss(
         # residuals: [n_samples, batch]
         # Weighted mean over samples: E[r] for each batch element
         mean_residual = jnp.einsum('s,sb->b', sample_weights, residuals)  # [batch]
-        # Square then average over batch: E_batch[(E_shock[r])²]
-        eq_loss = jnp.mean(mean_residual ** 2)
+        # Aggregate per-state mean residual over batch. Huber is safe HERE
+        # (after the shock expectation) because it only reshapes the
+        # batch-level contribution. Applying it per-shock would break the
+        # stochastic-fixed-point equivalence via Jensen, same as the
+        # log-form rewrite we fixed earlier. Default "mse" matches prior
+        # behaviour exactly.
+        if loss_choice == "huber":
+            eq_loss = jnp.mean(huber(mean_residual, huber_delta))
+        else:
+            eq_loss = jnp.mean(mean_residual ** 2)
         eq_losses[eq_name] = eq_loss
         w = 1.0 if weights is None else weights[i]
         total_loss = total_loss + w * eq_loss

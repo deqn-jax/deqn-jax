@@ -278,6 +278,11 @@ class CompositeLossConfig(_ConfigBase):
 
     anchor_weight: float = Field(default=0.1)
     jac_weight: float = Field(default=0.01)
+    # Sobolev-style per-anchor Jacobian match — ||∂π_net/∂s - P||² averaged
+    # over composite-loss anchor points. Default 0 keeps this term off;
+    # setting > 0 extends the aux_jac supervision (SS only) to the whole
+    # anchor cloud. Higher cost (~d×) per step.
+    jac_anchor_weight: float = Field(default=0.0)
     barrier_weight: float = Field(default=0.01)
     newton_weight: float = Field(default=0.01)
     n_anchor_points: int = Field(default=64)
@@ -286,7 +291,7 @@ class CompositeLossConfig(_ConfigBase):
     aux_decay_floor: float = Field(default=0.2)
 
     @field_validator(
-        "anchor_weight", "jac_weight", "barrier_weight", "newton_weight",
+        "anchor_weight", "jac_weight", "jac_anchor_weight", "barrier_weight", "newton_weight",
         "anchor_sigma", "leverage_mult", "aux_decay_floor",
         mode="before",
     )
@@ -301,7 +306,7 @@ class CompositeLossConfig(_ConfigBase):
 
     @model_validator(mode="after")
     def _validate_ranges(self):
-        for name in ("anchor_weight", "jac_weight", "barrier_weight", "newton_weight"):
+        for name in ("anchor_weight", "jac_weight", "jac_anchor_weight", "barrier_weight", "newton_weight"):
             val = getattr(self, name)
             if val < 0:
                 raise ValueError(f"{name} must be >= 0, got {val}")
@@ -470,6 +475,15 @@ class TrainConfig(_ConfigBase):
     loss_type: str = "mse"
     composite_loss: CompositeLossConfig = Field(default_factory=CompositeLossConfig)
 
+    # Residual aggregation over batch elements: MSE (default) or Huber.
+    # Applied to the per-state mean residual (i.e. AFTER the shock
+    # expectation). Huber caps gradient contribution for outlier states
+    # at ±huber_delta · sign(residual), useful when rare pathological
+    # states (ZLB-binding, etc.) dominate the gradient under MSE.
+    # Matches DEQN_MAO's loss_choice convention.
+    loss_choice: str = "mse"
+    huber_delta: float = Field(default=1.0)
+
     warm_start: bool = False
     warm_start_linearize: bool = False
     warm_start_dynare: Optional[str] = None
@@ -541,6 +555,7 @@ class TrainConfig(_ConfigBase):
     n_minibatches_per_epoch: Optional[int] = Field(default=None)
 
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
+    VALID_LOSS_CHOICES: ClassVar[frozenset] = frozenset({"mse", "huber"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
     VALID_EXPECTATION_TYPES: ClassVar[frozenset] = frozenset({"mc", "quadrature", "gh", "gauss_hermite"})
@@ -573,7 +588,7 @@ class TrainConfig(_ConfigBase):
 
     @field_validator(
         "reweight_alpha", "early_stop_min_delta", "curriculum_start",
-        "ss_reset_frac", "barrier_weight", "target_tau",
+        "ss_reset_frac", "barrier_weight", "target_tau", "huber_delta",
         mode="before",
     )
     @classmethod
@@ -669,6 +684,13 @@ class TrainConfig(_ConfigBase):
                 f"Unknown loss_type '{self.loss_type}'. "
                 f"Valid: {sorted(self.VALID_LOSS_TYPES)}"
             )
+        if self.loss_choice not in self.VALID_LOSS_CHOICES:
+            raise ValueError(
+                f"Unknown loss_choice '{self.loss_choice}'. "
+                f"Valid: {sorted(self.VALID_LOSS_CHOICES)}"
+            )
+        if self.huber_delta <= 0:
+            raise ValueError(f"huber_delta must be > 0, got {self.huber_delta}")
         if self.loss_reweight not in self.VALID_LOSS_REWEIGHTS:
             raise ValueError(
                 f"Unknown loss_reweight '{self.loss_reweight}'. "

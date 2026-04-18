@@ -1157,8 +1157,16 @@ def _make_cycle_step(
         shock_scale: Array = jnp.array(1.0),
     ) -> Tuple[TrainState, Metrics]:
         # 1. Rollout — one JIT'd call.
-        trajectory, final_state, new_key = rollout_fn(state)
-        state = state._replace(episode_state=final_state, key=new_key)
+        # Note: `rollout_fn` returns trajectory = [s_0, ..., s_{T-1}] and
+        # final_carry_state = s_T (T transitions total). The *reference*
+        # DEQN_MAO stores [s_0, ..., s_{T-1}] in state_episode and seeds
+        # the next cycle from state_episode[T-1] = s_{T-1} (so cycles
+        # overlap by one state, and each cycle advances T-1 transitions).
+        # We use trajectory[-1] = s_{T-1} for seeding to match that
+        # convention; final_carry_state is discarded.
+        trajectory, _final_after_T, new_key = rollout_fn(state)
+        next_seed = trajectory[-1]
+        state = state._replace(episode_state=next_seed, key=new_key)
 
         # 2. Build the minibatch dataset from the full trajectory.
         if history_len > 1:
@@ -1175,7 +1183,19 @@ def _make_cycle_step(
         )
 
         # 3. Sweep: n_epochs × n_minibatches gradient updates.
+        # Cycle-level metrics are aggregated across ALL minibatches in the
+        # sweep, matching DEQN_MAO's run_cycle which reports
+        # MSE_epoch_loss = epoch_loss / (N_episode_length * N_sim_batch).
+        # Per-minibatch loss from grad_step is already a mean over its
+        # batch, so averaging over minibatches gives an overall mean.
+        # grad_norm is tracked as a max across the sweep (the spike is
+        # what matters for stability diagnostics). Residuals are averaged
+        # per equation.
         last_metrics = None
+        loss_acc = jnp.array(0.0)
+        grad_max = jnp.array(0.0)
+        eq_acc: Optional[Dict[str, Array]] = None
+        n_steps = 0
         for _ in range(n_epochs_per_rollout):
             perm_key, state_key = jax.random.split(state.key)
             state = state._replace(key=state_key)
@@ -1184,10 +1204,25 @@ def _make_cycle_step(
                 idx = perm[mb_idx * batch_size:(mb_idx + 1) * batch_size]
                 minibatch = dataset[idx]
                 state, last_metrics = grad_step(state, minibatch, lr_scale, shock_scale)
+                loss_acc = loss_acc + last_metrics.loss
+                grad_max = jnp.maximum(grad_max, last_metrics.grad_norm)
+                if eq_acc is None:
+                    eq_acc = {k: v * 0.0 for k, v in last_metrics.residuals.items()}
+                for k, v in last_metrics.residuals.items():
+                    eq_acc[k] = eq_acc[k] + v
+                n_steps += 1
 
         # 4. Bump episode counter once per cycle.
         state = state._replace(episode=state.episode + 1)
-        return state, last_metrics
+
+        # 5. Build aggregated metrics.
+        if n_steps == 0 or last_metrics is None:
+            return state, last_metrics
+        n_steps_f = float(n_steps)
+        avg_loss = loss_acc / n_steps_f
+        avg_eq = {k: v / n_steps_f for k, v in (eq_acc or {}).items()}
+        aggregated = Metrics(loss=avg_loss, residuals=avg_eq, grad_norm=grad_max)
+        return state, aggregated
 
     return cycle_step
 
@@ -1978,22 +2013,50 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             comp_data,
             anchor_weight=comp_cfg.anchor_weight,
             jac_weight=comp_cfg.jac_weight,
+            jac_anchor_weight=comp_cfg.jac_anchor_weight,
             barrier_weight=comp_cfg.barrier_weight,
             newton_weight=comp_cfg.newton_weight,
             leverage_mult=comp_cfg.leverage_mult,
             aux_decay_floor=comp_cfg.aux_decay_floor,
             history_len=history_len,
+            loss_choice=config.loss_choice,
+            huber_delta=config.huber_delta,
         )
         if config.verbose:
-            print("  Composite loss ready.")
+            extras = []
+            if config.loss_choice != "mse":
+                extras.append(f"loss_choice={config.loss_choice} (δ={config.huber_delta})")
+            if comp_cfg.jac_anchor_weight > 0:
+                extras.append(f"sobolev-anchor w={comp_cfg.jac_anchor_weight}")
+            extras_str = " · ".join(extras)
+            print(f"  Composite loss ready.{(' · ' + extras_str) if extras_str else ''}")
 
     # ---- State barrier penalty ----
     barrier_weight = config.barrier_weight
     if barrier_weight > 0 and custom_loss_fn is None and model.state_barrier_fn is not None:
         from functools import partial
-        custom_loss_fn = partial(compute_loss, barrier_weight=barrier_weight)
+        custom_loss_fn = partial(
+            compute_loss,
+            barrier_weight=barrier_weight,
+            loss_choice=config.loss_choice,
+            huber_delta=config.huber_delta,
+        )
         if config.verbose:
             print(f"  State barrier: weight={barrier_weight}")
+
+    # ---- Huber / MSE for the bare (non-composite) path ----
+    # When neither composite loss nor state barrier is wrapping, apply the
+    # loss_choice directly via a partial. No-op when loss_choice='mse' (MSE
+    # is the default inside compute_loss).
+    if custom_loss_fn is None and config.loss_choice != "mse":
+        from functools import partial
+        custom_loss_fn = partial(
+            compute_loss,
+            loss_choice=config.loss_choice,
+            huber_delta=config.huber_delta,
+        )
+        if config.verbose:
+            print(f"  Loss choice: {config.loss_choice} (δ={config.huber_delta})")
 
     # ---- Target network setup ----
     use_target = config.target_update_every > 0
@@ -2432,6 +2495,11 @@ def train(
     """Train DEQN model (backward-compatible wrapper).
 
     Builds a TrainConfig and delegates to train_from_config().
+
+    Preserves the pre-sweep per-cycle training budget (one gradient step
+    per cycle) to avoid surprising legacy callers. New code should prefer
+    ``train_from_config(TrainConfig(...))`` which defaults to the full
+    rollout+minibatch-sweep schedule matching reference DEQN.
     """
     from deqn_jax.config import TrainConfig, OptimizerConfig, NetworkConfig
 
@@ -2458,6 +2526,7 @@ def train(
         wandb_project=wandb_project,
         checkpoint_dir=checkpoint_dir,
         checkpoint_every=checkpoint_every,
+        n_minibatches_per_epoch=1,
     )
 
     return train_from_config(config)

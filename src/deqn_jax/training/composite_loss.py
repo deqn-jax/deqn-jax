@@ -153,6 +153,31 @@ def _jac_loss(
     return jnp.mean((J_net - data.P) ** 2)
 
 
+def _sobolev_anchor_loss(
+    policy_fn: Callable[[Array], Array],
+    data: CompositeData,
+    history_len: int = 1,
+) -> Array:
+    """Sobolev-style anchor loss: ||J_net(x_i) - P||² averaged over anchors.
+
+    Generalises ``_jac_loss`` from the single steady-state point to every
+    anchor point. Matches the first-order behaviour of the network to the
+    Blanchard-Kahn P matrix across a whole neighbourhood of SS, not only
+    at SS itself. Roughly d× more information per anchor than value-only
+    matching (where d = n_states), and it disciplines the network's
+    directional response in every local frame.
+
+    Reference: Czarnecki et al. "Sobolev Training for Neural Networks"
+    (NeurIPS 2017). The P matrix is treated as a constant target; only
+    the per-anchor Jacobians vary.
+    """
+    markov_fn = _make_markov_wrapper(policy_fn, history_len)
+    jac_single = jax.jacfwd(markov_fn)
+    # Jacobians at every anchor: [n_anchor, n_policies, n_states]
+    J_all = jax.vmap(jac_single)(data.anchor_points)
+    return jnp.mean((J_all - data.P[None, :, :]) ** 2)
+
+
 def _barrier_losses(
     defs: Dict[str, Array],
     data: CompositeData,
@@ -210,11 +235,14 @@ def make_composite_loss(
     data: CompositeData,
     anchor_weight: float = 0.1,
     jac_weight: float = 0.01,
+    jac_anchor_weight: float = 0.0,
     barrier_weight: float = 0.01,
     newton_weight: float = 0.01,
     leverage_mult: float = 5.0,
     aux_decay_floor: float = 0.2,
     history_len: int = 1,
+    loss_choice: str = "mse",
+    huber_delta: float = 1.0,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
@@ -244,12 +272,14 @@ def make_composite_loss(
         barrier_weight: float = 0.0,
         target_policy_fn: Optional[Callable[[Array], Array]] = None,
     ) -> Tuple[Array, Dict[str, Array]]:
-        # 1. Base MSE loss (standard Euler residuals)
+        # 1. Base residual loss — MSE or Huber on per-state mean residual.
         base_loss, eq_losses = compute_loss(
             model_, policy_fn, states, key, mc_samples,
             weights=weights, shock_scale=shock_scale,
             quad_nodes=quad_nodes, quad_weights=quad_weights,
             target_policy_fn=target_policy_fn,
+            loss_choice=loss_choice,
+            huber_delta=huber_delta,
         )
 
         # Anchor + jac decay: fade as curriculum progresses, but keep a floor
@@ -264,6 +294,16 @@ def make_composite_loss(
         # 3. Jacobian loss: net Jacobian at SS should match P
         jac = _jac_loss(policy_fn, data, history_len=history_len)
         eq_losses["aux_jac"] = jac
+
+        # 3b. Sobolev-anchor loss: match J_net(x_i) ≈ P at EVERY anchor
+        # point (not just SS). Disabled by default (weight=0); enable by
+        # setting composite_loss.jac_anchor_weight > 0. More expensive
+        # than aux_jac (one jacfwd per anchor, vmap'd).
+        if jac_anchor_weight > 0.0:
+            jac_anchor = _sobolev_anchor_loss(policy_fn, data, history_len=history_len)
+            eq_losses["aux_jac_anchor"] = jac_anchor
+        else:
+            jac_anchor = jnp.array(0.0)
 
         # 4. Barrier + Newton losses from training batch definitions
         # TODO: redundant vmap — base loss already evaluates definitions() internally.
@@ -284,6 +324,8 @@ def make_composite_loss(
         total = base_loss
         total = total + aux_decay * anchor_weight * anchor
         total = total + aux_decay * jac_weight * jac
+        if jac_anchor_weight > 0.0:
+            total = total + aux_decay * jac_anchor_weight * jac_anchor
         for k, v in barriers.items():
             total = total + barrier_weight * v
         for k, v in newtons.items():

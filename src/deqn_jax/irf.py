@@ -162,6 +162,54 @@ def run_irf(
     return results
 
 
+def run_girf(
+    policy_net,
+    model,
+    shock_name: str,
+    shock_size: float = 1.0,
+    horizon: int = 40,
+    warmup: int = 0,
+) -> Dict[str, List[float]]:
+    """Generalized IRF: response = shocked path − no-shock path, same start state.
+
+    Fixes the bug where ``run_irf`` compared the shocked trajectory against the
+    initial SS alone. When the SS in use is the **risky** SS, the no-shock
+    trajectory drifts away from SS on its own because risky_SS is defined by
+    ``E_d[F] = 0`` under the disaster mixture, not by
+    ``step(SS, 0, d=0) = SS``. The plain-IRF output conflates that drift with
+    the shock response. GIRF subtracts a matched no-shock counterfactual so
+    only the shock response survives.
+
+    Returns a dict with the same schema as ``run_irf`` but the recorded state,
+    policy, and definition series are *deviations* ``shocked − baseline``.
+    Per-period scalars (``period``) are unchanged; equation residuals are
+    recorded from the shocked path (they are exact residuals, no baseline
+    concept).
+
+    Args:
+        policy_net, model, shock_name, shock_size, horizon, warmup: as in ``run_irf``.
+
+    Returns:
+        Dict with ``period`` and per-variable deviation series of length
+        ``horizon + 1`` (t = 0..horizon).
+    """
+    shocked = run_irf(policy_net, model, shock_name, shock_size, horizon, warmup)
+    baseline = run_irf(policy_net, model, shock_name, 0.0, horizon, warmup)
+
+    out: Dict[str, List[float]] = {}
+    for key, series in shocked.items():
+        if key == "period":
+            out[key] = list(series)
+            continue
+        base = baseline.get(key)
+        if base is None or len(base) != len(series):
+            # Fall back to raw shocked value if baseline is missing.
+            out[key] = list(series)
+            continue
+        out[key] = [s - b for s, b in zip(series, base)]
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Loading checkpoint → policy network
 # ---------------------------------------------------------------------------
@@ -378,12 +426,17 @@ def run_irf_cli(args):
     outdir = args.output or "irf_results"
     os.makedirs(outdir, exist_ok=True)
 
+    use_girf = getattr(args, "girf", False)
+    runner = run_girf if use_girf else run_irf
+    label = "GIRF (shocked − no-shock baseline)" if use_girf else "IRF (shocked path, no baseline)"
+    print(f"\nMode: {label}")
+
     for shock_name in shocks:
         print(f"\n{'=' * 70}")
         print(f"Shock: {shock_name} ({args.shock_size}σ)")
         print(f"{'=' * 70}")
 
-        results = run_irf(
+        results = runner(
             policy_net, model,
             shock_name=shock_name,
             shock_size=args.shock_size,
@@ -391,11 +444,12 @@ def run_irf_cli(args):
         )
 
         # Save CSV
-        csv_path = os.path.join(outdir, f"irf_{shock_name}.csv")
+        suffix = "girf" if use_girf else "irf"
+        csv_path = os.path.join(outdir, f"{suffix}_{shock_name}.csv")
         save_irf_csv(results, csv_path)
         print(f"Saved: {csv_path}")
 
         # Print summary
         print_irf_summary(results, shock_name)
 
-    print(f"\nAll IRF results saved to {outdir}/")
+    print(f"\nAll {'GIRF' if use_girf else 'IRF'} results saved to {outdir}/")
