@@ -1,0 +1,59 @@
+# p=0.1 ZLB with both new loss features:
+#   - Huber aggregation (δ=0.01) on per-state mean residual
+#   - Sobolev-style Jacobian match at all 128 anchor points
+# Shorter (300 cycles × 20 minibatches = 6000 total updates) so it fits
+# on kermit's CPU in a reasonable time; plenty given our observation
+# that p=0.1 converges by cycle ~500 on GPU.
+model: disaster
+episodes: 300
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 25
+warm_start: true
+curriculum_episodes: 100
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+constants:
+  p_disaster: 0.1
+
+loss_choice: huber
+huber_delta: 0.01
+
+network:
+  type: linear_plus_mlp
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 50
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  jac_anchor_weight: 0.05
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_p10_zlb_huber_sob
+checkpoint_every: 50
+max_checkpoints: 6
+tensorboard_dir: runs/disaster_p10_zlb_huber_sob

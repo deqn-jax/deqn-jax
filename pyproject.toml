@@ -37,12 +37,13 @@ logging = [
     "orbax-checkpoint>=0.5.0",
 ]
 wandb = ["wandb>=0.15.0"]
+plotting = ["matplotlib>=3.7"]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.25",
 ]
-all = ["deqn-jax[logging,wandb,docs]"]
+all = ["deqn-jax[logging,wandb,docs,plotting]"]
 
 [project.scripts]
 deqn-jax = "deqn_jax.cli:main"
