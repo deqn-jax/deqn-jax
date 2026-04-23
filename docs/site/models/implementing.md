@@ -82,7 +82,19 @@ Every scalar the model uses. The framework passes this dict to every equation/dy
 
 ### `POLICY_LOWER`, `POLICY_UPPER`
 
-One-dimensional `jax.numpy.array`s of length `n_policies`. The MLP output layer applies a sigmoid, then rescales to `[POLICY_LOWER, POLICY_UPPER]`. Hard constraints, not soft penalties. For unbounded policies (e.g. consumption in levels, no upper bound), omit the `policy_upper` field in `ModelSpec` and the network will pass sigmoid output through untransformed — or use `(lower, large_number)` if a finite cap is acceptable.
+One-dimensional `jax.numpy.array`s of length `n_policies`. The MLP output activation is chosen **per dimension** based on the upper bound:
+
+- Finite `POLICY_UPPER[i]` → sigmoid, rescaled to `[lower, upper]`. Hard constraint.
+- `POLICY_UPPER[i] = jnp.inf` → softplus(x) + `lower`. Lower bound enforced, upper unbounded.
+
+So for `bm_labor` with savings rate in `(0, 1)` and labor supply in `(0, ∞)`:
+
+```python
+POLICY_LOWER = jnp.array([1e-6, 1e-6])
+POLICY_UPPER = jnp.array([1 - 1e-6, jnp.inf])   # sigmoid on sav_rate, softplus on L
+```
+
+These are hard constraints enforced at the network output, not soft penalties. Use the declarative `state_bounds` / `definition_bounds` for soft penalties on derived quantities (consumption positivity, etc.).
 
 ### `N_SHOCKS`
 
