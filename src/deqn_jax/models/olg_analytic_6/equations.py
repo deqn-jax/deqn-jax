@@ -74,9 +74,11 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # what goes into the penalty and is reported in diagnostics.
     u_c = jnp.power(jnp.maximum(c, 1e-3), -gamma)
 
+    # Per-agent capital (k^h) is NOT added to defs to avoid name collisions
+    # with state_names = ("k2", ..., "k6") in IRF recording. Read k^h from
+    # the state directly where needed; k^1 is always 0 (newborn).
     defs = {"K": K, "L": L, "r": r, "w": w, "Y": Y}
     for h in range(A):
-        defs[f"k{h+1}"] = k[..., h]
         defs[f"inc{h+1}"] = inc[..., h]
         defs[f"c{h+1}"] = c[..., h]
         defs[f"u_c{h+1}"] = u_c[..., h]
