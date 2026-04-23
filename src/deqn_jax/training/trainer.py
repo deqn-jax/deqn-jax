@@ -368,6 +368,7 @@ def create_train_state(
     n_equations: int = 1,
     optimizer_config=None,
     network_config=None,
+    sim_batch: Optional[int] = None,
 ) -> Tuple[TrainState, Any, OptimizerKind]:
     """Initialize training state and optimizer.
 
@@ -512,8 +513,11 @@ def create_train_state(
     else:
         opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
 
-    # Sample initial states
-    init_states = sample_initial_states(model, state_key, batch_size)
+    # Sample initial states. When sim_batch is set, the rollout carries
+    # sim_batch parallel trajectories; otherwise fall back to batch_size
+    # (so trajectory count == minibatch size).
+    n_sim = sim_batch if sim_batch is not None else batch_size
+    init_states = sample_initial_states(model, state_key, n_sim)
 
     # Loss weights
     if loss_weights is not None:
@@ -1884,6 +1888,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             n_equations=n_equations,
             optimizer_config=orig_config.optimizer,
             network_config=orig_config.network,
+            sim_batch=orig_config.sim_batch,
         )
 
         state = eqx.tree_deserialise_leaves(config.resume, template_state)
@@ -1924,6 +1929,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             n_equations=n_equations,
             optimizer_config=effective_opt_cfg,
             network_config=config.network,
+            sim_batch=config.sim_batch,
         )
 
         # Warm start from steady state (only for fresh training)

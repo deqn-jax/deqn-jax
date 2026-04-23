@@ -584,6 +584,17 @@ class TrainConfig(_ConfigBase):
     # already get temporally-coherent windows via build_history_windows.
     sorted_within_batch: bool = False
 
+    # Number of parallel simulation trajectories in the rollout. When
+    # None (default), falls back to ``batch_size`` -- i.e. trajectory
+    # count and gradient minibatch size are the same. Setting sim_batch
+    # > batch_size decouples them (matches DEQN-MAO's N_sim_batch vs
+    # N_minibatch_size distinction), so the rolled-out pool is
+    # (sim_batch × episode_length) states and each gradient update
+    # draws batch_size samples from that pool. Larger sim_batch gives
+    # a more representative ergodic distribution per cycle; batch_size
+    # controls per-step gradient variance.
+    sim_batch: Optional[int] = Field(default=None)
+
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_CHOICES: ClassVar[frozenset] = frozenset({"mse", "huber"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset({"none", "lr_annealing", "relobralo"})
@@ -615,6 +626,11 @@ class TrainConfig(_ConfigBase):
     @classmethod
     def _coerce_n_minibatches(cls, v):
         return _coerce_optional_int(v, "n_minibatches_per_epoch")
+
+    @field_validator("sim_batch", mode="before")
+    @classmethod
+    def _coerce_sim_batch(cls, v):
+        return _coerce_optional_int(v, "sim_batch")
 
     @field_validator(
         "reweight_alpha", "early_stop_min_delta", "curriculum_start",
