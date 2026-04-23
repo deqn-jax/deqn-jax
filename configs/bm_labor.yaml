@@ -1,0 +1,35 @@
+# Stochastic Brock-Mirman with endogenous labor — framework citizen.
+#
+# Two states (k, z), two policies (sav_rate, L), two equations
+# (Euler + intratemporal labor FOC). Softplus on L to enforce L > 0
+# (policy_upper has inf on that dimension).
+#
+# Training recipe follows the brock_mirman pattern: exogenous-rect
+# sampling (episode_length=1 + initialize_each_episode=true), 5-node
+# antithetic MC expectation, cosine-decayed Adam.
+
+model: bm_labor
+
+episodes: 20001
+batch_size: 128
+episode_length: 1
+mc_samples: 5
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+network:
+  type: mlp
+  hidden_sizes: [50, 50]
+  activation: relu
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 3.0e-4
+  lr_schedule: cosine
+  lr_min_factor: 0.1
+
+warm_start: false
+log_every: 1000
