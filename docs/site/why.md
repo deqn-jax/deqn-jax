@@ -52,4 +52,3 @@ The entire train step is a single `jax.jit` boundary. That is the core performan
 - [Running experiments](running_experiments.md) — CLI, configs, checkpoint/resume, TensorBoard, W&B, tuning.
 - `examples/brock_mirman.ipynb` — the template per-model notebook. Same economics as the reference TF notebook; production-framework code path.
 - `examples/bm_deterministic.ipynb` — the minimal case (one state, no shocks, closed-form policy) for sanity-checking the framework itself.
-- `CLAUDE.md` — repository architecture at a glance: module layout, key patterns, common gotchas.

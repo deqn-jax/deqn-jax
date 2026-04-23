@@ -1,6 +1,6 @@
 # Implementing a Model
 
-This document walks through porting a new economic model to DEQN-JAX, end to end. Stochastic Brock-Mirman (one Euler equation, two states, one shock) is the running example — it is small enough to read in one sitting but has every moving part a larger model has. All code below matches what lives in `src/deqn_jax/models/brock_mirman/` today.
+This document walks through porting a new economic model to DEQN-JAX, end to end. Stochastic Brock-Mirman (one Euler equation, two states, one shock) is the running example — it is small enough to read in one sitting but has every moving part a larger model has. All code below matches what lives in `src/deqn_jax/models/brock_mirman/`.
 
 Audience: someone who already knows what DEQN is and has a paper-or-notes description of the model they want to train. If you are new to DEQN itself, read the reference pedagogical notebooks (Geneva Day 2) first.
 

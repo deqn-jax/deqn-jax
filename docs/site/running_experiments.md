@@ -47,8 +47,6 @@ uv run deqn-jax check                # installation sanity check
 uv run deqn-jax init-config          # generate a default YAML
 ```
 
-Always use `uv run`; never activate the venv by hand. `uv run` makes the invocation reproducible from a clean shell, which is what the CI and the DGX jobs also do.
-
 ### Override precedence
 
 ```
@@ -300,5 +298,4 @@ See the dedicated section above.
 - [Overview](why.md) — positioning / when to use the framework at all.
 - [Implementing a model](models/implementing.md) — how to add a new model.
 - [Composite loss](training/composite_loss.md) — the composite-loss system in detail.
-- `CLAUDE.md` — framework architecture at a glance.
 - `src/deqn_jax/config.py` — canonical source for every config field's type, default, and validation. (Until the config reference doc lands, this is the ground truth.)
