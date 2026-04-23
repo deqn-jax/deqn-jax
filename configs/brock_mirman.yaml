@@ -1,18 +1,45 @@
-# Brock-Mirman RBC model configuration
+# Stochastic Brock-Mirman (1972) — framework citizen.
+#
+# Training recipe targets the reference TF/Keras implementation
+# (Geneva 2026 Day 2 notebook on Brock-Mirman with uncertainty):
+#   - alpha=0.36, beta=0.99, delta=0.1, gamma=1.0 (log utility)
+#   - TFP AR(1) in log: z' = rho_z * z + sigma_z * eps,
+#     rho_z=0.9, sigma_z=0.04
+#   - Exogenous rect sampling: k ~ U[0.9, 12.0], z ~ U[ln 0.7, ln 1.3]
+#   - 5-node Gauss-Hermite expectation over eps (mc_samples=5 with
+#     antithetic variates gives comparable variance)
+#   - Episode length 1 + initialize_each_episode=True reproduces the
+#     reference's "fresh uniform draw each gradient step" phase.
+#
+# Network: 50-50 ReLU MLP, Xavier init (matches reference Keras default
+# for Dense layers).
+
 model: brock_mirman
-episodes: 2000
-batch_size: 64
-episode_length: 100
+
+episodes: 20001
+batch_size: 128
+episode_length: 1
 mc_samples: 5
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
 
 network:
   type: mlp
-  hidden_sizes: [64, 64]
-  activation: tanh
+  hidden_sizes: [50, 50]
+  activation: relu
+  init: xavier_uniform
 
 optimizer:
   name: adam
-  learning_rate: 1.0e-3
+  learning_rate: 3.0e-4
+  # Reference does a manual 3e-4 -> 1e-4 step drop between the
+  # exogenous-sampling and simulated-rollout phases. Our single-phase
+  # equivalent is a cosine decay over the full run: converges fast
+  # early, settles late.
+  lr_schedule: cosine
+  lr_min_factor: 0.1
 
-warm_start: true
-log_every: 200
+warm_start: false
+log_every: 1000

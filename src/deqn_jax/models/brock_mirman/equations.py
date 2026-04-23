@@ -1,4 +1,24 @@
-"""Equilibrium equations for Brock-Mirman model."""
+"""Equilibrium equations for the stochastic Brock-Mirman model.
+
+Residual form: LHS-normalized dimensionless Euler error,
+
+    resid = 1 - beta * u'(c') * (1 + mpk' - delta) / u'(c)
+
+which equals ``(raw_residual) / u'(c)``. This is MC-compatible:
+``E_eps[resid]`` is linear in the shock-dependent quantity
+``u'(c'(eps)) * (1 + mpk'(eps) - delta)`` and so the framework's
+"average residuals over shocks, then square" aggregation gives the
+correct stochastic Euler loss. The alternative ``1 - (c'/c)^gamma /
+(beta (1 + r' - delta))`` form is also dimensionless but introduces
+the shock-dependent ``(1 + r' - delta)`` *in a denominator*, which
+breaks under MC averaging via Jensen's inequality. That form is fine
+for purely deterministic models but not here.
+
+For gamma=1 (log utility) this reduces to
+``1 - beta * (c / c') * (1 + mpk' - delta)``, matching the reference
+notebook's ``errREE`` after algebraically inverting its inner
+expectation.
+"""
 
 from typing import Dict
 
@@ -18,20 +38,13 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     alpha = constants["alpha"]
     gamma = constants["gamma"]
 
-    # TFP level
     Z = jnp.exp(s.z)
-
-    # Production: y = Z * k^alpha
     y = Z * jnp.power(s.k, alpha)
-
-    # Marginal product of capital
     mpk = alpha * Z * jnp.power(s.k, alpha - 1)
 
-    # Consumption and savings
     c = (1 - p.sav_rate) * y
     sav = p.sav_rate * y
 
-    # Marginal utility (CRRA)
     u_c = jnp.power(c, -gamma)
 
     return {"Z": Z, "y": y, "mpk": mpk, "c": c, "s": sav, "u_c": u_c}
@@ -44,18 +57,16 @@ def equations(
     next_policy: Array,
     constants: Dict,
 ) -> Dict[str, Array]:
-    """Compute equilibrium equation residuals.
-
-    Euler equation:
-        u'(c) = beta * E[u'(c') * (1 + mpk' - delta)]
-    """
     beta = constants["beta"]
     delta = constants["delta"]
 
     defs = definitions(state, policy, constants)
     next_defs = definitions(next_state, next_policy, constants)
 
-    # Euler equation residual
-    euler = defs["u_c"] - beta * next_defs["u_c"] * (1 + next_defs["mpk"] - delta)
+    u_c = defs["u_c"]
+    u_c_next = next_defs["u_c"]
+    mpk_next = next_defs["mpk"]
+
+    euler = 1.0 - beta * u_c_next * (1.0 + mpk_next - delta) / u_c
 
     return {"euler": euler}

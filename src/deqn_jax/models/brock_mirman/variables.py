@@ -10,12 +10,12 @@ SPEC = VariableSpec(
 )
 
 CONSTANTS = {
-    "alpha": 1 / 3,      # Capital share
-    "beta": 0.95,        # Discount factor
-    "gamma": 2.0,        # Risk aversion (CRRA)
+    "alpha": 0.36,       # Capital share
+    "beta": 0.99,        # Discount factor
+    "gamma": 1.0,        # Risk aversion (CRRA; gamma=1 is log utility)
     "delta": 0.1,        # Depreciation rate
-    "rho_z": 0.8,        # TFP persistence
-    "sigma_z": 0.03,     # TFP shock std
+    "rho_z": 0.9,        # TFP persistence (AR(1) on log TFP)
+    "sigma_z": 0.04,     # TFP shock std
 }
 
 POLICY_LOWER = jnp.array([1e-6])
