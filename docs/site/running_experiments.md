@@ -1,13 +1,13 @@
 # Running Experiments
 
-Once a model is implemented and training works on a basic config (see `docs/implementing_a_model.md`), this doc covers everything *after*: launching runs, persisting checkpoints, resuming, logging to TensorBoard/W&B, comparing runs, and tuning. Anchor-linked so you can jump to the specific operation.
+Once a model is implemented and training works on a basic config (see [Implementing a model](models/implementing.md)), this doc covers everything *after*: launching runs, persisting checkpoints, resuming, logging to TensorBoard/W&B, comparing runs, and tuning. Anchor-linked so you can jump to the specific operation.
 
 - [CLI quickstart](#cli-quickstart)
 - [YAML config patterns](#yaml-config-patterns)
 - [Warm start](#warm-start)
 - [Checkpointing and resuming](#checkpointing-and-resuming)
 - [TensorBoard](#tensorboard)
-- [Weights & Biases](#weights--biases)
+- [Weights & Biases](#weights-biases)
 - [Comparing runs](#comparing-runs)
 - [Tuning](#tuning) (outline — fleshed out once enough models are ported to state empirical tradeoffs)
 
@@ -297,8 +297,8 @@ See the dedicated section above.
 
 ## Cross-references
 
-- `docs/why.md` — positioning / when to use the framework at all.
-- `docs/implementing_a_model.md` — how to add a new model.
-- `docs/composite_loss.md` — the composite-loss system in detail.
+- [Overview](why.md) — positioning / when to use the framework at all.
+- [Implementing a model](models/implementing.md) — how to add a new model.
+- [Composite loss](training/composite_loss.md) — the composite-loss system in detail.
 - `CLAUDE.md` — framework architecture at a glance.
 - `src/deqn_jax/config.py` — canonical source for every config field's type, default, and validation. (Until the config reference doc lands, this is the ground truth.)

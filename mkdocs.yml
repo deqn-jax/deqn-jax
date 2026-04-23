@@ -67,17 +67,20 @@ plugins:
 
 nav:
   - Home: index.md
+  - Overview: why.md
   - Getting started:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
+  - Guides:
+      - Implementing a model: models/implementing.md
+      - Running experiments: running_experiments.md
   - Examples:
       - CLI: examples/cli.md
       - Python API: examples/api.md
   - Models:
       - Brock-Mirman: models/brock_mirman.md
       - Disaster (NK-DSGE): models/disaster.md
-      - Adding a model: models/adding.md
   - Networks:
       - MLP / LSTM / Transformer: networks/sequence.md
       - LinearPlusMLP: networks/linear_plus_mlp.md
@@ -88,7 +91,6 @@ nav:
   - Training:
       - Composite loss: training/composite_loss.md
       - Curriculum & warm start: training/curriculum.md
-      - Checkpointing & resume: training/checkpointing.md
   - API reference:
       - Config: api/config.md
       - Types: api/types.md

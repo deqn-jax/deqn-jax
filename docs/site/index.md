@@ -35,7 +35,9 @@ paper-specific.
 
 - New here? → [Installation](getting-started/installation.md), then
   [Quickstart](getting-started/quickstart.md).
-- Want to add a model? → [Adding a model](models/adding.md).
+- Want to add a model? → [Implementing a model](models/implementing.md).
+- Training in production? → [Running experiments](running_experiments.md).
+- Why this framework exists at all? → [Overview](why.md).
 - Reading the source? → [docs/dev/reading_guide.md](https://github.com/mechanicpanic/deqn-jax/blob/master/docs/dev/reading_guide.md)
   is a code-level narrative for contributors.
 

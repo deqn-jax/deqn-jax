@@ -358,7 +358,7 @@ Key decisions:
 - **`mc_samples`**: number of shock draws for the expectation. 5 is a reasonable starting point; more gives lower-variance loss at linear cost. For deterministic models, set to 1.
 - **`warm_start: true`** runs an L-BFGS pre-fit of the network to the steady-state policy before gradient-based training. Speeds up early convergence but can mask bugs in the Euler equation (the network starts near a good answer regardless of whether the loss is correct).
 
-See `docs/running_experiments.md` (when it exists) for the full field-by-field reference.
+See [Running experiments](../running_experiments.md) for the full CLI/config/checkpoint/logging reference.
 
 ---
 

@@ -21,4 +21,4 @@ Or via YAML: see [`configs/brock_mirman.yaml`](https://github.com/mechanicpanic/
 | `models/brock_mirman/dynamics.py`                  | State transition `step()`                     |
 | `models/brock_mirman/steady_state.py`              | Analytical SS solver                          |
 
-Use this as the template for new models — see [Adding a model](adding.md).
+Use this as the template for new models — see [Implementing a model](implementing.md).
