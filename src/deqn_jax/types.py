@@ -93,6 +93,20 @@ class ModelSpec(NamedTuple):
     # shared ``deqn_jax.plots`` module and the hook composes them.
     cycle_hook: Optional[Callable[..., None]] = None
 
+    # Optional declarative bound specs. Format (matches DEQN-MAO upstream):
+    #     {"name": {"lower": float, "upper": float,
+    #               "penalty_lower": float, "penalty_upper": float}}
+    # When set, the loss picks up a soft-penalty term
+    #     penalty_lower * mean(max(0, lower - value) ** 2)
+    # for each bounded variable (analogous for upper). Missing penalty
+    # coefficients default to 1/bound**2 (upstream convention). Use
+    # state_bounds for states and definition_bounds for derived quantities
+    # computed via ``definitions_fn``. Hard-clipped policies are enforced
+    # via ``policy_lower``/``policy_upper`` with the activation layer,
+    # separately from this soft mechanism.
+    state_bounds: Optional[Dict[str, Dict[str, float]]] = None
+    definition_bounds: Optional[Dict[str, Dict[str, float]]] = None
+
 
 class ReweightState(NamedTuple):
     """Running statistics for adaptive loss reweighting.

@@ -337,7 +337,69 @@ def compute_loss(
         total_loss = total_loss + barrier_weight * barrier
         eq_losses["aux_state_barrier"] = barrier
 
+    # Declarative bound penalties (states and/or definitions). Matches the
+    # DEQN-MAO ``penalty_bounds_policy`` soft-penalty pattern but driven
+    # by per-variable specs on the model rather than hand-written code.
+    if model.state_bounds or model.definition_bounds:
+        current_states = states[:, -1, :] if states.ndim == 3 else states
+        # Only evaluate policy/definitions if definition bounds are active,
+        # to avoid a needless forward pass when only state bounds are set.
+        policy_out = None
+        defs_dict = None
+        if model.definition_bounds and model.definitions_fn is not None:
+            policy_out = policy_fn(states)
+            defs_dict = model.definitions_fn(current_states, policy_out, model.constants)
+
+        if model.state_bounds:
+            state_vals = {
+                name: current_states[:, i]
+                for i, name in enumerate(model.state_names or ())
+            }
+            p_state = _compute_bound_penalty(state_vals, model.state_bounds)
+            total_loss = total_loss + p_state
+            eq_losses["aux_state_bounds"] = p_state
+
+        if model.definition_bounds and defs_dict is not None:
+            p_def = _compute_bound_penalty(defs_dict, model.definition_bounds)
+            total_loss = total_loss + p_def
+            eq_losses["aux_definition_bounds"] = p_def
+
     return total_loss, eq_losses
+
+
+def _compute_bound_penalty(
+    values: Dict[str, Array],
+    bounds_spec: Dict[str, Dict[str, float]],
+) -> Array:
+    """Sum of soft-bound penalties across named variables.
+
+    For each variable with a ``lower`` bound, adds
+    ``penalty_lower * mean(relu(lower - value) ** 2)`` to the total.
+    Analogous for ``upper``. Missing ``penalty_*`` defaults to
+    ``1/bound**2`` (matching DEQN-MAO's policy_bounds_hard convention).
+
+    Values whose names don't appear in ``bounds_spec`` are skipped.
+    Values whose arrays are not scalar-per-batch are handled via
+    ``jnp.mean`` over all axes.
+    """
+    penalty = jnp.array(0.0, dtype=jnp.float32)
+    for name, spec in bounds_spec.items():
+        if name not in values:
+            continue
+        v = values[name]
+        # Promote to array in case a definition returned a python scalar.
+        v = jnp.asarray(v)
+        if "lower" in spec:
+            lo = float(spec["lower"])
+            p_lo = float(spec.get("penalty_lower", 1.0 / (lo * lo + 1e-30)))
+            violation = jnp.maximum(0.0, lo - v)
+            penalty = penalty + p_lo * jnp.mean(violation ** 2)
+        if "upper" in spec:
+            hi = float(spec["upper"])
+            p_hi = float(spec.get("penalty_upper", 1.0 / (hi * hi + 1e-30)))
+            violation = jnp.maximum(0.0, v - hi)
+            penalty = penalty + p_hi * jnp.mean(violation ** 2)
+    return penalty
 
 
 # ---------------------------------------------------------------------------
