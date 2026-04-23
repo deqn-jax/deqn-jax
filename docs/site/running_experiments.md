@@ -167,11 +167,21 @@ uv run deqn-jax train \
 
 Reuses the exact config (hence the re-pointing of `--config` to the saved one) and continues from the checkpointed episode. Combine with `-n`/`--episodes` to set a new termination horizon.
 
-### Resume gotchas
+### What resume preserves, and what it doesn't
 
-- **Config must match.** Training state (optimizer moments, reweighting stats) is pytree-shaped by config; loading a checkpoint into a different config will error out or silently produce garbage. Always resume against the saved `config.yaml`.
-- **PRNG continuity.** Seeds are not restored verbatim; the resumed run re-seeds from the checkpoint's step count, so it diverges from a single-run trajectory even with the same seed. Reproducibility across resume boundaries is not a framework guarantee.
-- **Precision.** fp32 checkpoints can't be loaded into fp64 training and vice versa. Match the flag.
+Full `TrainState` deserialises from the `.eqx` file: params, optimizer state, episode-state batch, **PRNG key**, step/episode counters, loss weights, reweighting running stats, target params, aux params. Resume is deterministic across the boundary — running N episodes straight through is equivalent to running K + (N-K) with a checkpoint at K, modulo JAX-wide non-determinism (device, precision).
+
+Things that must match the original run (pytree-shape-governed):
+- **Network architecture** — `hidden_sizes`, `activation`, `type`. Changing these changes the params pytree shape and deserialisation will error.
+- **Number of equations** — `loss_weights` and `reweight_state` are shaped by `n_equations`.
+- **`sim_batch`** — shapes the saved `episode_state`.
+- **Precision** — fp32 checkpoints can't be loaded into fp64 training and vice versa.
+
+On resume the framework auto-loads the checkpoint directory's sibling `config.yaml` to rebuild the correct template. Always keep the saved `config.yaml` next to the `.eqx` file.
+
+Things that can change freely on resume:
+- **Learning rate, LR schedule, episodes, log frequency, checkpoint frequency** — none of these affect the checkpointed tree shape.
+- **Optimizer** — swapping explicitly supported. The new optimizer's state is re-initialised from the resumed params; old moments are discarded. Use `--switch-optimizer` / `--switch-episode` for mid-training handoffs (e.g. Adam → L-BFGS near convergence).
 
 ### Evaluate or IRF from a checkpoint
 
