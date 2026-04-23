@@ -9,7 +9,7 @@ Instead of fragile index slicing like `state[:, 0]`, use:
 JAX traces through NamedTuples efficiently.
 """
 
-from typing import Dict, NamedTuple, Tuple, Type
+from typing import Any, Dict, NamedTuple, Tuple, Type
 import jax.numpy as jnp
 from jax import Array
 
@@ -117,3 +117,91 @@ class VariableSpec:
     def get_policy_idx(self, name: str) -> int:
         """Get index for policy variable by name."""
         return self.policy_idx[name]
+
+
+# ---------------------------------------------------------------------------
+# Declarative per-variable initial-state distributions
+# ---------------------------------------------------------------------------
+#
+# Matches DEQN-MAO's Variables.py convention where each state can carry
+# an ``init: {distribution: ..., kwargs: ...}`` spec and the framework
+# assembles an initial-state sampler from them. Using this is optional
+# --- a model can still supply a monolithic ``init_state_fn`` directly.
+#
+# Example:
+#
+#     INIT_SPECS = {
+#         "k": {"distribution": "uniform", "kwargs": {"minval": 0.1, "maxval": 1.0}},
+#         "z": {"distribution": "normal",  "kwargs": {"mean": 0.0, "std": 0.04}},
+#     }
+#     init_state = make_init_state_fn(SPEC.state_names, INIT_SPECS)
+
+import jax
+
+_DISTRIBUTION_SAMPLERS: Dict[str, callable] = {
+    # sampler(key, shape, **kwargs) -> Array
+    "uniform":  lambda key, shape, minval=0.0, maxval=1.0:
+        jax.random.uniform(key, shape, minval=minval, maxval=maxval),
+    "normal":   lambda key, shape, mean=0.0, std=1.0, stddev=None:
+        mean + (std if stddev is None else stddev) * jax.random.normal(key, shape),
+    "lognormal": lambda key, shape, mean=0.0, std=1.0:
+        jnp.exp(mean + std * jax.random.normal(key, shape)),
+    "truncated_normal":
+        lambda key, shape, lower=-2.0, upper=2.0, mean=0.0, std=1.0:
+        mean + std * jax.random.truncated_normal(key, lower, upper, shape),
+    "constant": lambda key, shape, value=0.0:
+        jnp.full(shape, float(value)),
+}
+
+
+def make_init_state_fn(
+    state_names: Tuple[str, ...],
+    init_specs: Dict[str, Dict[str, Any]],
+) -> callable:
+    """Build an init_state_fn from per-variable distributional specs.
+
+    Args:
+        state_names: Ordered tuple of state variable names.
+        init_specs: Dict mapping state name to a spec
+            ``{"distribution": <name>, "kwargs": {...}}``. State names
+            without an entry default to ``constant: 0``.
+
+    Returns:
+        A function with signature ``(key, batch_size, constants) -> Array``
+        producing a ``[batch_size, len(state_names)]`` initial state.
+        Constants are not consumed by default (distributions fix their
+        kwargs at spec time) but the signature matches ModelSpec's
+        ``init_state_fn`` contract so the framework can swap it in.
+
+    Unknown distribution names raise ValueError at build time.
+    """
+    from typing import Any as _Any  # local alias so type hints above type-check
+
+    # Validate early so model-construction errors are obvious.
+    for name, spec in init_specs.items():
+        if name not in state_names:
+            raise ValueError(
+                f"init_specs contains unknown state '{name}'. "
+                f"Known states: {state_names}"
+            )
+        dist = spec.get("distribution")
+        if dist not in _DISTRIBUTION_SAMPLERS:
+            raise ValueError(
+                f"Unknown distribution '{dist}' for state '{name}'. "
+                f"Available: {sorted(_DISTRIBUTION_SAMPLERS)}"
+            )
+
+    def init_state_fn(key, batch_size: int, constants: Dict[str, float]):
+        keys = jax.random.split(key, len(state_names))
+        columns = []
+        for i, name in enumerate(state_names):
+            if name in init_specs:
+                spec = init_specs[name]
+                sampler = _DISTRIBUTION_SAMPLERS[spec["distribution"]]
+                kwargs = dict(spec.get("kwargs", {}))
+                columns.append(sampler(keys[i], (batch_size,), **kwargs))
+            else:
+                columns.append(jnp.zeros((batch_size,)))
+        return jnp.stack(columns, axis=1)
+
+    return init_state_fn

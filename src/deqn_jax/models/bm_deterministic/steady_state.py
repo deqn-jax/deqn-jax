@@ -10,15 +10,21 @@ With delta = 1 this simplifies to K_ss = (alpha * beta) ** (1/(1-alpha)).
 variables.py). Combined with ``initialize_each_episode=True`` in the
 trainer config, this gives fresh uniform coverage of the domain every
 gradient cycle, matching the reference TF/Keras training recipe.
+
+The sampler is built declaratively from ``INIT_SPECS`` via
+``make_init_state_fn``, matching the DEQN-MAO per-variable init style.
+Writing a monolithic ``init_state_fn`` by hand remains supported if
+the model needs sampling logic more complex than a single distribution
+per variable.
 """
 
 from typing import Dict, Tuple
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 
 from deqn_jax.models.bm_deterministic.variables import K_LB, K_UB
+from deqn_jax.models.variable_spec import make_init_state_fn
 
 
 def steady_state(constants: Dict) -> Tuple[Array, Array]:
@@ -34,6 +40,8 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
     return jnp.array([k_ss]), jnp.array([sav_rate_ss])
 
 
-def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
-    k_init = jax.random.uniform(key, (batch_size,), minval=K_LB, maxval=K_UB)
-    return jnp.stack([k_init], axis=1)
+INIT_SPECS = {
+    "k": {"distribution": "uniform", "kwargs": {"minval": K_LB, "maxval": K_UB}},
+}
+
+init_state = make_init_state_fn(("k",), INIT_SPECS)
