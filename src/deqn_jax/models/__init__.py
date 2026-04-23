@@ -10,12 +10,14 @@ from deqn_jax.types import ModelSpec
 from deqn_jax.models.bm_deterministic import MODEL as _bm_deterministic
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
 from deqn_jax.models.bm_labor import MODEL as _bm_labor
+from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
 from deqn_jax.models.disaster import MODEL as _disaster
 
 _MODELS = {
     "bm_deterministic": _bm_deterministic,
     "brock_mirman": _brock_mirman,
     "bm_labor": _bm_labor,
+    "olg_analytic_6": _olg_analytic_6,
     "disaster": _disaster,
 }
 
@@ -23,6 +25,7 @@ _DESCRIPTIONS = {
     "bm_deterministic": "Deterministic Brock-Mirman (s* = alpha*beta closed form)",
     "brock_mirman": "Brock-Mirman (1972) optimal growth model",
     "bm_labor": "Brock-Mirman (1972) with endogenous labor supply",
+    "olg_analytic_6": "6-agent OLG with closed-form solution (Krueger-Kubler 2004)",
     "disaster": "NK-DSGE with financial frictions",
 }
 

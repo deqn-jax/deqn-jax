@@ -1,0 +1,34 @@
+# 6-agent OLG with analytic closed-form solution.
+#
+# 7-state (k2..k6, eta, delta), 5-policy (savings), 5 Euler equations.
+# 2D Gauss-Hermite with 2 points per axis = exactly 4 quadrature nodes
+# reproducing Simon's 4-state i.i.d. shock expectation.
+
+model: olg_analytic_6
+
+episodes: 20001
+batch_size: 128
+episode_length: 1
+mc_samples: 1                # ignored when quadrature is active
+expectation_type: gauss_hermite
+n_quadrature_points: 2       # 2 per dim -> 4 total nodes
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+network:
+  type: mlp
+  hidden_sizes: [100, 50]
+  activation: relu
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-4
+  lr_schedule: constant
+
+warm_start: true   # L-BFGS pre-fit to SS policy -- needed because softplus
+                   # cold-start gives savings ~ 0.7 which exceed agent 1's wage
+                   # income (~0.6), producing negative consumption and infinite u_c.
+log_every: 1000
