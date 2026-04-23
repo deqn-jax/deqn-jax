@@ -12,12 +12,6 @@ state  →  Network  →  policy  →  Equilibrium equations  →  Loss = Σ res
 
 ![DEQN solver training loop](figures/deqn_solver_loop.svg)
 
-## Status
-
-Alpha (`v0.1.0`). API may change. Core plumbing is solid; 241 tests pass.
-The package is intended to support multiple research papers — it is not
-paper-specific.
-
 ## What's here
 
 - **Models**: Brock-Mirman (canonical smoke test), CMR-style NK-DSGE with
