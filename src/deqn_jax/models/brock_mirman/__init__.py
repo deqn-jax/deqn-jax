@@ -24,6 +24,7 @@ MODEL = ModelSpec(
     state_names=SPEC.state_names,
     policy_names=SPEC.policy_names,
     equation_names=EQUATION_NAMES,
+    shock_names=("eps_z",),
     constants=CONSTANTS,
     equations_fn=equations,
     step_fn=step,
