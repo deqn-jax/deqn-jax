@@ -178,15 +178,25 @@ class OptimizerConfig(_ConfigBase):
     lr_warmup: int = Field(default=0)
     lr_min_factor: float = Field(default=0.0)
 
+    # ReduceLROnPlateau knobs (used when lr_schedule == "reduce_on_plateau").
+    # Matches DEQN-MAO's keras-style scheduler with the same names.
+    lr_reduce_factor: float = Field(default=0.5)       # multiply LR by this on plateau
+    lr_reduce_patience: int = Field(default=500)       # episodes without improvement before decay
+    lr_reduce_cooldown: int = Field(default=100)       # episodes to wait after a decay
+    lr_reduce_min_delta: float = Field(default=1e-6)   # treat as improvement only if loss drops by >= this
+    # Lower bound on LR as a fraction of initial. Reusing lr_min_factor
+    # (already present for cosine) keeps config surface small.
+
     VALID_NAMES: ClassVar[frozenset] = frozenset({
         "adam", "sgd", "adamw", "lion", "muon",
         "ngd", "shampoo", "lbfgs", "mao", "mao_kfac", "gn", "lm",
     })
-    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset({"constant", "cosine"})
+    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset({"constant", "cosine", "reduce_on_plateau"})
 
     @field_validator(
         "learning_rate", "weight_decay", "beta1", "beta2", "epsilon",
         "damping", "decay", "lr_min_factor",
+        "lr_reduce_factor", "lr_reduce_min_delta",
         mode="before",
     )
     @classmethod
@@ -201,6 +211,7 @@ class OptimizerConfig(_ConfigBase):
     @field_validator(
         "block_size", "precond_update_freq", "memory_size", "ns_steps",
         "lr_warmup",
+        "lr_reduce_patience", "lr_reduce_cooldown",
         mode="before",
     )
     @classmethod

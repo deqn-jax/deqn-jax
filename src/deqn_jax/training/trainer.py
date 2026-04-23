@@ -2254,9 +2254,16 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             if config.verbose:
                 print(f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}")
 
-        # Compute LR scale for this episode (Python-side, passed as dynamic arg)
+        # Compute LR scale for this episode (Python-side, passed as dynamic arg).
+        # Stateful schedules (ReduceLROnPlateau) consume the most recent loss;
+        # stateless schedules (cosine) accept but ignore it.
         if lr_schedule_fn is not None:
-            current_lr = float(lr_schedule_fn(ep_num)) * nan_lr_scale
+            last_loss = history["loss"][-1] if history["loss"] else None
+            try:
+                current_lr = float(lr_schedule_fn(ep_num, last_loss)) * nan_lr_scale
+            except TypeError:
+                # optax schedules accept a single positional arg; fall back.
+                current_lr = float(lr_schedule_fn(ep_num)) * nan_lr_scale
             lr_scale = jnp.array(current_lr)
         else:
             current_lr = config.optimizer.learning_rate * nan_lr_scale

@@ -37,10 +37,66 @@ def register_optimizer(
     return decorator
 
 
-def _build_lr_schedule(config, total_steps: int):
-    """Build optax LR schedule from config fields.
+class ReduceLROnPlateau:
+    """Keras-style loss-reactive LR decay.
 
-    Returns either a float (constant) or an optax Schedule callable.
+    Mirrors DEQN-MAO's ``lr_scheduler: ReduceLROnPlateau`` with the same
+    knob names (factor, patience, cooldown, min_delta, min_lr). Unlike
+    the other schedules here, this one is stateful and must be called
+    with the current loss at every cycle, not just the step index.
+
+    Call signature: ``self(ep_num, loss=None) -> lr``. ``loss=None`` is
+    treated as "no update this cycle" -- the scheduler returns the
+    current LR without advancing state. Used so the schedule callable
+    can be probed early in training (e.g. for logging) before a first
+    loss is available.
+    """
+
+    def __init__(self, initial_lr, factor, patience, cooldown, min_delta, min_lr):
+        self.initial_lr = float(initial_lr)
+        self.factor = float(factor)
+        self.patience = int(patience)
+        self.cooldown = int(cooldown)
+        self.min_delta = float(min_delta)
+        self.min_lr = float(min_lr)
+
+        self._lr = self.initial_lr
+        self._best = float("inf")
+        self._wait = 0
+        self._cooldown_counter = 0
+
+    def __call__(self, _ep_num=None, loss=None):
+        if loss is None:
+            return self._lr
+
+        # In cooldown: don't change LR, just tick down.
+        if self._cooldown_counter > 0:
+            self._cooldown_counter -= 1
+            self._best = min(self._best, loss)
+            self._wait = 0
+            return self._lr
+
+        # Track improvement.
+        if loss < self._best - self.min_delta:
+            self._best = loss
+            self._wait = 0
+        else:
+            self._wait += 1
+            if self._wait >= self.patience:
+                new_lr = max(self._lr * self.factor, self.min_lr)
+                self._lr = new_lr
+                self._cooldown_counter = self.cooldown
+                self._wait = 0
+        return self._lr
+
+
+def _build_lr_schedule(config, total_steps: int):
+    """Build an LR schedule callable from config fields.
+
+    Returns either a float (constant), a stateless optax schedule
+    (cosine) keyed on step index, or a stateful ``ReduceLROnPlateau``
+    instance. All three are invoked via ``fn(ep_num, loss)`` in the
+    training loop; the stateless ones ignore ``loss``.
     """
     lr = float(config.learning_rate)
     schedule = getattr(config, "lr_schedule", "constant")
@@ -67,7 +123,20 @@ def _build_lr_schedule(config, total_steps: int):
                 alpha=min_factor,
             )
 
-    raise ValueError(f"Unknown lr_schedule '{schedule}'. Available: constant, cosine")
+    if schedule == "reduce_on_plateau":
+        return ReduceLROnPlateau(
+            initial_lr=lr,
+            factor=float(getattr(config, "lr_reduce_factor", 0.5)),
+            patience=int(getattr(config, "lr_reduce_patience", 500)),
+            cooldown=int(getattr(config, "lr_reduce_cooldown", 100)),
+            min_delta=float(getattr(config, "lr_reduce_min_delta", 1e-6)),
+            min_lr=lr * min_factor,
+        )
+
+    raise ValueError(
+        f"Unknown lr_schedule '{schedule}'. "
+        "Available: constant, cosine, reduce_on_plateau"
+    )
 
 
 def create_optimizer(
