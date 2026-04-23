@@ -82,6 +82,17 @@ class ModelSpec(NamedTuple):
     # Optional: shock names for diagnostics/logging
     shock_names: Optional[Tuple[str, ...]] = None
 
+    # Optional: called every ``log_every`` episodes during training, after
+    # scalar/histogram logging. Side-effect only (writes plots, logs to TB,
+    # etc.). Signature:
+    #     cycle_hook(state: TrainState, model: ModelSpec, episode: int) -> None
+    # The hook should close over any configuration it needs (output dir,
+    # logger, etc.) at model-construction time. See DEQN-MAO's
+    # model-level ``Hooks.py`` for the reference pattern; our version
+    # differs only in that the plotting primitives themselves live in the
+    # shared ``deqn_jax.plots`` module and the hook composes them.
+    cycle_hook: Optional[Callable[..., None]] = None
+
 
 class ReweightState(NamedTuple):
     """Running statistics for adaptive loss reweighting.

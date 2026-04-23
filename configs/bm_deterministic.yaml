@@ -1,0 +1,48 @@
+# Deterministic Brock-Mirman — framework citizen.
+#
+# Training recipe that matches the reference TF/Keras implementation:
+#   - initialize_each_episode: redraw the training batch from
+#     init_state_fn every cycle (no rollout concentration).
+#   - episode_length: 1 step per rollout. Coupled with the flag above
+#     this gives "sample K uniformly on [0.10, 1.00], one gradient step,
+#     repeat" -- exactly the reference recipe.
+#   - mc_samples: 1 (N_SHOCKS=0; MC machinery short-circuits to a
+#     zero-width shock).
+#   - warm_start: False (no steady-state anchor needed for a 1-state
+#     model; init is cheap).
+#
+# Network matches the reference: 50-50 ReLU MLP with glorot_uniform
+# weight init (= xavier_uniform here) and sigmoid output bounding on
+# sav_rate in (0, 1).
+
+model: bm_deterministic
+
+episodes: 20001
+batch_size: 64
+episode_length: 1
+mc_samples: 1
+
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+initialize_each_episode: true
+
+network:
+  type: mlp
+  hidden_sizes: [50, 50]
+  activation: relu
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  # Cosine decay to 1% of the initial LR by episode end. Constant Adam
+  # at 1e-3 converges fast but then bounces around the minimum, producing
+  # a visibly non-flat policy on this trivially-simple problem. Cosine
+  # decay lets Adam settle. (DEQN-MAO upstream uses ReduceLROnPlateau
+  # for the same reason; we use cosine since it's what the framework
+  # currently supports.)
+  lr_schedule: cosine
+  lr_min_factor: 0.01
+
+warm_start: false
+log_every: 1000

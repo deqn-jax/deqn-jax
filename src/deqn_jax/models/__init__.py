@@ -7,15 +7,18 @@ To add a new model: create the subpackage, then add one line here.
 from typing import List, Tuple
 
 from deqn_jax.types import ModelSpec
+from deqn_jax.models.bm_deterministic import MODEL as _bm_deterministic
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
 from deqn_jax.models.disaster import MODEL as _disaster
 
 _MODELS = {
+    "bm_deterministic": _bm_deterministic,
     "brock_mirman": _brock_mirman,
     "disaster": _disaster,
 }
 
 _DESCRIPTIONS = {
+    "bm_deterministic": "Deterministic Brock-Mirman (s* = alpha*beta closed form)",
     "brock_mirman": "Brock-Mirman (1972) optimal growth model",
     "disaster": "NK-DSGE with financial frictions",
 }

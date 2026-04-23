@@ -515,6 +515,15 @@ class TrainConfig(_ConfigBase):
     curriculum_start: float = Field(default=0.1)
     ss_reset_frac: float = Field(default=0.0)
 
+    # When True, replace the entire episode_state with a fresh draw from
+    # model.init_state_fn at the start of every rollout cycle. Matches
+    # the DEQN-MAO upstream flag of the same name (Graphs.py: see
+    # ``if Parameters.initialize_each_episode: ...``). False = continue
+    # trajectory across cycles (ergodic training). True = re-draw initial
+    # states each cycle (appropriate for deterministic or strongly-
+    # attracting models). Orthogonal to ss_reset_frac; do not set both.
+    initialize_each_episode: bool = False
+
     expectation_type: str = "mc"
     n_quadrature_points: int = Field(default=3)
 
@@ -553,6 +562,27 @@ class TrainConfig(_ConfigBase):
     # Set n_minibatches_per_epoch=1 for legacy one-grad-per-rollout behavior.
     n_epochs_per_rollout: int = Field(default=1)
     n_minibatches_per_epoch: Optional[int] = Field(default=None)
+
+    # Controls the shuffle pattern when drawing minibatches from the
+    # rolled-out trajectory. Matches DEQN-MAO's flag of the same name.
+    #
+    # False (default): individual samples are shuffled globally across the
+    #   (episode_length × batch_size) pool before batching. Each minibatch
+    #   is an IID mix of states from different times and trajectories --
+    #   the natural choice for iid-sample gradient estimation.
+    #
+    # True: the trajectory tensor is transposed to trajectory-major
+    #   ([batch, episode_length, n_states]), batches are formed as
+    #   contiguous slices of single trajectories (preserving temporal
+    #   order within each minibatch), then the *order of batches* is
+    #   shuffled. Standard RL practice: minibatches are coherent
+    #   trajectory segments. Required for sequence-aware policies and
+    #   for any method whose gradient depends on intra-batch temporal
+    #   ordering.
+    #
+    # Applies only when history_len == 1 (MLP path). Sequence nets
+    # already get temporally-coherent windows via build_history_windows.
+    sorted_within_batch: bool = False
 
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_CHOICES: ClassVar[frozenset] = frozenset({"mse", "huber"})

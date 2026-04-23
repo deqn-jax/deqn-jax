@@ -581,7 +581,8 @@ def _update_weights_relobralo(
 # ---------------------------------------------------------------------------
 
 def _run_episode_and_sample(model, state, episode_length, batch_size, history_len=1,
-                            ss_reset_frac: float = 0.0):
+                            ss_reset_frac: float = 0.0,
+                            initialize_each_episode: bool = False):
     """Run episode and sample training batch.
 
     For history_len=1 (MLP): returns [batch, n_states]
@@ -591,13 +592,19 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
 
     ss_reset_frac: fraction of batch to reset to SS-neighborhood each episode.
     Prevents on-policy drift into degenerate basins.
+    initialize_each_episode: if True, replace the entire batch with a fresh
+    init_state_fn draw every rollout (Simon nb01 style; appropriate for
+    deterministic / strongly-attracting models).
     """
     key = state.key
     key, episode_key, loss_key, shuffle_key, reset_key = jax.random.split(key, 5)
 
-    # Mix in fresh SS-neighborhood states to prevent trajectory drift
+    # Either resample the whole batch (deterministic / no-rollout mode) or
+    # mix in fresh SS-neighborhood states to prevent trajectory drift.
     ep_states = state.episode_state
-    if ss_reset_frac > 0.0:
+    if initialize_each_episode and model.init_state_fn is not None:
+        ep_states = model.init_state_fn(reset_key, ep_states.shape[0], model.constants)
+    elif ss_reset_frac > 0.0:
         batch_n = ep_states.shape[0]
         n_reset = int(ss_reset_frac * batch_n)
         if n_reset > 0:
@@ -671,7 +678,8 @@ class _StepContext(_NamedTuple):
 
 
 def _prepare_step(model, state, episode_length, batch_size, history_len,
-                  ss_reset_frac, use_target_network):
+                  ss_reset_frac, use_target_network,
+                  initialize_each_episode: bool = False):
     """Common preamble for all train step variants.
 
     Runs episode, samples training batch, and resolves target network.
@@ -680,6 +688,7 @@ def _prepare_step(model, state, episode_length, batch_size, history_len,
     train_states, final_state, loss_key, key = _run_episode_and_sample(
         model, state, episode_length, batch_size, history_len,
         ss_reset_frac=ss_reset_frac,
+        initialize_each_episode=initialize_each_episode,
     )
     target_fn = state.target_params if use_target_network else None
     return _StepContext(train_states, final_state, loss_key, key, target_fn)
@@ -718,18 +727,25 @@ def _make_rollout_fn(
     episode_length: int,
     history_len: int,
     ss_reset_frac: float,
+    initialize_each_episode: bool = False,
 ):
     """JIT'd: run one rollout → return (trajectory, final_state, new_key).
 
     The trajectory has shape [episode_length, batch, n_states] (MLP) or
     needs to be wrapped into windows for sequence nets. The outer loop
     then draws minibatches from it and calls the grad step many times.
+
+    initialize_each_episode: if True, replace the entire batch with a fresh
+    init_state_fn draw every rollout (deterministic-model "fresh sample
+    per episode" semantics; see TrainConfig docstring).
     """
     @jax.jit
     def rollout_fn(state: TrainState) -> Tuple[Array, Array, Array]:
         key, episode_key, reset_key = jax.random.split(state.key, 3)
         ep_states = state.episode_state
-        if ss_reset_frac > 0.0:
+        if initialize_each_episode and model.init_state_fn is not None:
+            ep_states = model.init_state_fn(reset_key, ep_states.shape[0], model.constants)
+        elif ss_reset_frac > 0.0:
             batch_n = ep_states.shape[0]
             n_reset = int(ss_reset_frac * batch_n)
             if n_reset > 0:
@@ -1144,12 +1160,18 @@ def _make_cycle_step(
     n_epochs_per_rollout: int,
     n_minibatches_per_epoch: Optional[int],
     history_len: int = 1,
+    sorted_within_batch: bool = False,
 ):
     """Generic DEQN-style cycle: 1 rollout + n_epochs × minibatch sweep.
 
     Works for any ``grad_step`` with signature
     ``(state, batch, lr_scale, shock_scale) → (new_state, metrics)``.
     The rollout is kind-agnostic; only the per-batch grad step differs.
+
+    ``sorted_within_batch`` (default False): when True and history_len==1,
+    minibatches are contiguous slices of single trajectories (RL-style)
+    rather than IID-shuffled samples. Batch order is shuffled; intra-batch
+    order is preserved. See TrainConfig docstring.
     """
     def cycle_step(
         state: TrainState,
@@ -1169,8 +1191,19 @@ def _make_cycle_step(
         state = state._replace(episode_state=next_seed, key=new_key)
 
         # 2. Build the minibatch dataset from the full trajectory.
+        # Two layouts (chosen at trace time via sorted_within_batch):
+        # - time-major [T*B, D]: reshape trajectory [T, B, D] directly.
+        #   IID shuffling of all samples, used when sorted_within_batch=False.
+        # - trajectory-major [B*T, D]: transpose to [B, T, D] first.
+        #   Contiguous slices of length `batch_size` are single-trajectory
+        #   temporal segments; used when sorted_within_batch=True.
         if history_len > 1:
+            # Sequence path: windows already carry temporal coherence.
+            # sorted_within_batch is a no-op here.
             dataset = build_history_windows(trajectory, history_len)
+        elif sorted_within_batch:
+            # [T, B, D] -> [B, T, D] -> [B*T, D]
+            dataset = jnp.transpose(trajectory, (1, 0, 2)).reshape(-1, model.n_states)
         else:
             dataset = trajectory.reshape(-1, model.n_states)
 
@@ -1199,10 +1232,22 @@ def _make_cycle_step(
         for _ in range(n_epochs_per_rollout):
             perm_key, state_key = jax.random.split(state.key)
             state = state._replace(key=state_key)
-            perm = jax.random.permutation(perm_key, n_samples)
+            if sorted_within_batch and history_len == 1:
+                # Shuffle the *order of contiguous chunks*, not samples.
+                # Each chunk is dataset[b*batch_size : (b+1)*batch_size],
+                # a trajectory segment of length batch_size.
+                batch_perm = jax.random.permutation(perm_key, n_mbs_available)
+            else:
+                # Shuffle individual sample indices (IID minibatch).
+                perm = jax.random.permutation(perm_key, n_samples)
             for mb_idx in range(n_mbs):
-                idx = perm[mb_idx * batch_size:(mb_idx + 1) * batch_size]
-                minibatch = dataset[idx]
+                if sorted_within_batch and history_len == 1:
+                    b = batch_perm[mb_idx]
+                    start = b * batch_size
+                    minibatch = jax.lax.dynamic_slice_in_dim(dataset, start, batch_size)
+                else:
+                    idx = perm[mb_idx * batch_size:(mb_idx + 1) * batch_size]
+                    minibatch = dataset[idx]
                 state, last_metrics = grad_step(state, minibatch, lr_scale, shock_scale)
                 loss_acc = loss_acc + last_metrics.loss
                 grad_max = jnp.maximum(grad_max, last_metrics.grad_norm)
@@ -1648,6 +1693,8 @@ def make_train_step(
     use_target_network: bool = False,
     n_epochs_per_rollout: int = 1,
     n_minibatches_per_epoch: Optional[int] = None,
+    initialize_each_episode: bool = False,
+    sorted_within_batch: bool = False,
 ):
     """Create a JIT-compiled training step function.
 
@@ -1693,7 +1740,10 @@ def make_train_step(
     # n_minibatches gradient updates over the full trajectory. The kind
     # determines only the per-batch grad step (standard / pcgrad / mao /
     # lbfgs / gn); the rollout + sweep wrapper is shared.
-    rollout_fn = _make_rollout_fn(model, episode_length, history_len, ss_reset_frac)
+    rollout_fn = _make_rollout_fn(
+        model, episode_length, history_len, ss_reset_frac,
+        initialize_each_episode=initialize_each_episode,
+    )
 
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
         grad_step = _make_grad_step_pcgrad(
@@ -1730,6 +1780,7 @@ def make_train_step(
         n_epochs_per_rollout=n_epochs_per_rollout,
         n_minibatches_per_epoch=n_minibatches_per_epoch,
         history_len=history_len,
+        sorted_within_batch=sorted_within_batch,
     )
 
 
@@ -2083,6 +2134,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         use_target_network=use_target,
         n_epochs_per_rollout=config.n_epochs_per_rollout,
         n_minibatches_per_epoch=config.n_minibatches_per_epoch,
+        initialize_each_episode=config.initialize_each_episode,
+        sorted_within_batch=config.sorted_within_batch,
     )
 
     if config.verbose and kind == OptimizerKind.STANDARD and gradient_surgery != "pcgrad":
@@ -2185,6 +2238,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 use_target_network=use_target,
                 n_epochs_per_rollout=config.n_epochs_per_rollout,
                 n_minibatches_per_epoch=config.n_minibatches_per_epoch,
+                initialize_each_episode=config.initialize_each_episode,
+                sorted_within_batch=config.sorted_within_batch,
             )
             switched = True
             # Reset early stopping after optimizer switch
@@ -2366,6 +2421,16 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                          if np.isfinite(v).all() and v.size > 0}
             if hist_dict:
                 logger.log_histograms(hist_dict, step=ep_num)
+
+            # Model-provided cycle hook (plots, custom diagnostics).
+            # Runs outside JIT in the Python-level log path; errors are
+            # caught so training isn't killed by a bad plot.
+            if model.cycle_hook is not None:
+                try:
+                    model.cycle_hook(state, model, ep_num)
+                except Exception as exc:
+                    import warnings
+                    warnings.warn(f"cycle_hook raised at ep {ep_num}: {exc}")
 
         if config.verbose and ep_num % config.log_every == 0:
             elapsed = time.perf_counter() - t_start
