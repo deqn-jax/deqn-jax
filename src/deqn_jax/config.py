@@ -512,7 +512,6 @@ class TrainConfig(_ConfigBase):
     checkpoint_every: Optional[int] = None
     max_checkpoints: Optional[int] = None
 
-    rescale_equations: bool = False
     gradient_surgery: str = "none"
     resume: Optional[str] = None
     switch_optimizer: Optional[str] = None
@@ -664,7 +663,7 @@ class TrainConfig(_ConfigBase):
         return _coerce_optional_int(v, info.field_name)
 
     @field_validator("verbose", "warm_start", "warm_start_linearize", "fp64",
-                     "rescale_equations", "use_risky_steady_state",
+                     "use_risky_steady_state",
                      "save_best_checkpoint", mode="before")
     @classmethod
     def _check_bool_type(cls, v, info):

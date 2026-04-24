@@ -93,12 +93,6 @@ def main():
         help="Use float64 precision",
     )
     train_parser.add_argument(
-        "--rescale-equations",
-        action="store_true",
-        default=None,
-        help="Use rescaled Euler error equations (unit-free residuals)",
-    )
-    train_parser.add_argument(
         "--gradient-surgery",
         choices=["none", "pcgrad"],
         default=None,
@@ -410,8 +404,6 @@ def run_train(args):
         cli_kwargs["warm_start"] = True
     if args.fp64:
         cli_kwargs["fp64"] = True
-    if getattr(args, "rescale_equations", None):
-        cli_kwargs["rescale_equations"] = True
     if getattr(args, "gradient_surgery", None) is not None:
         cli_kwargs["gradient_surgery"] = args.gradient_surgery
     if args.quiet:
