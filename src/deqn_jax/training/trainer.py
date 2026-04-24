@@ -1808,6 +1808,15 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     from deqn_jax.models import load_model
     from deqn_jax.config import TrainConfig, OptimizerConfig
 
+    # Apply fp64 if requested. The CLI pre-scans configs and sets this
+    # before the trainer is entered, but programmatic callers go straight
+    # to train_from_config(cfg) and otherwise get silently downgraded to
+    # fp32. JAX requires x64 to be toggled before array creation; we do
+    # it here as the earliest point in the programmatic path. No-op if
+    # already enabled.
+    if config.fp64 and not jax.config.read("jax_enable_x64"):
+        jax.config.update("jax_enable_x64", True)
+
     model = load_model(config.model)
 
     # Per-run override of model constants (e.g. {p_disaster: 0.02}).
