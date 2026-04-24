@@ -25,6 +25,22 @@ this). With per-shock residual averaging the per-shock form becomes
 ``1 - u'(c) / (beta u'(c'(eps))(1+r'(eps)-delta))``, which is biased
 under ``E[1/X] != 1/E[X]`` (Jensen). Good for deterministic or
 analytic-quadrature solvers, unsafe under MC.
+
+Parameterization note -- capital accumulation law.
+   Ours:       k' = (1 - delta) * k + s * Y(k, z)       [dynamics.py]
+   DEQN-MAO:   k' = sav_rate * (Y + (1 - delta) * k)    [their Variables.py]
+
+   Expanding DEQN-MAO: k' = s*Z*k^alpha + s*(1-delta)*k, whereas ours
+   has an unscaled (1 - delta)*k retention term. The two agree only at
+   delta = 1 (full depreciation) or s = 1, not in general. Our form is
+   the economically standard "savings rate out of net output plus
+   retained undepreciated capital"; DEQN-MAO's absorbs retained capital
+   into the savings decision. For the calibration used here (delta=0.1)
+   the two implementations visit different ergodic distributions even
+   with identical network + optimizer + shock setup, and cross-comparing
+   ergodic Euler error magnitudes against DEQN-MAO's brock_mirman
+   requires accounting for this difference. This port mirrors Simon's
+   Day-2 notebook, which uses the standard form.
 """
 
 from typing import Dict
