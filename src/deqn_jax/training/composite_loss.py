@@ -269,9 +269,14 @@ def make_composite_loss(
         shock_scale: float = 1.0,
         quad_nodes: Optional[Array] = None,
         quad_weights: Optional[Array] = None,
-        barrier_weight: float = 0.0,
         target_policy_fn: Optional[Callable[[Array], Array]] = None,
     ) -> Tuple[Array, Dict[str, Array]]:
+        # NOTE: barrier_weight is NOT a parameter here. It's captured from
+        # the enclosing make_composite_loss closure (line above in the
+        # signature). An earlier version shadowed the closure var with a
+        # barrier_weight=0.0 default, which silently dropped the configured
+        # barrier weight from composite training. Do not reintroduce it
+        # as a parameter here -- the trainer does not thread it through.
         # 1. Base residual loss — MSE or Huber on per-state mean residual.
         base_loss, eq_losses = compute_loss(
             model_, policy_fn, states, key, mc_samples,
