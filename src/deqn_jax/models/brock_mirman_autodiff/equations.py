@@ -20,13 +20,14 @@ from deqn_jax.training.autodiff import euler_from_period_return
 EQUATION_NAMES = ("euler",)
 
 
-def period_return(k: Array, k_next: Array, z: Array, constants: Dict) -> Array:
-    """Pi(K_t, K_{t+1}, z_t) = u(C_t). Budget constraint baked in.
+def period_return(k: Array, k_next: Array, z: Array, policy: Array, constants: Dict) -> Array:
+    """Pi(K_t, K_{t+1}, z_t, policy_t) = u(C_t). Budget constraint baked in.
 
-    ``z`` is a 1-D vector (length = number of exogenous state
-    dimensions); Brock-Mirman has a single log-TFP so ``z[0]`` is
-    the one component.
+    Brock-Mirman absorbs the savings rate into K_next via the budget,
+    so ``policy`` is unused here -- the argument is still part of the
+    helper's Pi contract for multi-policy models (see bm_labor_autodiff).
     """
+    del policy  # brock_mirman has no intratemporal policy dependence
     alpha = constants["alpha"]
     delta = constants["delta"]
     gamma = constants["gamma"]
