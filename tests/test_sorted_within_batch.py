@@ -34,7 +34,8 @@ def _run_cycle_capture(sorted_flag: bool, seed: int = 0):
     assert trajectory.shape == (episode_length, sim_batch, 2)
 
     # Stub rollout_fn: returns the prepared trajectory and a fake final state.
-    def rollout_fn(state):
+    # Accepts shock_scale for API compatibility; unused in this unit test.
+    def rollout_fn(state, shock_scale=jnp.array(1.0)):
         return trajectory, trajectory[-1], state.key
 
     # Capture each minibatch.

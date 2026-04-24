@@ -586,7 +586,9 @@ def _update_weights_relobralo(
 
 def _run_episode_and_sample(model, state, episode_length, batch_size, history_len=1,
                             ss_reset_frac: float = 0.0,
-                            initialize_each_episode: bool = False):
+                            initialize_each_episode: bool = False,
+                            shock_scale: Array = jnp.array(1.0),
+                            shock_mask: Optional[Array] = None):
     """Run episode and sample training batch.
 
     For history_len=1 (MLP): returns [batch, n_states]
@@ -626,6 +628,8 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
             episode_key,
             episode_length,
             history_len,
+            shock_scale=shock_scale,
+            shock_mask=shock_mask,
         )
         # Build sliding windows from trajectory: [(T-H+1)*B, H, D]
         all_windows = build_history_windows(trajectory, history_len)
@@ -640,6 +644,8 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
             ep_states,
             episode_key,
             episode_length,
+            shock_scale=shock_scale,
+            shock_mask=shock_mask,
         )
         all_states = trajectory.reshape(-1, model.n_states)
         n_states = all_states.shape[0]
@@ -683,16 +689,24 @@ class _StepContext(_NamedTuple):
 
 def _prepare_step(model, state, episode_length, batch_size, history_len,
                   ss_reset_frac, use_target_network,
-                  initialize_each_episode: bool = False):
+                  initialize_each_episode: bool = False,
+                  shock_scale: Array = jnp.array(1.0),
+                  shock_mask: Optional[Array] = None):
     """Common preamble for all train step variants.
 
     Runs episode, samples training batch, and resolves target network.
     Called inside JIT; use_target_network is a Python bool resolved at trace time.
+
+    shock_scale and shock_mask are threaded through to the rollout so
+    that training-time shock conventions (curriculum ramp, shock ablation)
+    apply to both the state trajectory and the loss expectation.
     """
     train_states, final_state, loss_key, key = _run_episode_and_sample(
         model, state, episode_length, batch_size, history_len,
         ss_reset_frac=ss_reset_frac,
         initialize_each_episode=initialize_each_episode,
+        shock_scale=shock_scale,
+        shock_mask=shock_mask,
     )
     target_fn = state.target_params if use_target_network else None
     return _StepContext(train_states, final_state, loss_key, key, target_fn)
@@ -744,7 +758,10 @@ def _make_rollout_fn(
     per episode" semantics; see TrainConfig docstring).
     """
     @jax.jit
-    def rollout_fn(state: TrainState) -> Tuple[Array, Array, Array]:
+    def rollout_fn(
+        state: TrainState,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[Array, Array, Array]:
         key, episode_key, reset_key = jax.random.split(state.key, 3)
         ep_states = state.episode_state
         if initialize_each_episode and model.init_state_fn is not None:
@@ -762,10 +779,12 @@ def _make_rollout_fn(
         if history_len > 1:
             trajectory, final_state = run_episode_with_history(
                 model, state.params, ep_states, episode_key, episode_length, history_len,
+                shock_scale=shock_scale,
             )
         else:
             trajectory, final_state = run_episode(
                 model, state.params, ep_states, episode_key, episode_length,
+                shock_scale=shock_scale,
             )
         return trajectory, final_state, key
     return rollout_fn
@@ -1190,7 +1209,7 @@ def _make_cycle_step(
         # overlap by one state, and each cycle advances T-1 transitions).
         # We use trajectory[-1] = s_{T-1} for seeding to match that
         # convention; final_carry_state is discarded.
-        trajectory, _final_after_T, new_key = rollout_fn(state)
+        trajectory, _final_after_T, new_key = rollout_fn(state, shock_scale)
         next_seed = trajectory[-1]
         state = state._replace(episode_state=next_seed, key=new_key)
 
@@ -1302,7 +1321,8 @@ def _make_standard_step(
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         ctx = _prepare_step(model, state, episode_length, batch_size,
-                            history_len, ss_reset_frac, use_target_network)
+                            history_len, ss_reset_frac, use_target_network,
+                            shock_scale=shock_scale)
 
         def loss_fn(params):
             loss, eq_losses = _compute_loss(
@@ -1362,7 +1382,8 @@ def _make_pcgrad_step(
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         ctx = _prepare_step(model, state, episode_length, batch_size,
-                            history_len, ss_reset_frac, use_target_network)
+                            history_len, ss_reset_frac, use_target_network,
+                            shock_scale=shock_scale)
 
         # Per-equation loss vector for jacrev (always base compute_loss)
         def eq_loss_vector(params):
@@ -1462,7 +1483,8 @@ def _make_mao_step(
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         ctx = _prepare_step(model, state, episode_length, batch_size,
-                            history_len, ss_reset_frac, use_target_network)
+                            history_len, ss_reset_frac, use_target_network,
+                            shock_scale=shock_scale)
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
@@ -1539,7 +1561,8 @@ def _make_lbfgs_step(
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         ctx = _prepare_step(model, state, episode_length, batch_size,
-                            history_len, ss_reset_frac, use_target_network)
+                            history_len, ss_reset_frac, use_target_network,
+                            shock_scale=shock_scale)
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
         params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
@@ -1615,7 +1638,8 @@ def _make_gn_step(
     @jax.jit
     def train_step(state: TrainState, lr_scale: Array, shock_scale: Array = jnp.array(1.0)) -> Tuple[TrainState, Metrics]:
         ctx = _prepare_step(model, state, episode_length, batch_size,
-                            history_len, ss_reset_frac, use_target_network)
+                            history_len, ss_reset_frac, use_target_network,
+                            shock_scale=shock_scale)
 
         # Residual function: params -> [n_eq * batch] per-batch E_shock[r]
 

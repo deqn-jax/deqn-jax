@@ -73,9 +73,18 @@ def euler_equation_errors(
     eq_names = list(model.equation_names) if model.equation_names else []
     n_eq = len(eq_names)
 
+    # Detect disaster support once, outside JIT. If present, we draw
+    # Bernoulli(p_disaster) each period so the ergodic accuracy report
+    # actually visits disaster states -- without this, evaluating a
+    # disaster-calibrated model produces a normal-shock-only path and
+    # the reported accuracy excludes the disaster branch entirely.
+    from deqn_jax.training.shocks import step_accepts_disaster
+    supports_disaster = step_accepts_disaster(model.step_fn)
+    p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
+
     # JIT-compile the simulation step for speed
     @eqx.filter_jit
-    def _sim_step(state, shock):
+    def _sim_step_no_d(state, shock):
         policy = policy_net(state)
         if policy.ndim == 1:
             policy = policy[None, :]
@@ -88,14 +97,33 @@ def euler_equation_errors(
                         else residuals[name] for name in eq_names])
         return next_state, row, state[0]
 
+    @eqx.filter_jit
+    def _sim_step_with_d(state, shock, d_disaster):
+        policy = policy_net(state)
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(state, policy, shock, constants, d_disaster=d_disaster)
+        next_policy = policy_net(next_state)
+        if next_policy.ndim == 1:
+            next_policy = next_policy[None, :]
+        residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
+        row = jnp.stack([residuals[name][0] if residuals[name].ndim > 0
+                        else residuals[name] for name in eq_names])
+        return next_state, row, state[0]
+
     all_residuals = []
     all_states = []
 
     for t in range(n_periods):
-        key, shock_key = jax.random.split(key)
-        shock = jax.random.normal(shock_key, (1, n_shocks))
-
-        next_state, row, st = _sim_step(state, shock)
+        if p_disaster > 0.0:
+            key, shock_key, d_key = jax.random.split(key, 3)
+            shock = jax.random.normal(shock_key, (1, n_shocks))
+            d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
+            next_state, row, st = _sim_step_with_d(state, shock, d_val)
+        else:
+            key, shock_key = jax.random.split(key)
+            shock = jax.random.normal(shock_key, (1, n_shocks))
+            next_state, row, st = _sim_step_no_d(state, shock)
 
         if t >= burn_in:
             all_residuals.append(row)

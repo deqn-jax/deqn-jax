@@ -8,13 +8,14 @@ An episode consists of:
 Using lax.scan makes the entire episode JIT-compilable.
 """
 
-from typing import Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array, lax
 
 from deqn_jax.types import EpisodeState, ModelSpec
+from deqn_jax.training.shocks import simulation_step
 
 
 def simulate_step(
@@ -22,30 +23,32 @@ def simulate_step(
     policy_fn: Callable[[Array], Array],
     state: Array,
     key: Array,
+    shock_scale: Any = 1.0,
+    shock_mask: Optional[Array] = None,
 ) -> Tuple[Array, Array]:
     """Simulate one step of the economic model.
+
+    Delegates to ``deqn_jax.training.shocks.simulation_step`` so that
+    training rollouts, evaluation paths, and IRF paths all use one
+    shock-drawing contract: Gaussian shocks scaled by ``shock_scale``,
+    masked by ``shock_mask``, and optionally a Bernoulli disaster
+    indicator passed to step_fn when the model supports it.
 
     Args:
         model: Model specification
         policy_fn: Policy network
         state: Current state [batch, n_states]
         key: PRNG key for shock
+        shock_scale: Curriculum multiplier on all shock draws (scalar
+            or per-dimension vector); 0 freezes rollouts deterministically.
+        shock_mask: Optional per-dimension 0/1 mask over shocks.
 
     Returns:
         Tuple of (next_state, shock_used)
     """
-    batch_size = state.shape[0]
-
-    # Sample shock
-    shock = jax.random.normal(key, (batch_size, model.n_shocks))
-
-    # Get policy
-    policy = policy_fn(state)
-
-    # Transition (soft clip is baked into model step_fn for disaster model)
-    next_state = model.step_fn(state, policy, shock, model.constants)
-
-    return next_state, shock
+    return simulation_step(
+        model, policy_fn, state, key, shock_scale=shock_scale, shock_mask=shock_mask,
+    )
 
 
 def run_episode(
@@ -54,10 +57,15 @@ def run_episode(
     init_state: Array,
     key: Array,
     episode_length: int = 100,
+    shock_scale: Any = 1.0,
+    shock_mask: Optional[Array] = None,
 ) -> Tuple[Array, Array]:
     """Run a full episode and collect trajectory.
 
-    Uses lax.scan for efficient JIT compilation.
+    Uses lax.scan for efficient JIT compilation. ``shock_scale`` and
+    ``shock_mask`` are threaded through to every ``simulate_step`` call
+    so that the training-time shock conventions apply uniformly across
+    the episode (not just at the loss evaluation).
 
     Args:
         model: Model specification
@@ -65,6 +73,8 @@ def run_episode(
         init_state: Initial state [batch, n_states]
         key: PRNG key
         episode_length: Number of steps in episode
+        shock_scale: Curriculum shock ramp. Scalar or per-dim vector.
+        shock_mask: Optional per-dimension 0/1 mask over shocks.
 
     Returns:
         Tuple of:
@@ -77,7 +87,10 @@ def run_episode(
         state, key = carry.state, carry.key
         key, step_key = jax.random.split(key)
 
-        next_state, _ = simulate_step(model, policy_fn, state, step_key)
+        next_state, _ = simulate_step(
+            model, policy_fn, state, step_key,
+            shock_scale=shock_scale, shock_mask=shock_mask,
+        )
 
         new_carry = EpisodeState(state=next_state, key=key)
         return new_carry, state  # Output current state (before transition)
@@ -140,6 +153,8 @@ def run_episode_with_history(
     key: Array,
     episode_length: int = 100,
     history_len: int = 10,
+    shock_scale: Any = 1.0,
+    shock_mask: Optional[Array] = None,
 ) -> Tuple[Array, Array]:
     """Run episode with history-aware policy (LSTM/Transformer).
 
@@ -175,12 +190,14 @@ def run_episode_with_history(
         state, history, key = carry
         key, step_key = jax.random.split(key)
 
-        # Get policy from history window
-        policy = policy_fn(history)
+        # History-aware policy eval, same shock contract as run_episode.
+        def _history_policy_fn(s):
+            return policy_fn(history)
 
-        # Sample shock and step
-        shock = jax.random.normal(step_key, (batch_size, model.n_shocks))
-        next_state = model.step_fn(state, policy, shock, model.constants)
+        next_state, _ = simulate_step(
+            model, _history_policy_fn, state, step_key,
+            shock_scale=shock_scale, shock_mask=shock_mask,
+        )
 
         # Shift history
         next_history = shift_history(history, next_state)
