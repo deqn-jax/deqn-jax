@@ -76,6 +76,7 @@ nav:
       - Implementing a model: models/implementing.md
       - Running experiments: running_experiments.md
       - Autodiff-synthesized equations: autodiff.md
+      - Config reference: config_reference.md
   - Examples:
       - CLI: examples/cli.md
       - Python API: examples/api.md

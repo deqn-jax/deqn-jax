@@ -48,6 +48,7 @@ configs/dgx_*.yaml
 # Experiment scripts and working notes. Checked-in exceptions below.
 scripts/*
 !scripts/make_plots.py
+!scripts/gen_config_reference.py
 dynare/
 PLAN.md
 docs/session_log.md

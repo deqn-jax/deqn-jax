@@ -154,35 +154,27 @@ class OptimizerConfig(_ConfigBase):
 
     model_config = ConfigDict(extra="forbid", coerce_numbers_to_str=False)
 
-    name: str = "adam"
-    learning_rate: float = Field(default=1e-3)
-    grad_clip: Optional[float] = None
-    weight_decay: float = Field(default=0.0)
-    # Adam / MAO
-    beta1: float = Field(default=0.9)
-    beta2: float = Field(default=0.999)
-    epsilon: float = Field(default=1e-8)
-    # NGD
-    damping: float = Field(default=1e-4)
-    decay: float = Field(default=0.999)
-    # Shampoo
-    block_size: int = Field(default=64)
-    precond_update_freq: int = Field(default=10)
-    # L-BFGS
-    memory_size: int = Field(default=10)
-    # Muon
-    ns_steps: int = Field(default=5)
-    # LR schedule
-    lr_schedule: str = "constant"
-    lr_warmup: int = Field(default=0)
-    lr_min_factor: float = Field(default=0.0)
+    name: str = Field(default="adam", description="Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `lm`.")
+    learning_rate: float = Field(default=1e-3, description="Peak learning rate (or constant LR when `lr_schedule='constant'`).")
+    grad_clip: Optional[float] = Field(default=None, description="Global gradient-norm clipping. None disables.")
+    weight_decay: float = Field(default=0.0, description="L2 weight decay (used by adamw / adam / sgd).")
+    beta1: float = Field(default=0.9, description="Adam / MAO first-moment decay.")
+    beta2: float = Field(default=0.999, description="Adam / MAO second-moment decay.")
+    epsilon: float = Field(default=1e-8, description="Adam / MAO numerical floor.")
+    damping: float = Field(default=1e-4, description="NGD preconditioner damping (adds to Fisher diagonal).")
+    decay: float = Field(default=0.999, description="NGD / Shampoo preconditioner EMA decay.")
+    block_size: int = Field(default=64, description="Shampoo Kronecker block size.")
+    precond_update_freq: int = Field(default=10, description="Shampoo preconditioner update frequency.")
+    memory_size: int = Field(default=10, description="L-BFGS history size.")
+    ns_steps: int = Field(default=5, description="Muon Newton-Schulz iteration count.")
+    lr_schedule: str = Field(default="constant", description="LR schedule: `constant`, `cosine`, or `reduce_on_plateau`.")
+    lr_warmup: int = Field(default=0, description="Linear warmup episodes before `lr_schedule` kicks in.")
+    lr_min_factor: float = Field(default=0.0, description="Minimum LR as a fraction of peak (cosine / reduce_on_plateau floor).")
 
-    # ReduceLROnPlateau knobs (used when lr_schedule == "reduce_on_plateau").
-    # Matches DEQN-MAO's keras-style scheduler with the same names.
-    lr_reduce_factor: float = Field(default=0.5)       # multiply LR by this on plateau
-    lr_reduce_patience: int = Field(default=500)       # episodes without improvement before decay
-    lr_reduce_cooldown: int = Field(default=100)       # episodes to wait after a decay
-    lr_reduce_min_delta: float = Field(default=1e-6)   # treat as improvement only if loss drops by >= this
+    lr_reduce_factor: float = Field(default=0.5, description="ReduceLROnPlateau: multiply LR by this factor on plateau.")
+    lr_reduce_patience: int = Field(default=500, description="ReduceLROnPlateau: episodes without improvement before decay.")
+    lr_reduce_cooldown: int = Field(default=100, description="ReduceLROnPlateau: episodes to wait after a decay before resuming monitoring.")
+    lr_reduce_min_delta: float = Field(default=1e-6, description="ReduceLROnPlateau: minimum loss drop that counts as improvement.")
     # Lower bound on LR as a fraction of initial. Reusing lr_min_factor
     # (already present for cosine) keeps config surface small.
 
@@ -286,19 +278,15 @@ class CompositeLossConfig(_ConfigBase):
 
     model_config = ConfigDict(extra="forbid")
 
-    anchor_weight: float = Field(default=0.1)
-    jac_weight: float = Field(default=0.01)
-    # Sobolev-style per-anchor Jacobian match — ||∂π_net/∂s - P||² averaged
-    # over composite-loss anchor points. Default 0 keeps this term off;
-    # setting > 0 extends the aux_jac supervision (SS only) to the whole
-    # anchor cloud. Higher cost (~d×) per step.
-    jac_anchor_weight: float = Field(default=0.0)
-    barrier_weight: float = Field(default=0.01)
-    newton_weight: float = Field(default=0.01)
-    n_anchor_points: int = Field(default=64)
-    anchor_sigma: float = Field(default=1.0)
-    leverage_mult: float = Field(default=5.0)
-    aux_decay_floor: float = Field(default=0.2)
+    anchor_weight: float = Field(default=0.1, description="Weight on the anchor loss (||π_net(x) - π_lin(x)||² at sampled anchor points near SS).")
+    jac_weight: float = Field(default=0.01, description="Weight on the Jacobian-match loss (||J_net(SS) - P||² at the steady state).")
+    jac_anchor_weight: float = Field(default=0.0, description="Weight on the per-anchor Jacobian match (||J_net(x_i) - P||² averaged over anchors). 0 = off. ~d× more expensive than `jac_weight`.")
+    barrier_weight: float = Field(default=0.01, description="Weight on economic feasibility barriers (net worth, leverage, consumption positivity).")
+    newton_weight: float = Field(default=0.01, description="Weight on Newton-step auxiliary losses (condition number, residual) for kink-approximation stabilization.")
+    n_anchor_points: int = Field(default=64, description="Number of anchor points sampled near SS at setup time (deterministic).")
+    anchor_sigma: float = Field(default=1.0, description="Scale of the Gaussian spread around SS for anchor-point sampling.")
+    leverage_mult: float = Field(default=5.0, description="Leverage barrier fires when `L > leverage_mult * L_ss`. Higher = more permissive.")
+    aux_decay_floor: float = Field(default=0.2, description="Minimum retained weight of anchor+jac auxiliaries as curriculum progresses. Set to 1.0 to keep aux terms fully active throughout.")
 
     @field_validator(
         "anchor_weight", "jac_weight", "jac_anchor_weight", "barrier_weight", "newton_weight",
@@ -347,25 +335,19 @@ class NetworkConfig(_ConfigBase):
         "he_normal", "he_uniform", "lecun_normal",
     })
 
-    type: str = "mlp"
-    hidden_sizes: Tuple[int, ...] = (64, 64)
-    activation: str = "tanh"
-    activations: Optional[Tuple[str, ...]] = None
-    init: str = "default"
-    multi_head: bool = False
-    skip_connections: bool = False
-    history_len: int = Field(default=1)
-    num_heads: int = Field(default=4)
-    n_layers: int = Field(default=2)
-    # For linear_plus_mlp: scale of the MLP delta's final layer at init.
-    # 0.0 means policy starts exactly at the linear solution.
-    init_scale: float = Field(default=0.0)
+    type: str = Field(default="mlp", description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, or `linear_plus_mlp`.")
+    hidden_sizes: Tuple[int, ...] = Field(default=(64, 64), description="Hidden layer widths. E.g. `(64, 64)` = two 64-unit hidden layers.")
+    activation: str = Field(default="tanh", description="Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `sigmoid`, `softplus`.")
+    activations: Optional[Tuple[str, ...]] = Field(default=None, description="Per-layer activations if different per layer. None = use `activation` uniformly. Length = `len(hidden_sizes)`.")
+    init: str = Field(default="default", description="Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`.")
+    multi_head: bool = Field(default=False, description="If True, use separate output heads per policy dimension (experimental).")
+    skip_connections: bool = Field(default=False, description="If True, add residual connections between matching-width hidden layers.")
+    history_len: int = Field(default=1, description="History window length for sequence policies. 1 = MLP (no history). >1 = LSTM / Transformer.")
+    num_heads: int = Field(default=4, description="Transformer: attention heads per layer.")
+    n_layers: int = Field(default=2, description="Transformer: number of transformer blocks.")
+    init_scale: float = Field(default=0.0, description="`linear_plus_mlp` only: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution.")
 
-    # For linear_plus_mlp + disaster model: prepend (R_lag - R_lb) as an
-    # extra feature so the delta MLP is explicitly told how close R is to
-    # the ELB. Experiment path for v0.3.0 kink-approximation fix. Only
-    # honoured by LinearPlusMLP and only meaningful for the disaster model.
-    use_zlb_feature: bool = Field(default=False)
+    use_zlb_feature: bool = Field(default=False, description="`linear_plus_mlp` + disaster only: prepend `(R_lag - R_lb)` as an extra feature for the delta MLP. Experimental.")
 
     @field_validator("hidden_sizes", mode="before")
     @classmethod
@@ -472,137 +454,147 @@ class TrainConfig(_ConfigBase):
 
     model_config = ConfigDict(extra="forbid")
 
-    model: str = "brock_mirman"
-    episodes: int = Field(default=1000)
-    batch_size: int = Field(default=64)
-    episode_length: int = Field(default=100)
-    mc_samples: int = Field(default=5)
-    seed: int = Field(default=42)
+    model: str = Field(default="brock_mirman", description="Name of the registered model to train; see `deqn-jax list` for valid choices.")
+    episodes: int = Field(default=1000, description="Number of outer training cycles (rollout + minibatch sweep).")
+    batch_size: int = Field(default=64, description="Minibatch size used for each gradient step.")
+    episode_length: int = Field(default=100, description="Trajectory length per rollout (T). With T=1 you must set `initialize_each_episode=True` (see validator).")
+    mc_samples: int = Field(default=5, description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type='gauss_hermite'`.")
+    seed: int = Field(default=42, description="Top-level PRNG seed. Controls network init and the rollout/loss shock streams.")
 
-    network: NetworkConfig = Field(default_factory=NetworkConfig)
-    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig, description="Policy network architecture; see NetworkConfig.")
+    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig, description="Optimizer and LR schedule; see OptimizerConfig.")
 
-    loss_type: str = "mse"
-    composite_loss: CompositeLossConfig = Field(default_factory=CompositeLossConfig)
+    loss_type: str = Field(default="mse", description="`mse` = base residual MSE. `composite` = base + anchor + Jacobian + barriers + Newton (disaster-style). Composite is rejected at startup with MAO / GN / LM / LBFGS / PCGrad.")
+    composite_loss: CompositeLossConfig = Field(default_factory=CompositeLossConfig, description="Composite-loss weights; only active when `loss_type='composite'`.")
 
-    # Residual aggregation over batch elements: MSE (default) or Huber.
-    # Applied to the per-state mean residual (i.e. AFTER the shock
-    # expectation). Huber caps gradient contribution for outlier states
-    # at ±huber_delta · sign(residual), useful when rare pathological
-    # states (ZLB-binding, etc.) dominate the gradient under MSE.
-    # Matches DEQN_MAO's loss_choice convention.
-    loss_choice: str = "mse"
-    huber_delta: float = Field(default=1.0)
+    loss_choice: str = Field(default="mse", description="Residual aggregation over batch elements: `mse` or `huber`. Applied AFTER the shock expectation. Huber caps gradient at ±huber_delta and helps when rare pathological states dominate.")
+    huber_delta: float = Field(default=1.0, description="Cutoff for Huber loss (`loss_choice='huber'`). Ignored for `loss_choice='mse'`.")
 
-    warm_start: bool = False
-    warm_start_linearize: bool = False
-    warm_start_dynare: Optional[str] = None
-    loss_weights: Optional[List[float]] = None
-    loss_reweight: str = "none"
-    reweight_alpha: float = Field(default=0.9)
+    warm_start: bool = Field(default=False, description="If True, run L-BFGS pre-fit of the network to the steady-state policy before gradient-based training. Speeds early convergence; can mask Euler-equation bugs.")
+    warm_start_linearize: bool = Field(default=False, description="If True, linearize the model around SS and use the Blanchard-Kahn P matrix to seed the network's Jacobian at SS. Advanced.")
+    warm_start_dynare: Optional[str] = Field(default=None, description="Path to a Dynare output file to seed warm-start linearization. Rare.")
+    loss_weights: Optional[List[float]] = Field(default=None, description="Manual per-equation weight vector of length `n_equations`. Default None = uniform weight 1.0.")
+    loss_reweight: str = Field(default="none", description="Adaptive reweighting: `none` (default), `lr_annealing` (inverse-EMA), `relobralo` (softmax of loss ratios).")
+    reweight_alpha: float = Field(default=0.9, description="EMA decay for `lr_annealing` / `relobralo`. Higher = slower adaptation.")
 
-    log_every: int = Field(default=100)
-    verbose: bool = True
-    fp64: bool = False
+    log_every: int = Field(default=100, description="Episodes between console / TensorBoard scalar logs and cycle_hook invocations.")
+    verbose: bool = Field(default=True, description="If False, suppress console output (the CLI `-q` flag sets this).")
+    fp64: bool = Field(default=False, description="Enable JAX x64 mode for higher numerical precision. Applied at `train_from_config` entry.")
 
-    tensorboard_dir: Optional[str] = None
-    wandb_project: Optional[str] = None
-    checkpoint_dir: Optional[str] = None
-    checkpoint_every: Optional[int] = None
-    max_checkpoints: Optional[int] = None
+    tensorboard_dir: Optional[str] = Field(default=None, description="Directory for TensorBoard event files. None disables TB logging.")
+    wandb_project: Optional[str] = Field(default=None, description="W&B project name. None disables W&B logging.")
+    checkpoint_dir: Optional[str] = Field(default=None, description="Directory to save checkpoints (`checkpoint_<episode>.eqx` + `checkpoint_best.eqx` + `config.yaml`). None disables.")
+    checkpoint_every: Optional[int] = Field(default=None, description="Episodes between periodic checkpoints. None = no periodic checkpoints (only best is saved).")
+    max_checkpoints: Optional[int] = Field(default=None, description="Keep only the N most recent periodic checkpoints (best is never deleted).")
 
-    gradient_surgery: str = "none"
-    resume: Optional[str] = None
-    switch_optimizer: Optional[str] = None
-    switch_episode: Optional[int] = None
-    switch_lr: Optional[float] = None
+    gradient_surgery: str = Field(default="none", description="Multi-equation gradient conflict resolution: `none` or `pcgrad` (projecting conflicting gradients).")
+    resume: Optional[str] = Field(default=None, description="Path to a `.eqx` checkpoint to resume from. Reads the sibling `config.yaml` to rebuild the correct pytree template.")
+    switch_optimizer: Optional[str] = Field(default=None, description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; new optimizer is initialized from resumed params.")
+    switch_episode: Optional[int] = Field(default=None, description="Episode at which to activate `switch_optimizer` and `switch_lr`.")
+    switch_lr: Optional[float] = Field(default=None, description="Learning rate for the switched optimizer. None = keep the original optimizer's LR.")
 
-    early_stop_patience: Optional[int] = None
-    early_stop_min_delta: float = Field(default=1e-6)
+    early_stop_patience: Optional[int] = Field(default=None, description="Stop training if loss hasn't improved by `early_stop_min_delta` for this many episodes. None = no early stopping.")
+    early_stop_min_delta: float = Field(default=1e-6, description="Minimum absolute loss improvement counted against `early_stop_patience`.")
 
-    curriculum_episodes: int = Field(default=0)
-    curriculum_start: float = Field(default=0.1)
-    ss_reset_frac: float = Field(default=0.0)
+    curriculum_episodes: int = Field(default=0, description="Ramp `shock_scale` linearly from `curriculum_start` to 1.0 over this many episodes. 0 = no curriculum.")
+    curriculum_start: float = Field(default=0.1, description="Initial `shock_scale` when curriculum is active.")
+    ss_reset_frac: float = Field(default=0.0, description="Fraction of batch re-initialized to SS-neighborhood each rollout (prevents trajectory drift). Orthogonal to `initialize_each_episode`.")
 
-    # When True, replace the entire episode_state with a fresh draw from
-    # model.init_state_fn at the start of every rollout cycle. Matches
-    # the DEQN-MAO upstream flag of the same name (Graphs.py: see
-    # ``if Parameters.initialize_each_episode: ...``). False = continue
-    # trajectory across cycles (ergodic training). True = re-draw initial
-    # states each cycle (appropriate for deterministic or strongly-
-    # attracting models). Orthogonal to ss_reset_frac; do not set both.
-    initialize_each_episode: bool = False
+    initialize_each_episode: bool = Field(
+        default=False,
+        description=(
+            "If True, replace episode_state with a fresh `init_state_fn` draw "
+            "at the start of every rollout cycle (non-ergodic training, matches "
+            "DEQN-MAO's flag of the same name). False = continue trajectory "
+            "across cycles (ergodic). Required True when `episode_length=1`."
+        ),
+    )
 
-    expectation_type: str = "mc"
-    n_quadrature_points: int = Field(default=3)
+    expectation_type: str = Field(
+        default="mc",
+        description=(
+            "How to integrate over shocks in the residual: `mc` (antithetic "
+            "Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` "
+            "(deterministic tensor-product grid, uses `n_quadrature_points`)."
+        ),
+    )
+    n_quadrature_points: int = Field(
+        default=3,
+        description="Quadrature points per shock dimension when `expectation_type='gauss_hermite'`. Total nodes = n_quadrature_points^n_shocks.",
+    )
 
-    barrier_weight: float = Field(default=0.0)
-    shock_mask: Optional[List[float]] = None
+    barrier_weight: float = Field(default=0.0, description="Legacy state-barrier penalty weight. 0 disables. Prefer `definition_bounds` on the ModelSpec for new models.")
+    shock_mask: Optional[List[float]] = Field(
+        default=None,
+        description=(
+            "Per-dimension multiplicative mask over shocks (length must equal "
+            "`model.n_shocks`). Values in [0, 1]; 0 zeroes that shock entirely. "
+            "Applied to BOTH the residual expectation and the rollout state path."
+        ),
+    )
 
-    target_update_every: int = Field(default=0)  # 0=off, >0=update target net every N episodes
-    target_tau: float = Field(default=1.0)        # 1.0=hard copy, <1=Polyak averaging
+    target_update_every: int = Field(default=0, description="Target-network update interval in episodes. 0 disables target network entirely.")
+    target_tau: float = Field(default=1.0, description="Polyak averaging coefficient for target-network update. 1.0 = hard copy, <1 = soft update toward current params.")
 
-    # Per-run override of model.constants (e.g. {p_disaster: 0.02}).
-    # Empty dict = use the model's built-in calibration unchanged.
-    constants: Dict[str, float] = Field(default_factory=dict)
+    constants: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-run override of model.constants (e.g. `{p_disaster: 0.02}`). Merges into the model's built-in calibration.",
+    )
 
-    # When True (default) and the model has p_disaster > 0, the trainer
-    # auto-swaps steady_state_fn to the risky steady state for use as the
-    # composite-loss anchor and Blanchard-Kahn linearization point.
-    # Set False to force the deterministic SS as anchor even under disaster
-    # risk — useful for ablating anchor/residual disagreement.
-    use_risky_steady_state: bool = True
+    use_risky_steady_state: bool = Field(
+        default=True,
+        description=(
+            "If True and `p_disaster > 0`, anchor composite loss and "
+            "linearization at the risky SS (E_d[F]=0) instead of deterministic SS. "
+            "Set False to force deterministic SS anchor under disaster risk "
+            "(for ablation)."
+        ),
+    )
 
-    # When True (default) and checkpoint_dir is set, the trainer writes
-    # checkpoint_best.eqx whenever the training loss improves past the
-    # running minimum (after curriculum_episodes grace period).
-    # Motivation: disaster-block training can find a good solution then be
-    # destabilised by a rare huge-gradient event. Keeping the best snapshot
-    # separate from the latest snapshot makes "best achievable" the
-    # shippable artifact instead of "last episode".
-    save_best_checkpoint: bool = True
+    save_best_checkpoint: bool = Field(
+        default=True,
+        description=(
+            "If True and `checkpoint_dir` is set, persist `checkpoint_best.eqx` "
+            "on every loss improvement (after `curriculum_episodes` grace period). "
+            "Guards against rare huge-gradient events corrupting the latest snapshot."
+        ),
+    )
 
-    # DEQN-style rollout schedule: per outer iteration, do 1 rollout that
-    # fills a trajectory of (episode_length × batch_size) states, then
-    # sweep that trajectory in minibatches of size batch_size. n_epochs is
-    # the number of sweeps; n_minibatches_per_epoch is how many minibatches
-    # per sweep (None = use all available = episode_length).
-    # Default (1 epoch × all minibatches) matches DEQN_MAO's run_cycle.
-    # Set n_minibatches_per_epoch=1 for legacy one-grad-per-rollout behavior.
-    n_epochs_per_rollout: int = Field(default=1)
-    n_minibatches_per_epoch: Optional[int] = Field(default=None)
+    n_epochs_per_rollout: int = Field(
+        default=1,
+        description=(
+            "DEQN cycle: per outer iteration, 1 rollout fills a trajectory of "
+            "(`sim_batch` × `episode_length`) states, then we do `n_epochs_per_rollout` "
+            "sweeps over it. Default 1 matches DEQN-MAO's run_cycle."
+        ),
+    )
+    n_minibatches_per_epoch: Optional[int] = Field(
+        default=None,
+        description=(
+            "Minibatches per sweep. None = all available (full-trajectory sweep). "
+            "Set to 1 for the legacy one-grad-per-rollout behavior."
+        ),
+    )
 
-    # Controls the shuffle pattern when drawing minibatches from the
-    # rolled-out trajectory. Matches DEQN-MAO's flag of the same name.
-    #
-    # False (default): individual samples are shuffled globally across the
-    #   (episode_length × batch_size) pool before batching. Each minibatch
-    #   is an IID mix of states from different times and trajectories --
-    #   the natural choice for iid-sample gradient estimation.
-    #
-    # True: the trajectory tensor is transposed to trajectory-major
-    #   ([batch, episode_length, n_states]), batches are formed as
-    #   contiguous slices of single trajectories (preserving temporal
-    #   order within each minibatch), then the *order of batches* is
-    #   shuffled. Standard RL practice: minibatches are coherent
-    #   trajectory segments. Required for sequence-aware policies and
-    #   for any method whose gradient depends on intra-batch temporal
-    #   ordering.
-    #
-    # Applies only when history_len == 1 (MLP path). Sequence nets
-    # already get temporally-coherent windows via build_history_windows.
-    sorted_within_batch: bool = False
+    sorted_within_batch: bool = Field(
+        default=False,
+        description=(
+            "Minibatch shuffle policy. False = IID shuffle across all "
+            "(episode_length × sim_batch) samples. True = each minibatch is a "
+            "contiguous temporal slice of a single trajectory (RL-style); batch "
+            "order shuffled, intra-batch order preserved. MLP-only."
+        ),
+    )
 
-    # Number of parallel simulation trajectories in the rollout. When
-    # None (default), falls back to ``batch_size`` -- i.e. trajectory
-    # count and gradient minibatch size are the same. Setting sim_batch
-    # > batch_size decouples them (matches DEQN-MAO's N_sim_batch vs
-    # N_minibatch_size distinction), so the rolled-out pool is
-    # (sim_batch × episode_length) states and each gradient update
-    # draws batch_size samples from that pool. Larger sim_batch gives
-    # a more representative ergodic distribution per cycle; batch_size
-    # controls per-step gradient variance.
-    sim_batch: Optional[int] = Field(default=None)
+    sim_batch: Optional[int] = Field(
+        default=None,
+        description=(
+            "Number of parallel simulation trajectories in the rollout. None "
+            "(default) = same as `batch_size`. Setting `sim_batch > batch_size` "
+            "decouples trajectory count from gradient minibatch size — larger "
+            "pool = more representative ergodic distribution per cycle."
+        ),
+    )
 
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
     VALID_LOSS_CHOICES: ClassVar[frozenset] = frozenset({"mse", "huber"})
