@@ -1842,13 +1842,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         jax.config.update("jax_enable_x64", True)
 
     # Reject composite loss combined with optimizers whose update paths
-    # only see base-equation gradients. In these combinations the
-    # composite auxiliary losses (anchor, Jacobian, barriers, Newton)
-    # appear in metrics but never affect parameter updates -- a silent
-    # correctness bug. Rather than plumb composite through MAO's
-    # eq_jac / GN's residual-Jacobian / PCGrad's per-equation gradients
-    # (a larger framework change), error out at startup so the user
-    # switches to a supported combination or filesa feature request.
+    # only see base-equation gradients. Ordered first because this is
+    # the more specific / silent-correctness class of mistake.
     if config.loss_type == "composite":
         _bad_opts = {"mao", "lm", "gn", "lbfgs"}
         _opt_name = config.optimizer.name.lower()
@@ -1865,7 +1860,46 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 f"variant), or switch to loss_type='mse'."
             )
 
+    # episode_length=1 without initialize_each_episode gives no state
+    # advancement. The cycle seeds the next rollout from trajectory[-1],
+    # which when T=1 is just s_0 -- so the "rollout" is a single state
+    # that never moves and episode_state drifts only via grad-step side
+    # effects. This is almost certainly a config mistake (the user wants
+    # fresh-sample-per-step semantics). Require the flag combination to
+    # be explicit.
+    if config.episode_length == 1 and not config.initialize_each_episode:
+        raise ValueError(
+            "episode_length=1 requires initialize_each_episode=True. "
+            "With T=1 and no re-initialization the cycle re-seeds from "
+            "trajectory[-1] = s_0 and the state never advances between "
+            "cycles; training collapses to a single-state regression. "
+            "If you want fresh uniform-from-init draws each cycle, set "
+            "initialize_each_episode: true. If you want rollout-based "
+            "training, use episode_length > 1."
+        )
+
     model = load_model(config.model)
+
+    # Shape validation against the loaded model. Catches mismatches that
+    # would otherwise surface as runtime JAX shape errors deep inside
+    # the JIT'd loop, or (worse) silently produce partial minibatches.
+    sim_batch_eff = config.sim_batch if config.sim_batch is not None else config.batch_size
+    trajectory_pool = config.episode_length * sim_batch_eff
+    if trajectory_pool < config.batch_size:
+        raise ValueError(
+            f"Trajectory pool (episode_length * sim_batch = "
+            f"{config.episode_length} * {sim_batch_eff} = {trajectory_pool}) "
+            f"is smaller than batch_size ({config.batch_size}). The minibatch "
+            f"sweep would either draw partial batches or reuse samples. "
+            f"Increase episode_length or sim_batch, or decrease batch_size."
+        )
+
+    if config.shock_mask is not None and len(config.shock_mask) != model.n_shocks:
+        raise ValueError(
+            f"shock_mask length ({len(config.shock_mask)}) must equal the "
+            f"model's n_shocks ({model.n_shocks}). model={model.name} has "
+            f"shock_names={model.shock_names!r}."
+        )
 
     # Per-run override of model constants (e.g. {p_disaster: 0.02}).
     if config.constants:
