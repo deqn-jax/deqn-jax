@@ -160,6 +160,11 @@ class TrainState(NamedTuple):
         aux_opt_state: Optimizer state for ``aux_params`` if trained with
             its own optimizer. ``None`` if aux is trained jointly with the
             primary optimizer.
+        history_state: Sliding history window ``[batch, H, n_states]`` for
+            sequence policies (LSTM/Transformer, ``network.history_len > 1``).
+            Persists across rollouts so recurrent training sees continuous
+            ergodic trajectories rather than rebuilding a constant window
+            at every cycle. ``None`` for MLP models (``history_len == 1``).
     """
 
     params: Any  # Equinox model
@@ -173,6 +178,7 @@ class TrainState(NamedTuple):
     target_params: Any = None  # Frozen policy for target network (DQN-style)
     aux_params: Any = None      # Auxiliary trainable module (value net, critic, ...)
     aux_opt_state: Any = None   # Optimizer state for aux_params if separate
+    history_state: Any = None   # [batch, H, n_states] for sequence policies, else None
 
 
 class EpisodeState(NamedTuple):

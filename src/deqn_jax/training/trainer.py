@@ -48,7 +48,6 @@ def _strip_eq_prefix(name: str) -> str:
 def _print_residual_table(items: list, n_cols: int = 3):
     """Print residuals as an aligned multi-column table."""
     name_width = max(len(n) for n, _ in items)
-    col_width = name_width + 11  # name + space + "1.23e-04" + padding
     rows = (len(items) + n_cols - 1) // n_cols
     for r in range(rows):
         parts = []
@@ -529,6 +528,19 @@ def create_train_state(
     else:
         weights = jnp.ones(n_equations)
 
+    # Seed the history window for sequence policies (LSTM/Transformer).
+    # For MLP (history_len=1) keep history_state=None -- the rollout
+    # path never touches it in that case. make_constant_history tiles
+    # init_states across the time axis so the first rollout sees a
+    # well-defined but uninformative prefix; subsequent rollouts persist
+    # the actual final window via TrainState.history_state.
+    from deqn_jax.training.history import get_history_len, make_constant_history
+    hist_len = get_history_len(policy_net)
+    if hist_len > 1:
+        init_history = make_constant_history(init_states, hist_len)
+    else:
+        init_history = None
+
     state = TrainState(
         params=policy_net,
         opt_state=opt_state,
@@ -538,6 +550,7 @@ def create_train_state(
         episode=0,
         loss_weights=weights,
         reweight_state=make_reweight_state(n_equations),
+        history_state=init_history,
     )
 
     return state, opt, kind
@@ -624,8 +637,11 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
             ep_states = ep_states.at[:n_reset].set(fresh)
 
     if history_len > 1:
-        # Sequence path: run episode with history, build windows
-        trajectory, final_state = run_episode_with_history(
+        # Sequence path: run episode with history, build windows.
+        # state.history_state persists the sliding window across rollouts;
+        # when None (first-ever rollout) run_episode_with_history rebuilds
+        # from ep_states via make_constant_history.
+        trajectory, final_state, final_history = run_episode_with_history(
             model,
             state.params,
             ep_states,
@@ -634,6 +650,7 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
             history_len,
             shock_scale=shock_scale,
             shock_mask=shock_mask,
+            init_history=state.history_state,
         )
         # Build sliding windows from trajectory: [(T-H+1)*B, H, D]
         all_windows = build_history_windows(trajectory, history_len)
@@ -655,8 +672,9 @@ def _run_episode_and_sample(model, state, episode_length, batch_size, history_le
         n_states = all_states.shape[0]
         indices = jax.random.permutation(shuffle_key, n_states)[:batch_size]
         train_batch = all_states[indices]  # [batch, D]
+        final_history = state.history_state  # None for MLP; pass through
 
-    return train_batch, final_state, loss_key, key
+    return train_batch, final_state, final_history, loss_key, key
 
 
 def _update_reweighting(eq_losses, state, loss_reweight, reweight_alpha, n_eq):
@@ -686,6 +704,7 @@ class _StepContext(_NamedTuple):
     """Pre-computed values shared by all train step variants."""
     train_states: Array
     final_state: Any
+    final_history: Any   # Sliding-window history for sequence policies; None for MLP
     loss_key: Array
     key: Array
     target_fn: Any  # None or frozen params
@@ -705,7 +724,7 @@ def _prepare_step(model, state, episode_length, batch_size, history_len,
     that training-time shock conventions (curriculum ramp, shock ablation)
     apply to both the state trajectory and the loss expectation.
     """
-    train_states, final_state, loss_key, key = _run_episode_and_sample(
+    train_states, final_state, final_history, loss_key, key = _run_episode_and_sample(
         model, state, episode_length, batch_size, history_len,
         ss_reset_frac=ss_reset_frac,
         initialize_each_episode=initialize_each_episode,
@@ -713,7 +732,7 @@ def _prepare_step(model, state, episode_length, batch_size, history_len,
         shock_mask=shock_mask,
     )
     target_fn = state.target_params if use_target_network else None
-    return _StepContext(train_states, final_state, loss_key, key, target_fn)
+    return _StepContext(train_states, final_state, final_history, loss_key, key, target_fn)
 
 
 def _finalize_step(state, ctx, new_params, new_opt_state, loss, eq_losses,
@@ -735,6 +754,7 @@ def _finalize_step(state, ctx, new_params, new_opt_state, loss, eq_losses,
         loss_weights=new_weights,
         reweight_state=new_rw,
         target_params=state.target_params,
+        history_state=ctx.final_history,
     )
     return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
@@ -781,16 +801,18 @@ def _make_rollout_fn(
                 fresh = ss_state * (1 + noise)
                 ep_states = ep_states.at[:n_reset].set(fresh)
         if history_len > 1:
-            trajectory, final_state = run_episode_with_history(
+            trajectory, final_state, final_history = run_episode_with_history(
                 model, state.params, ep_states, episode_key, episode_length, history_len,
                 shock_scale=shock_scale,
+                init_history=state.history_state,
             )
         else:
             trajectory, final_state = run_episode(
                 model, state.params, ep_states, episode_key, episode_length,
                 shock_scale=shock_scale,
             )
-        return trajectory, final_state, key
+            final_history = state.history_state  # None for MLP; pass through unchanged
+        return trajectory, final_state, final_history, key
     return rollout_fn
 
 
@@ -1213,9 +1235,15 @@ def _make_cycle_step(
         # overlap by one state, and each cycle advances T-1 transitions).
         # We use trajectory[-1] = s_{T-1} for seeding to match that
         # convention; final_carry_state is discarded.
-        trajectory, _final_after_T, new_key = rollout_fn(state, shock_scale)
+        trajectory, _final_after_T, final_history, new_key = rollout_fn(state, shock_scale)
         next_seed = trajectory[-1]
-        state = state._replace(episode_state=next_seed, key=new_key)
+        # Persist the history window alongside episode_state so recurrent
+        # policies see continuous trajectories across cycles instead of
+        # a constant-prefix rebuild at every rollout. For MLP (history_len=1)
+        # final_history passes through as None.
+        state = state._replace(
+            episode_state=next_seed, key=new_key, history_state=final_history,
+        )
 
         # 2. Build the minibatch dataset from the full trajectory.
         # Two layouts (chosen at trace time via sorted_within_batch):
@@ -1414,8 +1442,7 @@ def _make_pcgrad_step(
 
         # Flatten per-equation gradients to [n_eq, n_params]
         params_arrays = eqx.filter(state.params, eqx.is_array)
-        flat_params, unflatten_fn = jax.flatten_util.ravel_pytree(params_arrays)
-        n_params = flat_params.shape[0]
+        _flat_params, unflatten_fn = jax.flatten_util.ravel_pytree(params_arrays)
 
         # Extract and flatten each equation's gradient
         eq_jac_arrays = eqx.filter(eq_jac, eqx.is_array)
@@ -1751,22 +1778,6 @@ def make_train_step(
     Returns:
         JIT-compiled train_step function
     """
-    kwargs = dict(
-        model=model,
-        opt=opt if kind != OptimizerKind.MAO else None,
-        episode_length=episode_length,
-        mc_samples=mc_samples,
-        batch_size=batch_size,
-        loss_reweight=loss_reweight,
-        reweight_alpha=reweight_alpha,
-        quad_nodes=quad_nodes,
-        quad_weights=quad_weights,
-        history_len=history_len,
-        compute_loss_fn=compute_loss_fn,
-        ss_reset_frac=ss_reset_frac,
-        use_target_network=use_target_network,
-    )
-
     # All kinds now use the DEQN-style rollout + minibatch-sweep cycle.
     # Per outer iteration: 1 rollout (fills state_episode) + n_epochs ×
     # n_minibatches gradient updates over the full trajectory. The kind
@@ -2046,8 +2057,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     sample_states = ss_state * (1 + noise)
                     # Build constant history windows for each sample state
                     sample_history = make_constant_history(sample_states, _hl)  # [256, H, D]
-                    target_fn = lambda h: ss_policy  # constant target
-                    # Custom loss for sequence net
+                    # Custom loss for sequence net: supervise every sample
+                    # toward the SS policy (constant target).
                     targets = jnp.tile(ss_policy, (256, 1))
                     def _ws_loss(params):
                         pred = jax.vmap(params)(sample_history)

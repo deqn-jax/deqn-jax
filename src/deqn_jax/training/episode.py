@@ -154,13 +154,19 @@ def run_episode_with_history(
     history_len: int = 10,
     shock_scale: Any = 1.0,
     shock_mask: Optional[Array] = None,
-) -> Tuple[Array, Array]:
+    init_history: Optional[Array] = None,
+) -> Tuple[Array, Array, Array]:
     """Run episode with history-aware policy (LSTM/Transformer).
 
     Carries a sliding history window [B, H, D] through the episode.
     At each step: policy = policy_fn(history), then shift_history.
 
-    History is initialized as constant (init_state repeated H times).
+    If ``init_history`` is None, the window is initialized as a constant
+    tile of ``init_state`` — appropriate for an episodic fresh start. If
+    ``init_history`` is passed (from ``TrainState.history_state``), the
+    window is continued from the previous rollout's final window, so
+    recurrent policies see continuous ergodic trajectories across cycles
+    rather than a constant-prefix cold start every time.
 
     Args:
         model: Model specification
@@ -169,21 +175,20 @@ def run_episode_with_history(
         key: PRNG key
         episode_length: Number of steps in episode
         history_len: History window size
+        init_history: Optional existing history window [B, H, D] to
+            continue from; default None rebuilds a constant window.
 
     Returns:
         Tuple of:
             trajectory: States visited [episode_length, batch, n_states]
             final_state: Last state [batch, n_states]
+            final_history: Final history window [batch, H, n_states]
+                (to persist across rollouts; feed back as ``init_history``).
     """
     from deqn_jax.training.history import make_constant_history, shift_history
 
-    batch_size = init_state.shape[0]
-
-    # Initialize history: repeat init_state across time axis
-    init_history = make_constant_history(init_state, history_len)  # [B, H, D]
-
-    class HistoryCarry(Tuple):
-        pass
+    if init_history is None:
+        init_history = make_constant_history(init_state, history_len)  # [B, H, D]
 
     def scan_fn(carry, _):
         state, history, key = carry
@@ -205,14 +210,14 @@ def run_episode_with_history(
 
     init_carry = (init_state, init_history, key)
 
-    (final_state, _, _), trajectory = lax.scan(
+    (final_state, final_history, _), trajectory = lax.scan(
         scan_fn,
         init_carry,
         None,
         length=episode_length,
     )
 
-    return trajectory, final_state
+    return trajectory, final_state, final_history
 
 
 def simulate_trajectory(

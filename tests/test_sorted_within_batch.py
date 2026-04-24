@@ -35,8 +35,11 @@ def _run_cycle_capture(sorted_flag: bool, seed: int = 0):
 
     # Stub rollout_fn: returns the prepared trajectory and a fake final state.
     # Accepts shock_scale for API compatibility; unused in this unit test.
+    # 4-tuple matches the real rollout_fn post history-state plumbing:
+    # (trajectory, final_state, final_history, new_key). final_history
+    # is None for this MLP-shaped test fixture.
     def rollout_fn(state, shock_scale=jnp.array(1.0)):
-        return trajectory, trajectory[-1], state.key
+        return trajectory, trajectory[-1], None, state.key
 
     # Capture each minibatch.
     observed = []
