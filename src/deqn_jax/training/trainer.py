@@ -1817,6 +1817,30 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     if config.fp64 and not jax.config.read("jax_enable_x64"):
         jax.config.update("jax_enable_x64", True)
 
+    # Reject composite loss combined with optimizers whose update paths
+    # only see base-equation gradients. In these combinations the
+    # composite auxiliary losses (anchor, Jacobian, barriers, Newton)
+    # appear in metrics but never affect parameter updates -- a silent
+    # correctness bug. Rather than plumb composite through MAO's
+    # eq_jac / GN's residual-Jacobian / PCGrad's per-equation gradients
+    # (a larger framework change), error out at startup so the user
+    # switches to a supported combination or filesa feature request.
+    if config.loss_type == "composite":
+        _bad_opts = {"mao", "lm", "gn", "lbfgs"}
+        _opt_name = config.optimizer.name.lower()
+        _is_pcgrad = (config.gradient_surgery == "pcgrad")
+        if _opt_name in _bad_opts or _is_pcgrad:
+            raise ValueError(
+                f"loss_type='composite' is not supported with optimizer "
+                f"'{config.optimizer.name}'"
+                + (" + gradient_surgery='pcgrad'" if _is_pcgrad else "")
+                + ". Composite auxiliary losses (anchor, Jacobian, barriers, "
+                f"Newton) would appear in logs but not affect parameter updates "
+                f"on this path. Use optimizer 'adam'/'sgd'/'adamw'/'lion'/'muon'/"
+                f"'ngd'/'shampoo' with gradient_surgery='none' (the STANDARD "
+                f"variant), or switch to loss_type='mse'."
+            )
+
     model = load_model(config.model)
 
     # Per-run override of model constants (e.g. {p_disaster: 0.02}).
