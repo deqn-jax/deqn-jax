@@ -79,11 +79,17 @@ class TestDisasterTraining:
         """Loss should decrease over training."""
         from deqn_jax.training.trainer import train
 
+        # LR calibration note: loss aggregation across equations changed
+        # from sum to mean (DEQN-MAO convention) on 2026-04-24. Disaster
+        # has 11 equations, so the pre-change LR=3e-4 in sum mode acts
+        # like LR=3.3e-5 in mean mode. Compensate with a larger LR and
+        # more episodes so the smoke test still reflects "loss goes
+        # down" under the new convention.
         params, history = train(
             "disaster",
-            episodes=150,
+            episodes=300,
             hidden_sizes=(64, 64),
-            learning_rate=3e-4,
+            learning_rate=1e-2,
             batch_size=64,
             episode_length=50,
             mc_samples=3,

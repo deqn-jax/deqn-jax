@@ -326,6 +326,20 @@ def compute_loss(
         w = 1.0 if weights is None else weights[i]
         total_loss = total_loss + w * eq_loss
 
+    # Cross-equation aggregation: mean over equations (DEQN-MAO convention),
+    # not sum. With `sum`, total loss and per-LR gradient scale grow linearly
+    # in equation count, making LR calibrations non-transferable across
+    # models of different sizes (brock_mirman=1, bm_labor=2, olg=5,
+    # disaster=11). `mean` decouples the loss magnitude from equation count
+    # so the same LR is roughly comparable across models. Note: this is a
+    # convention change from an earlier sum-based aggregation; multi-
+    # equation runs calibrated against the old convention may need their
+    # LR multiplied by n_equations to recover the same effective per-eq
+    # gradient magnitude.
+    n_eq = len(all_residuals)
+    if n_eq > 1:
+        total_loss = total_loss / n_eq
+
     # State barrier: penalize next_states outside plausible bounds
     if barrier_weight > 0 and model.state_barrier_fn is not None:
         current_states = states[:, -1, :] if states.ndim == 3 else states
