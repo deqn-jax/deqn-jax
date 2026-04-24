@@ -12,6 +12,7 @@ from deqn_jax.models.bm_labor_autodiff import MODEL as _bm_labor_autodiff
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
 from deqn_jax.models.brock_mirman_autodiff import MODEL as _brock_mirman_autodiff
 from deqn_jax.models.disaster import MODEL as _disaster
+from deqn_jax.models.irbc import MODEL as _irbc
 from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
 from deqn_jax.types import ModelSpec
 
@@ -22,6 +23,7 @@ _MODELS = {
     "bm_labor": _bm_labor,
     "bm_labor_autodiff": _bm_labor_autodiff,
     "olg_analytic_6": _olg_analytic_6,
+    "irbc": _irbc,
     "disaster": _disaster,
 }
 
@@ -32,6 +34,7 @@ _DESCRIPTIONS = {
     "bm_labor": "Brock-Mirman (1972) with endogenous labor supply",
     "bm_labor_autodiff": "Brock-Mirman with labor, both FOCs from Pi via jax.grad (multi-policy autodiff)",
     "olg_analytic_6": "6-agent OLG with closed-form solution (Krueger-Kubler 2004)",
+    "irbc": "2-country International RBC with irreversibility (Fischer-Burmeister)",
     "disaster": "NK-DSGE with financial frictions",
 }
 

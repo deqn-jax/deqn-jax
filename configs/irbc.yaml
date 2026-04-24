@@ -1,0 +1,41 @@
+# 2-country International RBC.
+#
+# 4 states (2 k + 2 z), 5 policies (2 k_next + lam + 2 mu), 5 equations
+# (2 Euler + ARC + 2 Fischer-Burmeister), 3 shocks (2 country-specific +
+# 1 aggregate). All policy outputs softplus (positive).
+#
+# Uses Gauss-Hermite quadrature with n=3 per shock dim (3^3 = 27 nodes,
+# exact for polynomial integrands up to degree 5 per dim).
+
+model: irbc
+
+episodes: 2001
+batch_size: 128
+episode_length: 1
+mc_samples: 1                # ignored under quadrature
+expectation_type: gauss_hermite
+n_quadrature_points: 3       # 3^3 = 27 shock-grid points
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  lr_schedule: constant
+
+# The ARC residual can be much larger in magnitude than Euler / FB early
+# in training (consumption pinned from lambda can over/undershoot
+# aggregate output by a lot). Mean-over-equations aggregation (since
+# 2026-04-24) helps; if the ARC still dominates, flip loss_reweight on.
+loss_reweight: none
+
+warm_start: false
+log_every: 200
