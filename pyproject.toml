@@ -117,9 +117,15 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
-ignore = ["E501"]
+ignore = [
+    "E501",  # line too long (formatting concern, not correctness)
+    "E741",  # ambiguous variable name -- economics uses L, I, K, etc. as domain conventions
+    "E731",  # lambda assignment -- sometimes cleaner than def for one-liners
+    "E402",  # module import not at top of file -- needed for conditional/lazy imports
+]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.15.11",
 ]

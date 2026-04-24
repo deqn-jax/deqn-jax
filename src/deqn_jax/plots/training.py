@@ -15,11 +15,10 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, Sequence
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from deqn_jax.plots._style import deqn_style, get_ax
-
 
 # ---------------------------------------------------------------------------
 

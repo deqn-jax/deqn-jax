@@ -25,7 +25,6 @@ from jax import Array
 
 from deqn_jax.models.olg_analytic_6.variables import SPEC, A
 
-
 EQUATION_NAMES = tuple(f"euler_h{h+1}" for h in range(A - 1))
 
 

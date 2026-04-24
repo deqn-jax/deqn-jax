@@ -1,6 +1,5 @@
 """Convergence tests for DEQN-JAX models."""
 
-import jax
 import jax.numpy as jnp
 import pytest
 
@@ -51,8 +50,8 @@ class TestBrockMirmanConvergence:
 
     def test_policy_near_steady_state(self):
         """Trained policy should be close to analytical steady state."""
-        from deqn_jax.training.trainer import train
         from deqn_jax.models.brock_mirman import MODEL, steady_state
+        from deqn_jax.training.trainer import train
 
         params, _ = train(
             "brock_mirman",

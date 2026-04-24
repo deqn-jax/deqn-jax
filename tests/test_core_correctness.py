@@ -20,7 +20,7 @@ class TestDisasterSteadyState:
     @pytest.fixture(autouse=True)
     def setup(self):
         jax.config.update("jax_enable_x64", True)
-        from deqn_jax.models.disaster import MODEL, steady_state, equations
+        from deqn_jax.models.disaster import MODEL, equations, steady_state
         self.MODEL = MODEL
         self.equations = equations
         self.ss_state, self.ss_policy = steady_state(MODEL.constants)

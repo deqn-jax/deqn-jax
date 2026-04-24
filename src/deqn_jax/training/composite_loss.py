@@ -10,14 +10,14 @@ Usage:
     # loss_fn has the same signature as compute_loss
 """
 
-from typing import Callable, Dict, Optional, Tuple, NamedTuple
+from typing import Callable, Dict, NamedTuple, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.types import ModelSpec
 from deqn_jax.training.loss import compute_loss
+from deqn_jax.types import ModelSpec
 
 
 class CompositeData(NamedTuple):

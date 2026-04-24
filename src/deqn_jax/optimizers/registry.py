@@ -4,7 +4,6 @@ Maps optimizer names to factory functions and optimizer kinds.
 The kind determines which train_step variant is used.
 """
 
-import copy
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 

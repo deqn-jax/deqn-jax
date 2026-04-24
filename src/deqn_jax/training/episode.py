@@ -11,11 +11,10 @@ Using lax.scan makes the entire episode JIT-compilable.
 from typing import Any, Callable, Optional, Tuple
 
 import jax
-import jax.numpy as jnp
 from jax import Array, lax
 
-from deqn_jax.types import EpisodeState, ModelSpec
 from deqn_jax.training.shocks import simulation_step
+from deqn_jax.types import EpisodeState, ModelSpec
 
 
 def simulate_step(

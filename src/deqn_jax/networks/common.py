@@ -4,13 +4,12 @@ Provides common bounding, activation, and initialization helpers used
 by MLP, LSTM, and Transformer policy networks.
 """
 
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Optional
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import Array
-
 
 ACTIVATION_FNS = {
     "tanh": jax.nn.tanh,

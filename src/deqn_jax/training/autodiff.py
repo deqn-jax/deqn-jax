@@ -36,7 +36,7 @@ Not yet supported (tracked in ``docs/site/autodiff.md``):
   Fischer-Burmeister).
 """
 
-from typing import Callable, Dict, Iterable, Tuple
+from typing import Callable, Dict, Iterable
 
 import jax
 import jax.numpy as jnp

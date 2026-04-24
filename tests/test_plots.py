@@ -8,23 +8,24 @@ headless. Does not check pixel fidelity.
 from __future__ import annotations
 
 import io
-import numpy as np
-import pytest
 
 # Headless backend for tests.
 import matplotlib
+import numpy as np
+import pytest
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from deqn_jax.plots import (
-    plot_loss_curve,
-    plot_grad_norm,
-    plot_per_equation_residuals,
-    plot_irf_grid,
-    plot_multi_run_loss,
-    plot_schedule_alignment,
     parse_log,
     parse_log_single,
+    plot_grad_norm,
+    plot_irf_grid,
+    plot_loss_curve,
+    plot_multi_run_loss,
+    plot_per_equation_residuals,
+    plot_schedule_alignment,
 )
 
 

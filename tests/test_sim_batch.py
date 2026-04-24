@@ -15,7 +15,7 @@ import pytest
 
 def test_sim_batch_none_defaults_to_batch_size():
     """When sim_batch is unset, episode_state.shape[0] == batch_size."""
-    from deqn_jax.config import TrainConfig, NetworkConfig, OptimizerConfig
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
     from deqn_jax.training.trainer import train_from_config
 
     cfg = TrainConfig(
@@ -33,7 +33,7 @@ def test_sim_batch_none_defaults_to_batch_size():
 def test_sim_batch_larger_than_batch_size():
     """sim_batch=256, batch_size=64: pool has 256×episode_length samples,
     each gradient step pulls 64 of them."""
-    from deqn_jax.config import TrainConfig, NetworkConfig, OptimizerConfig
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
     from deqn_jax.training.trainer import train_from_config
 
     cfg = TrainConfig(
@@ -51,9 +51,10 @@ def test_sim_batch_carries_through_episode_state():
     """With sim_batch set, the initial state sampler should draw
     sim_batch trajectories, and episode_state should reflect that."""
     import jax
+
     from deqn_jax.config import NetworkConfig, OptimizerConfig
-    from deqn_jax.training.trainer import create_train_state
     from deqn_jax.models.brock_mirman import MODEL
+    from deqn_jax.training.trainer import create_train_state
 
     key = jax.random.PRNGKey(0)
     state, _, _ = create_train_state(
@@ -73,9 +74,10 @@ def test_sim_batch_carries_through_episode_state():
 def test_sim_batch_none_uses_batch_size_for_episode_state():
     """When sim_batch=None, episode_state falls back to batch_size."""
     import jax
+
     from deqn_jax.config import NetworkConfig, OptimizerConfig
-    from deqn_jax.training.trainer import create_train_state
     from deqn_jax.models.brock_mirman import MODEL
+    from deqn_jax.training.trainer import create_train_state
 
     key = jax.random.PRNGKey(0)
     state, _, _ = create_train_state(

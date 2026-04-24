@@ -15,11 +15,10 @@ import re
 from pathlib import Path
 from typing import Dict, Mapping, Optional
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from deqn_jax.plots._style import deqn_style, get_ax
-
 
 # ---------------------------------------------------------------------------
 # Log parsing

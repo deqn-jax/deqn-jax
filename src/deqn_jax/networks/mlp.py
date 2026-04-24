@@ -8,7 +8,6 @@ import jax.numpy as jnp
 from jax import Array
 
 from deqn_jax.networks.common import (
-    ACTIVATION_FNS,
     INIT_FNS,
     _apply_bounds,
     _apply_init,

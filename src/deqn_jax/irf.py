@@ -20,8 +20,6 @@ import yaml
 from jax import Array
 
 from deqn_jax.models import load_model
-from deqn_jax.types import TrainState
-
 
 # ---------------------------------------------------------------------------
 # Core IRF simulation
@@ -263,9 +261,8 @@ def load_policy_from_checkpoint(
 
     # Deserialize — the checkpoint is a full TrainState, we need just params
     # Build a template TrainState to match the checkpoint structure
-    from deqn_jax.config import load_config, OptimizerConfig
+    from deqn_jax.config import OptimizerConfig
     from deqn_jax.training.trainer import create_train_state
-    from deqn_jax.optimizers import create_optimizer
 
     n_equations = len(model.equation_names) if model.equation_names else model.n_policies
 

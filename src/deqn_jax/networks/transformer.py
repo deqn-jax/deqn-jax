@@ -7,7 +7,7 @@ for the current (last) timestep. Supports:
 - Mixed softplus/sigmoid output bounding (via common._apply_bounds)
 """
 
-from typing import Optional, Sequence
+from typing import Optional
 
 import equinox as eqx
 import jax

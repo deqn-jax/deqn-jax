@@ -22,7 +22,6 @@ Init sampler: uniform rect around the zero-shock SS, plus binary eta /
 delta drawn uniformly from the four shock states.
 """
 
-import math
 from typing import Dict, Tuple
 
 import jax

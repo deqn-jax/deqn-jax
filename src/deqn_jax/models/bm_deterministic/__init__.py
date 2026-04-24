@@ -14,14 +14,18 @@ References: Brock & Mirman (1972), J. Econ. Theory 4(3), 479-513.
 Azinovic, Gaegauf & Scheidegger (2022), IER 63(4), 1471-1525.
 """
 
-from deqn_jax.types import ModelSpec
-from deqn_jax.models.bm_deterministic.variables import (
-    SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER,
-)
-from deqn_jax.models.bm_deterministic.equations import equations, definitions, EQUATION_NAMES
 from deqn_jax.models.bm_deterministic.dynamics import step
-from deqn_jax.models.bm_deterministic.steady_state import steady_state, init_state
+from deqn_jax.models.bm_deterministic.equations import EQUATION_NAMES, definitions, equations
 from deqn_jax.models.bm_deterministic.hooks import make_cycle_hook
+from deqn_jax.models.bm_deterministic.steady_state import init_state, steady_state
+from deqn_jax.models.bm_deterministic.variables import (
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
+)
+from deqn_jax.types import ModelSpec
 
 MODEL = ModelSpec(
     name="bm_deterministic",

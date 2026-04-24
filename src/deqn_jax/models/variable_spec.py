@@ -10,6 +10,7 @@ JAX traces through NamedTuples efficiently.
 """
 
 from typing import Any, Dict, NamedTuple, Tuple, Type
+
 import jax.numpy as jnp
 from jax import Array
 
@@ -175,7 +176,6 @@ def make_init_state_fn(
 
     Unknown distribution names raise ValueError at build time.
     """
-    from typing import Any as _Any  # local alias so type hints above type-check
 
     # Validate early so model-construction errors are obvious.
     for name, spec in init_specs.items():

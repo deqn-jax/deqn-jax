@@ -14,8 +14,8 @@ from typing import Dict
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.bm_deterministic.variables import SPEC
 from deqn_jax.models.bm_deterministic.equations import definitions
+from deqn_jax.models.bm_deterministic.variables import SPEC
 
 
 def step(

@@ -2,14 +2,14 @@
 
 from typing import Dict, Tuple
 
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from scipy.optimize import root
 
-from deqn_jax.models.disaster.variables import SPEC, STEADY_STATE, CONSTANTS, OMEGA_BAR_SS
-from deqn_jax.models.disaster.equations import equations, Gamma, G_omega, solve_omega_bar
+from deqn_jax.models.disaster.equations import G_omega, Gamma, equations, solve_omega_bar
+from deqn_jax.models.disaster.variables import CONSTANTS, OMEGA_BAR_SS, SPEC, STEADY_STATE
 
 
 def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:

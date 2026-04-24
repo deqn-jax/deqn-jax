@@ -34,19 +34,19 @@ Multi-run comparison from parsed log files::
 See individual module docstrings for the exact data contracts.
 """
 
-from deqn_jax.plots.training import (
-    plot_loss_curve,
-    plot_per_equation_residuals,
-    plot_grad_norm,
-)
-from deqn_jax.plots.irf import (
-    plot_irf_grid,
-)
 from deqn_jax.plots.compare import (
     parse_log,
     parse_log_single,
     plot_multi_run_loss,
     plot_schedule_alignment,
+)
+from deqn_jax.plots.irf import (
+    plot_irf_grid,
+)
+from deqn_jax.plots.training import (
+    plot_grad_norm,
+    plot_loss_curve,
+    plot_per_equation_residuals,
 )
 
 __all__ = [

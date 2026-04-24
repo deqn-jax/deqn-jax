@@ -5,8 +5,8 @@ from typing import Dict
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.bm_labor.variables import SPEC
 from deqn_jax.models.bm_labor.equations import definitions
+from deqn_jax.models.bm_labor.variables import SPEC
 
 
 def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:

@@ -5,8 +5,8 @@ from typing import Dict
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.aiyagari.variables import SPEC
 from deqn_jax.models.aiyagari.equations import definitions
+from deqn_jax.models.aiyagari.variables import SPEC
 
 
 def step(

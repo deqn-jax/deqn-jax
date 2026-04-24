@@ -7,10 +7,10 @@ using the equilibrium equations with zero shocks.
 from typing import Dict, Optional, Tuple
 
 import jax
-import jax.numpy as jnp
 import jax.flatten_util
-from jax import Array
+import jax.numpy as jnp
 import optax
+from jax import Array
 
 from deqn_jax.types import ModelSpec
 
@@ -51,7 +51,7 @@ def solve_steady_state(
     if model.steady_state_fn is not None and not force_numerical:
         ss_state, ss_policy = model.steady_state_fn(model.constants)
         if verbose:
-            print(f"Using analytical steady state:")
+            print("Using analytical steady state:")
             print(f"  State: {ss_state}")
             print(f"  Policy: {ss_policy}")
         return ss_state, ss_policy

@@ -8,17 +8,27 @@ The analytic policy k'^h = beta_h * inc^h serves as an oracle; the
 trained DEQN should recover it exactly on the full training support.
 """
 
-from deqn_jax.types import ModelSpec
-from deqn_jax.models.olg_analytic_6.variables import (
-    SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER, A,
-)
-from deqn_jax.models.olg_analytic_6.equations import (
-    equations, definitions, EQUATION_NAMES,
-)
 from deqn_jax.models.olg_analytic_6.dynamics import step
-from deqn_jax.models.olg_analytic_6.steady_state import (
-    steady_state, init_state, analytic_policy, analytic_beta_h,
+from deqn_jax.models.olg_analytic_6.equations import (
+    EQUATION_NAMES,
+    definitions,
+    equations,
 )
+from deqn_jax.models.olg_analytic_6.steady_state import (
+    analytic_beta_h,
+    analytic_policy,
+    init_state,
+    steady_state,
+)
+from deqn_jax.models.olg_analytic_6.variables import (
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
+    A,
+)
+from deqn_jax.types import ModelSpec
 
 # Soft feasibility penalties: c^h >= 0 and K >= 0 at every training state.
 # Without these, a softplus-output network near initialization can produce

@@ -2,8 +2,8 @@
 
 import jax
 import jax.numpy as jnp
-import pytest
 import optax
+import pytest
 
 
 class TestRegistry:
@@ -25,34 +25,34 @@ class TestRegistry:
         assert "kfac" not in opts
 
     def test_create_adam(self):
-        from deqn_jax.optimizers import create_optimizer, OptimizerKind
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers import OptimizerKind, create_optimizer
         opt, kind = create_optimizer(OptimizerConfig(name="adam"))
         assert kind == OptimizerKind.STANDARD
 
     def test_create_mao(self):
-        from deqn_jax.optimizers import create_optimizer, OptimizerKind
-        from deqn_jax.optimizers.mao import _MAOFactory
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers import OptimizerKind, create_optimizer
+        from deqn_jax.optimizers.mao import _MAOFactory
         opt, kind = create_optimizer(OptimizerConfig(name="mao"))
         assert kind == OptimizerKind.MAO
         assert isinstance(opt, _MAOFactory)
 
     def test_create_lbfgs(self):
-        from deqn_jax.optimizers import create_optimizer, OptimizerKind
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers import OptimizerKind, create_optimizer
         opt, kind = create_optimizer(OptimizerConfig(name="lbfgs"))
         assert kind == OptimizerKind.LBFGS
 
     def test_unknown_optimizer_raises(self):
-        from deqn_jax.optimizers import create_optimizer
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers import create_optimizer
         with pytest.raises(ValueError, match="Unknown optimizer"):
             create_optimizer(OptimizerConfig(name="nonexistent"))
 
     def test_grad_clip_chained(self):
-        from deqn_jax.optimizers import create_optimizer
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers import create_optimizer
         opt, kind = create_optimizer(OptimizerConfig(name="adam", grad_clip=1.0))
         # Should be a chained transform (clip + adam)
         params = {"w": jnp.ones(3)}
@@ -109,8 +109,8 @@ class TestMAO:
         assert jnp.all(jnp.isfinite(updates["w"]))
 
     def test_factory(self):
-        from deqn_jax.optimizers.mao import _MAOFactory, MAOTransform
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers.mao import MAOTransform, _MAOFactory
         factory = _MAOFactory(OptimizerConfig(name="mao", learning_rate=1e-3))
         mao = factory.with_num_tasks(5)
         assert isinstance(mao, MAOTransform)
@@ -139,8 +139,8 @@ class TestMAOKFAC:
         assert jnp.all(jnp.isfinite(updates["b"]))
 
     def test_factory(self):
-        from deqn_jax.optimizers.mao_kfac import _MAOKFACFactory, MAOKFACTransform
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers.mao_kfac import MAOKFACTransform, _MAOKFACFactory
         factory = _MAOKFACFactory(OptimizerConfig(name="mao_kfac", learning_rate=1e-3))
         opt = factory.with_num_tasks(5)
         assert isinstance(opt, MAOKFACTransform)
@@ -208,8 +208,8 @@ class TestLBFGS:
     """Test L-BFGS via optax."""
 
     def test_create(self):
-        from deqn_jax.optimizers import create_optimizer, OptimizerKind
         from deqn_jax.config import OptimizerConfig
+        from deqn_jax.optimizers import OptimizerKind, create_optimizer
         opt, kind = create_optimizer(OptimizerConfig(name="lbfgs"))
         assert kind == OptimizerKind.LBFGS
 

@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.disaster.variables import SPEC
 from deqn_jax.models.disaster.equations import definitions
+from deqn_jax.models.disaster.variables import SPEC
 
 
 def step(state: Array, policy: Array, shock: Array, constants: Dict,

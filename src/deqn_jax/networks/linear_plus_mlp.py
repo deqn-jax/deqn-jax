@@ -21,14 +21,14 @@ region. Hard clipping to policy bounds happens at the very end to
 prevent catastrophic policy outputs during early training.
 """
 
-from typing import Callable, Optional, Sequence
+from typing import Optional, Sequence
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.networks.common import ACTIVATION_FNS, INIT_FNS, _apply_init, _resolve_activation
+from deqn_jax.networks.common import _resolve_activation
 from deqn_jax.networks.mlp import MLP
 
 

@@ -10,30 +10,34 @@ Three step variants dispatched at construction time (before JIT):
 
 import math
 import os
-import time
-from typing import Any, Callable, Dict, List, NamedTuple as _NamedTuple, Optional, Tuple
-from functools import partial
-
-import jax
-import jax.numpy as jnp
-from jax import Array
-import equinox as eqx
-import optax
-
-from deqn_jax.types import ModelSpec, TrainState, Metrics, ReweightState, make_reweight_state
-from deqn_jax.networks import create_mlp, create_lstm, create_transformer, create_linear_plus_mlp
-from deqn_jax.training.loss import compute_loss, compute_residuals, eq_losses_to_array, sample_antithetic_shocks, gauss_hermite_nd
-from deqn_jax.training.episode import run_episode, run_episode_with_history, sample_initial_states
-from deqn_jax.training.history import get_history_len, make_constant_history, build_history_windows
-from deqn_jax.metrics import create_logger
-from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 import re
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import NamedTuple as _NamedTuple
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import optax
+from jax import Array
+
+from deqn_jax.metrics import create_logger
+from deqn_jax.networks import create_linear_plus_mlp, create_lstm, create_mlp, create_transformer
+from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
+from deqn_jax.training.episode import run_episode, run_episode_with_history, sample_initial_states
+from deqn_jax.training.history import build_history_windows, get_history_len, make_constant_history
+from deqn_jax.training.loss import (
+    compute_loss,
+    compute_residuals,
+    eq_losses_to_array,
+    gauss_hermite_nd,
+    sample_antithetic_shocks,
+)
+from deqn_jax.types import Metrics, ModelSpec, ReweightState, TrainState, make_reweight_state
 
 
 def _strip_eq_prefix(name: str) -> str:
@@ -458,7 +462,7 @@ def create_train_state(
         # Requires model.steady_state_fn to compute linearization.
         if model.steady_state_fn is None:
             raise ValueError(
-                f"network.type='linear_plus_mlp' requires model.steady_state_fn"
+                "network.type='linear_plus_mlp' requires model.steady_state_fn"
             )
         init_scale = getattr(network_config, "init_scale", 0.0)
         use_zlb_feature = getattr(network_config, "use_zlb_feature", False)
@@ -1829,8 +1833,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     Returns:
         Tuple of (trained_params, history_dict)
     """
+    from deqn_jax.config import OptimizerConfig, TrainConfig
     from deqn_jax.models import load_model
-    from deqn_jax.config import TrainConfig, OptimizerConfig
 
     # Apply fp64 if requested. The CLI pre-scans configs and sets this
     # before the trainer is entered, but programmatic callers go straight
@@ -1854,10 +1858,10 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 f"'{config.optimizer.name}'"
                 + (" + gradient_surgery='pcgrad'" if _is_pcgrad else "")
                 + ". Composite auxiliary losses (anchor, Jacobian, barriers, "
-                f"Newton) would appear in logs but not affect parameter updates "
-                f"on this path. Use optimizer 'adam'/'sgd'/'adamw'/'lion'/'muon'/"
-                f"'ngd'/'shampoo' with gradient_surgery='none' (the STANDARD "
-                f"variant), or switch to loss_type='mse'."
+                "Newton) would appear in logs but not affect parameter updates "
+                "on this path. Use optimizer 'adam'/'sgd'/'adamw'/'lion'/'muon'/"
+                "'ngd'/'shampoo' with gradient_surgery='none' (the STANDARD "
+                "variant), or switch to loss_type='mse'."
             )
 
     # episode_length=1 without initialize_each_episode gives no state
@@ -2035,7 +2039,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             if _hl > 1:
                 # Sequence net warm start: fit to constant-SS policy
                 # using warm_start_to_function with history wrapping
-                from deqn_jax.training.warm_start import warm_start_to_function
                 if model.steady_state_fn is not None:
                     ss_state, ss_policy = model.steady_state_fn(model.constants)
                     ws_key = jax.random.PRNGKey(0)
@@ -2141,8 +2144,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Build composite loss if configured ----
     custom_loss_fn = None
     if config.loss_type == "composite":
+        from deqn_jax.training.composite_loss import make_composite_loss, prepare_composite_data
         from deqn_jax.training.linearize import linearize_model
-        from deqn_jax.training.composite_loss import prepare_composite_data, make_composite_loss
 
         if config.verbose:
             print("  Building composite loss (linearize + ergodic cov)...")
@@ -2670,7 +2673,7 @@ def train(
     ``train_from_config(TrainConfig(...))`` which defaults to the full
     rollout+minibatch-sweep schedule matching reference DEQN.
     """
-    from deqn_jax.config import TrainConfig, OptimizerConfig, NetworkConfig
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
 
     config = TrainConfig(
         model=model_name,

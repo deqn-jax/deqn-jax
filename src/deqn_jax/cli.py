@@ -461,8 +461,9 @@ def run_train(args):
 
 def _enable_fp64_from_config(args):
     """Enable fp64 if checkpoint config requires it."""
-    import yaml
     from pathlib import Path
+
+    import yaml
     config_path = getattr(args, "config", None)
     if config_path is None:
         ckpt_dir = Path(args.checkpoint).parent
@@ -524,7 +525,6 @@ def run_info(args):
 
     print(f"\nPolicies ({model.n_policies}):")
     if model.state_names and model.policy_lower is not None and model.policy_upper is not None:
-        import jax.numpy as jnp
         for i, name in enumerate(model.policy_names or []):
             lo = float(model.policy_lower[i])
             hi = float(model.policy_upper[i])
@@ -584,7 +584,7 @@ def run_init_config(args):
 
 def run_optimizers():
     """List registered optimizers."""
-    from deqn_jax.optimizers import list_optimizers, OptimizerKind
+    from deqn_jax.optimizers import list_optimizers
     from deqn_jax.optimizers.registry import _REGISTRY
 
     print("Available optimizers:")

@@ -12,7 +12,6 @@ from typing import Iterator, Optional
 
 import matplotlib.pyplot as plt
 
-
 # Compact sans-serif, thin grid, small marks. Roughly matches matplotlib's
 # "seaborn-v0_8-whitegrid" but without importing seaborn.
 _RC_DEFAULTS = {

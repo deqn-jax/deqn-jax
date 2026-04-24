@@ -26,7 +26,6 @@ import jax.numpy as jnp
 
 from deqn_jax.models.variable_spec import VariableSpec
 
-
 A = 6  # number of generations
 
 

@@ -1,13 +1,11 @@
 """Tests for the evaluation suite."""
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from deqn_jax.evaluate import (
     euler_equation_errors,
-    print_euler_errors,
     print_moments,
     simulated_moments,
 )

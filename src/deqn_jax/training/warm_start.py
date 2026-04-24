@@ -11,12 +11,12 @@ L-BFGS is ideal here because:
 
 from typing import Callable, Optional, Tuple
 
-import jax
-import jax.numpy as jnp
-import jax.flatten_util
-from jax import Array
 import equinox as eqx
+import jax
+import jax.flatten_util
+import jax.numpy as jnp
 import optax
+from jax import Array
 
 from deqn_jax.types import ModelSpec
 
@@ -198,7 +198,7 @@ def warm_start_network(
     ss_state, ss_policy = model.steady_state_fn(model.constants)
 
     if verbose:
-        print(f"Warm starting from steady state...")
+        print("Warm starting from steady state...")
         print(f"  SS state: {ss_state}")
         print(f"  SS policy: {ss_policy}")
 
@@ -208,7 +208,7 @@ def warm_start_network(
 
     if linearize:
         # Compute linearized policy rule
-        from deqn_jax.training.linearize import linearize_model, linear_policy_fn
+        from deqn_jax.training.linearize import linear_policy_fn, linearize_model
 
         if verbose:
             print("  Computing linearized policy rule (Blanchard-Kahn)...")
@@ -227,7 +227,7 @@ def warm_start_network(
         if verbose:
             # Show how much the linear policy varies
             target_std = jnp.std(targets, axis=0)
-            print(f"  Linear policy std across samples:")
+            print("  Linear policy std across samples:")
             names = model.policy_names or [f"p{i}" for i in range(model.n_policies)]
             for i, name in enumerate(names):
                 print(f"    {name:>12s}: {float(target_std[i]):.6f}")

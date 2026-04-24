@@ -13,7 +13,6 @@ from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-
 # ---------------------------------------------------------------------------
 # Base class: wraps Pydantic ValidationError → ValueError / TypeError
 # ---------------------------------------------------------------------------

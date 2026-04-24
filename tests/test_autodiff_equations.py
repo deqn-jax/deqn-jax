@@ -73,7 +73,7 @@ def test_match_on_random_batch(models):
 
 
 def test_autodiff_model_registers_and_loads():
-    from deqn_jax.models import load_model, list_models
+    from deqn_jax.models import list_models, load_model
 
     model = load_model("brock_mirman_autodiff")
     assert model.name == "brock_mirman_autodiff"

@@ -15,7 +15,7 @@ Usage:
 import csv
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 import equinox as eqx
 import jax
@@ -24,7 +24,6 @@ import yaml
 from jax import Array
 
 from deqn_jax.irf import load_policy_from_checkpoint
-
 
 # ---------------------------------------------------------------------------
 # 1. Euler Equation Errors
@@ -150,7 +149,7 @@ def print_euler_errors(result: Dict, label: str = ""):
     # log10(|residual|), clamp to avoid log(0)
     log_errors = jnp.log10(jnp.maximum(jnp.abs(residuals), 1e-20))
 
-    header = f"Euler Equation Errors (log10)"
+    header = "Euler Equation Errors (log10)"
     if label:
         header += f" — {label}"
     print(f"\n{header}")
@@ -498,7 +497,7 @@ def run_evaluate_cli(args):
         print(f"    Max  |error|:  {mc['max_abs']:.2e} (log10: {mc['max_log10']:.2f})")
 
     # 4. Simulated moments
-    print(f"\n[4/4] Simulated moments...")
+    print("\n[4/4] Simulated moments...")
     moments = simulated_moments(
         policy_net, model, n_periods=args.periods, seed=args.seed
     )

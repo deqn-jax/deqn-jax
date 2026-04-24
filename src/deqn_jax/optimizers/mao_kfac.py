@@ -33,7 +33,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.optimizers.registry import register_optimizer, OptimizerKind
+from deqn_jax.optimizers.registry import OptimizerKind, register_optimizer
 
 
 class MAOKFACState(NamedTuple):

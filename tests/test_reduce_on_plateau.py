@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Scheduler state-machine tests (unit-level)
 # ---------------------------------------------------------------------------
@@ -96,7 +95,7 @@ def test_min_delta_filters_noise():
 # ---------------------------------------------------------------------------
 
 def test_reduce_on_plateau_smoke_end_to_end():
-    from deqn_jax.config import TrainConfig, NetworkConfig, OptimizerConfig
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
     from deqn_jax.training.trainer import train_from_config
 
     cfg = TrainConfig(

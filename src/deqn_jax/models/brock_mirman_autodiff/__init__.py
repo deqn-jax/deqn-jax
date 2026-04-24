@@ -20,15 +20,22 @@ instead of (or alongside) ``equations_fn``. See ``docs/site/autodiff.md``
 for the design note.
 """
 
-from deqn_jax.types import ModelSpec
-from deqn_jax.models.brock_mirman_autodiff.variables import (
-    SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER,
-)
-from deqn_jax.models.brock_mirman_autodiff.equations import (
-    equations, definitions, EQUATION_NAMES, period_return,
-)
 from deqn_jax.models.brock_mirman_autodiff.dynamics import step
-from deqn_jax.models.brock_mirman_autodiff.steady_state import steady_state, init_state
+from deqn_jax.models.brock_mirman_autodiff.equations import (
+    EQUATION_NAMES,
+    definitions,
+    equations,
+    period_return,
+)
+from deqn_jax.models.brock_mirman_autodiff.steady_state import init_state, steady_state
+from deqn_jax.models.brock_mirman_autodiff.variables import (
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
+)
+from deqn_jax.types import ModelSpec
 
 MODEL = ModelSpec(
     name="brock_mirman_autodiff",

@@ -20,13 +20,17 @@ To promote to a public model: add to ``deqn_jax/models/__init__.py``
 registry dict and add smoke tests under ``tests/``.
 """
 
-from deqn_jax.types import ModelSpec
-from deqn_jax.models.aiyagari.variables import (
-    SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER,
-)
-from deqn_jax.models.aiyagari.equations import equations, definitions, EQUATION_NAMES
 from deqn_jax.models.aiyagari.dynamics import step
-from deqn_jax.models.aiyagari.steady_state import steady_state, init_state
+from deqn_jax.models.aiyagari.equations import EQUATION_NAMES, definitions, equations
+from deqn_jax.models.aiyagari.steady_state import init_state, steady_state
+from deqn_jax.models.aiyagari.variables import (
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
+)
+from deqn_jax.types import ModelSpec
 
 MODEL = ModelSpec(
     name="aiyagari",

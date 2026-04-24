@@ -6,14 +6,14 @@ Running diagonal Fisher via EMA of g², preconditioned step:
 Cheap and effective for PINN-style losses.
 """
 
-from typing import Any, NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import Array
 import optax
+from jax import Array
 
-from deqn_jax.optimizers.registry import register_optimizer, OptimizerKind
+from deqn_jax.optimizers.registry import OptimizerKind, register_optimizer
 
 
 class NGDState(NamedTuple):

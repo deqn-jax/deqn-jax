@@ -3,8 +3,6 @@
 import os
 import tempfile
 
-import pytest
-
 
 class TestOptimizerConfig:
     """Test OptimizerConfig defaults."""

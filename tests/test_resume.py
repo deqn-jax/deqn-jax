@@ -7,13 +7,10 @@ optimizer state is freshly initialized for the new optimizer.
 """
 
 import os
-import tempfile
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import pytest
-import yaml
 
 from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
 from deqn_jax.training.trainer import train_from_config

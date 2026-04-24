@@ -5,8 +5,8 @@ from typing import Dict
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.brock_mirman.variables import SPEC
 from deqn_jax.models.brock_mirman.equations import definitions
+from deqn_jax.models.brock_mirman.variables import SPEC
 
 
 def step(

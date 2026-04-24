@@ -8,13 +8,17 @@ A simple RBC model with:
 This is the canonical test case for DEQN methods.
 """
 
-from deqn_jax.types import ModelSpec
-from deqn_jax.models.brock_mirman.variables import (
-    SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER,
-)
-from deqn_jax.models.brock_mirman.equations import equations, definitions, EQUATION_NAMES
 from deqn_jax.models.brock_mirman.dynamics import step
-from deqn_jax.models.brock_mirman.steady_state import steady_state, init_state
+from deqn_jax.models.brock_mirman.equations import EQUATION_NAMES, definitions, equations
+from deqn_jax.models.brock_mirman.steady_state import init_state, steady_state
+from deqn_jax.models.brock_mirman.variables import (
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
+)
+from deqn_jax.types import ModelSpec
 
 MODEL = ModelSpec(
     name="brock_mirman",

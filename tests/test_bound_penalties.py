@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Unit tests on _compute_bound_penalty
 # ---------------------------------------------------------------------------
@@ -81,9 +80,10 @@ def _loss_with_bound(bound_kind: str, **kwargs):
     """Run compute_loss on brock_mirman with a state or definition bound
     injected into the ModelSpec. Returns (total_loss, eq_losses)."""
     import jax
-    from deqn_jax.training.loss import compute_loss
-    from deqn_jax.networks import mlp as mlp_mod
+
     from deqn_jax.models.brock_mirman import MODEL as _M
+    from deqn_jax.networks import mlp as mlp_mod
+    from deqn_jax.training.loss import compute_loss
 
     if bound_kind == "state":
         model = _M._replace(state_bounds=kwargs["spec"])
@@ -148,9 +148,10 @@ def test_no_bounds_declared_means_no_aux_key():
     """When neither state_bounds nor definition_bounds are set, no aux
     keys for them appear in eq_losses."""
     import jax
-    from deqn_jax.training.loss import compute_loss
-    from deqn_jax.networks import mlp as mlp_mod
+
     from deqn_jax.models.brock_mirman import MODEL
+    from deqn_jax.networks import mlp as mlp_mod
+    from deqn_jax.training.loss import compute_loss
 
     key = jax.random.PRNGKey(0)
     net = mlp_mod.create_mlp(

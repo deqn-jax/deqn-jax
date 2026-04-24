@@ -6,7 +6,7 @@ it needs ``value`` and ``value_fn`` passed to update() for line search.
 
 import optax
 
-from deqn_jax.optimizers.registry import register_optimizer, OptimizerKind
+from deqn_jax.optimizers.registry import OptimizerKind, register_optimizer
 
 
 @register_optimizer("lbfgs", kind=OptimizerKind.LBFGS)

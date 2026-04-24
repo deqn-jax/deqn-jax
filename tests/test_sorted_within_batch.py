@@ -15,9 +15,9 @@ import pytest
 def _run_cycle_capture(sorted_flag: bool, seed: int = 0):
     """Run one cycle of _make_cycle_step with a no-op grad_step that
     captures each minibatch, and return the list of minibatches observed."""
-    from deqn_jax.training.trainer import _make_cycle_step
     from deqn_jax.models.brock_mirman import MODEL
-    from deqn_jax.types import TrainState, Metrics, make_reweight_state
+    from deqn_jax.training.trainer import _make_cycle_step
+    from deqn_jax.types import Metrics, TrainState, make_reweight_state
 
     episode_length = 8
     batch_size = 4            # = minibatch size; 8 samples per trajectory
@@ -139,7 +139,7 @@ def test_sorted_true_shuffles_batch_order_across_seeds():
 def test_sorted_within_batch_config_field_plumbed_end_to_end():
     """End-to-end: training works with both values of the flag and produces
     finite losses. Smoke test at the real train_from_config level."""
-    from deqn_jax.config import TrainConfig, NetworkConfig, OptimizerConfig
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
     from deqn_jax.training.trainer import train_from_config
 
     base = dict(

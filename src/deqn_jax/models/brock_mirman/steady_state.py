@@ -30,7 +30,6 @@ from jax import Array
 
 from deqn_jax.models.variable_spec import make_init_state_fn
 
-
 K_LB = 0.9
 K_UB = 12.0
 Z_LEVEL_LB = 0.7

@@ -6,13 +6,13 @@ To add a new model: create the subpackage, then add one line here.
 
 from typing import List, Tuple
 
-from deqn_jax.types import ModelSpec
 from deqn_jax.models.bm_deterministic import MODEL as _bm_deterministic
+from deqn_jax.models.bm_labor import MODEL as _bm_labor
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
 from deqn_jax.models.brock_mirman_autodiff import MODEL as _brock_mirman_autodiff
-from deqn_jax.models.bm_labor import MODEL as _bm_labor
-from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
 from deqn_jax.models.disaster import MODEL as _disaster
+from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
+from deqn_jax.types import ModelSpec
 
 _MODELS = {
     "bm_deterministic": _bm_deterministic,

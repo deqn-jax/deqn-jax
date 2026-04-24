@@ -29,7 +29,7 @@ This module provides one place where all three concerns are handled:
 """
 
 import inspect
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp

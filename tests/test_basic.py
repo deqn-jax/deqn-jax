@@ -101,7 +101,7 @@ class TestBrockMirman:
 
     def test_equations_at_steady_state(self):
         """Euler equation approximately satisfied at steady state."""
-        from deqn_jax.models.brock_mirman import MODEL, steady_state, equations
+        from deqn_jax.models.brock_mirman import MODEL, equations, steady_state
 
         ss_state, ss_policy = steady_state(MODEL.constants)
 
@@ -117,7 +117,7 @@ class TestBrockMirman:
 
     def test_step_function(self):
         """Step function produces valid next state."""
-        from deqn_jax.models.brock_mirman import MODEL, step, steady_state
+        from deqn_jax.models.brock_mirman import MODEL, steady_state, step
 
         ss_state, ss_policy = steady_state(MODEL.constants)
         state = ss_state[None, :]

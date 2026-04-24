@@ -13,10 +13,9 @@ from typing import Dict
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.brock_mirman_autodiff.variables import SPEC
 from deqn_jax.models.brock_mirman.dynamics import step
+from deqn_jax.models.brock_mirman_autodiff.variables import SPEC
 from deqn_jax.training.autodiff import euler_from_period_return
-
 
 EQUATION_NAMES = ("euler",)
 

@@ -20,7 +20,6 @@ from jax import Array
 
 from deqn_jax.models.bm_deterministic.variables import SPEC
 
-
 EQUATION_NAMES = ("euler",)
 
 

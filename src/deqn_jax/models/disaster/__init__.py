@@ -10,13 +10,17 @@ Analytical eliminations (12 original -> 9):
   s (cost min), L (balance sheet), omega_bar (bank participation)
 """
 
-from deqn_jax.types import ModelSpec
+from deqn_jax.models.disaster.dynamics import clip_state, compute_state_barrier, step
+from deqn_jax.models.disaster.equations import EQUATION_NAMES, definitions, equations
+from deqn_jax.models.disaster.steady_state import init_state, steady_state
 from deqn_jax.models.disaster.variables import (
-    SPEC, CONSTANTS, N_SHOCKS, POLICY_LOWER, POLICY_UPPER,
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
 )
-from deqn_jax.models.disaster.equations import equations, definitions, EQUATION_NAMES
-from deqn_jax.models.disaster.dynamics import step, clip_state, compute_state_barrier
-from deqn_jax.models.disaster.steady_state import steady_state, init_state
+from deqn_jax.types import ModelSpec
 
 MODEL = ModelSpec(
     name="disaster",

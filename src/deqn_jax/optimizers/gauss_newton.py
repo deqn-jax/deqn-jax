@@ -18,12 +18,11 @@ Usage:
     params, state = opt.update(residual_fn, params, state)
 """
 
-from typing import Any, Callable, NamedTuple, Optional, Tuple
+from typing import Any, Callable, NamedTuple, Tuple
 
 import jax
-import jax.numpy as jnp
-from jax import Array
 import jax.flatten_util
+import jax.numpy as jnp
 
 
 class GaussNewtonState(NamedTuple):

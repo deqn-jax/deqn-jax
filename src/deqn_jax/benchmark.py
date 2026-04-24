@@ -5,7 +5,6 @@ import time
 from typing import Dict, Tuple
 
 import jax
-import jax.numpy as jnp
 
 
 def benchmark_model(
@@ -29,11 +28,11 @@ def benchmark_model(
     Returns:
         Dict with timing statistics
     """
-    from deqn_jax.training.trainer import train, create_train_state, make_train_step
     import optax
 
     # Load model
     from deqn_jax.models import load_model
+    from deqn_jax.training.trainer import create_train_state, make_train_step
     MODEL = load_model(model_name)
 
     if verbose:

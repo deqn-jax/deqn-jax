@@ -12,13 +12,13 @@ Usage in training:
     new_params = optax.apply_updates(params, updates)
 """
 
-from typing import Any, NamedTuple, Optional, Tuple
+from typing import Any, NamedTuple, Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.optimizers.registry import register_optimizer, OptimizerKind
+from deqn_jax.optimizers.registry import OptimizerKind, register_optimizer
 
 
 class MAOState(NamedTuple):
