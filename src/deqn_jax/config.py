@@ -169,7 +169,7 @@ class OptimizerConfig(_ConfigBase):
 
     name: str = Field(
         default="adam",
-        description="Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `lm`.",
+        description="Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `ign`, `lm`.",
     )
     learning_rate: float = Field(
         default=1e-3,
@@ -186,7 +186,7 @@ class OptimizerConfig(_ConfigBase):
     epsilon: float = Field(default=1e-8, description="Adam / MAO numerical floor.")
     damping: float = Field(
         default=1e-4,
-        description="NGD preconditioner damping (adds to Fisher diagonal).",
+        description="Preconditioner damping for NGD / GN / IGN / LM.",
     )
     decay: float = Field(
         default=0.999, description="NGD / Shampoo preconditioner EMA decay."
@@ -197,6 +197,14 @@ class OptimizerConfig(_ConfigBase):
     )
     memory_size: int = Field(default=10, description="L-BFGS history size.")
     ns_steps: int = Field(default=5, description="Muon Newton-Schulz iteration count.")
+    cg_iters: int = Field(
+        default=20,
+        description="Implicit Gauss-Newton conjugate-gradient iteration cap.",
+    )
+    cg_tol: float = Field(
+        default=1e-6,
+        description="Implicit Gauss-Newton relative conjugate-gradient residual tolerance.",
+    )
     lr_schedule: str = Field(
         default="constant",
         description="LR schedule: `constant`, `cosine`, or `reduce_on_plateau`.",
@@ -241,6 +249,7 @@ class OptimizerConfig(_ConfigBase):
             "mao",
             "mao_kfac",
             "gn",
+            "ign",
             "lm",
         }
     )
@@ -256,6 +265,7 @@ class OptimizerConfig(_ConfigBase):
         "epsilon",
         "damping",
         "decay",
+        "cg_tol",
         "lr_min_factor",
         "lr_reduce_factor",
         "lr_reduce_min_delta",
@@ -275,6 +285,7 @@ class OptimizerConfig(_ConfigBase):
         "precond_update_freq",
         "memory_size",
         "ns_steps",
+        "cg_iters",
         "lr_warmup",
         "lr_reduce_patience",
         "lr_reduce_cooldown",
@@ -311,7 +322,7 @@ class OptimizerConfig(_ConfigBase):
             raise ValueError(f"beta2 must be in (0, 1), got {self.beta2}")
         if self.epsilon <= 0:
             raise ValueError(f"epsilon must be > 0, got {self.epsilon}")
-        if self.name in {"gn", "lm"}:
+        if self.name in {"gn", "ign", "lm"}:
             if self.damping < 0:
                 raise ValueError(
                     f"damping must be >= 0 for {self.name}, got {self.damping}"
@@ -330,6 +341,10 @@ class OptimizerConfig(_ConfigBase):
             raise ValueError(f"memory_size must be > 0, got {self.memory_size}")
         if self.ns_steps <= 0:
             raise ValueError(f"ns_steps must be > 0, got {self.ns_steps}")
+        if self.cg_iters <= 0:
+            raise ValueError(f"cg_iters must be > 0, got {self.cg_iters}")
+        if self.cg_tol <= 0:
+            raise ValueError(f"cg_tol must be > 0, got {self.cg_tol}")
         if self.lr_schedule not in self.VALID_LR_SCHEDULES:
             raise ValueError(
                 f"Unknown lr_schedule '{self.lr_schedule}'. "

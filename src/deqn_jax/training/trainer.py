@@ -441,7 +441,7 @@ def _validate_train_config(config) -> None:
     # only see base-equation gradients. Ordered first because this is
     # the more specific / silent-correctness class of mistake.
     if config.loss_type == "composite":
-        _bad_opts = {"mao", "lm", "gn", "lbfgs"}
+        _bad_opts = {"mao", "lm", "gn", "ign", "lbfgs"}
         _opt_name = config.optimizer.name.lower()
         _is_pcgrad = config.gradient_surgery == "pcgrad"
         if _opt_name in _bad_opts or _is_pcgrad:

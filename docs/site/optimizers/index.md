@@ -15,8 +15,9 @@ five **train-step variants**.
 | `mao`                | MAO       | Multi-Adaptive Optimizer (per-equation).    |
 | `mao_kfac`           | MAO       | MAO with K-FAC preconditioner.              |
 | `lbfgs`              | LBFGS     | optax L-BFGS with line search.              |
-| `gauss_newton`       | GN        | Residual Jacobian step.                     |
-| `levenberg_marquardt`| GN        | Damped Gauss-Newton.                        |
+| `gn`                 | GN        | Dense residual-Jacobian step.               |
+| `ign`                | GN        | Matrix-free implicit GN via CG.             |
+| `lm`                 | GN        | Damped Gauss-Newton.                        |
 
 Use any with `--set optimizer.name=...`:
 

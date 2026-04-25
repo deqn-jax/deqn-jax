@@ -43,6 +43,21 @@ class GaussNewtonState(NamedTuple):
     last_loss: Array  # Previous loss for adaptive damping
 
 
+class ImplicitGaussNewtonState(NamedTuple):
+    """State for matrix-free damped Gauss-Newton.
+
+    ``last_cg_residual`` tracks the final linear-system residual norm from the
+    conjugate-gradient solve. It is diagnostic only; schedules and checkpoint
+    serialization treat it like the other scalar optimizer-state arrays.
+    """
+
+    count: int
+    damping: float
+    last_loss: Array
+    last_cg_residual: Array
+    last_cg_iters: Array
+
+
 class GaussNewton:
     """Gauss-Newton optimizer for nonlinear least squares."""
 
@@ -134,6 +149,125 @@ class GaussNewton:
         return new_params, new_state
 
 
+class ImplicitGaussNewton:
+    """Matrix-free damped Gauss-Newton / natural-gradient optimizer.
+
+    For residual least squares ``0.5 * ||r(theta)||^2``, the Gauss-Newton
+    metric is ``J.T @ J`` where ``J = dr/dtheta``. This class solves
+
+        ``(J.T @ J + damping * I) delta = -J.T @ r``
+
+    with conjugate gradients using only JVP/VJP products. It avoids storing the
+    dense Fisher/GN matrix and avoids materializing the full residual Jacobian,
+    which is the practical route for DEQN-sized policy networks.
+    """
+
+    def __init__(
+        self,
+        learning_rate: float = 1.0,
+        damping: float = 1e-4,
+        cg_iters: int = 20,
+        cg_tol: float = 1e-6,
+    ):
+        self.learning_rate = learning_rate
+        self.damping = damping
+        self.cg_iters = int(cg_iters)
+        self.cg_tol = float(cg_tol)
+
+    def init(self, params) -> ImplicitGaussNewtonState:
+        return ImplicitGaussNewtonState(
+            count=0,
+            damping=self.damping,
+            last_loss=jnp.asarray(jnp.inf),
+            last_cg_residual=jnp.asarray(jnp.inf),
+            last_cg_iters=jnp.asarray(0, dtype=jnp.int32),
+        )
+
+    def update(
+        self,
+        residual_fn: Callable,
+        params: Any,
+        state: ImplicitGaussNewtonState,
+        lr_scale: Any = 1.0,
+    ) -> Tuple[Any, ImplicitGaussNewtonState]:
+        flat_params, unflatten = jax.flatten_util.ravel_pytree(params)
+
+        def flat_residual_fn(flat_p):
+            p = unflatten(flat_p)
+            return jnp.ravel(residual_fn(p))
+
+        # Compute residuals and one reusable VJP closure at the current point.
+        r, pullback = jax.vjp(flat_residual_fn, flat_params)
+        damping = jnp.maximum(state.damping, 1e-12)
+        rhs = -pullback(r)[0]
+
+        def matvec(v):
+            _, jv = jax.jvp(flat_residual_fn, (flat_params,), (v,))
+            return pullback(jv)[0] + damping * v
+
+        delta, cg_residual, cg_iters = _conjugate_gradient(
+            matvec,
+            rhs,
+            max_iters=self.cg_iters,
+            tol=self.cg_tol,
+        )
+
+        step_size = self.learning_rate * lr_scale
+        new_flat_params = flat_params + step_size * delta
+        new_params = unflatten(new_flat_params)
+
+        new_r = flat_residual_fn(new_flat_params)
+        new_loss = jnp.sum(new_r**2)
+
+        new_state = ImplicitGaussNewtonState(
+            count=state.count + 1,
+            damping=state.damping,
+            last_loss=new_loss,
+            last_cg_residual=cg_residual,
+            last_cg_iters=cg_iters,
+        )
+        return new_params, new_state
+
+
+def _conjugate_gradient(
+    matvec: Callable[[Array], Array],
+    rhs: Array,
+    max_iters: int,
+    tol: float,
+) -> Tuple[Array, Array, Array]:
+    """Solve ``A x = rhs`` using matrix-free conjugate gradients.
+
+    The caller is responsible for providing a symmetric positive-definite
+    ``matvec``. Damped Gauss-Newton gives that structure when damping > 0.
+    """
+
+    x0 = jnp.zeros_like(rhs)
+    r0 = rhs
+    p0 = r0
+    rs0 = jnp.dot(r0, r0)
+    threshold = (tol**2) * jnp.maximum(rs0, jnp.asarray(1e-30, dtype=rs0.dtype))
+
+    def cond(carry):
+        i, _x, _r, _p, rs = carry
+        return jnp.logical_and(i < max_iters, rs > threshold)
+
+    def body(carry):
+        i, x, r, p, rs = carry
+        Ap = matvec(p)
+        denom = jnp.dot(p, Ap)
+        alpha = rs / (denom + jnp.asarray(1e-30, dtype=denom.dtype))
+        x_new = x + alpha * p
+        r_new = r - alpha * Ap
+        rs_new = jnp.dot(r_new, r_new)
+        beta = rs_new / (rs + jnp.asarray(1e-30, dtype=rs.dtype))
+        p_new = r_new + beta * p
+        return i + 1, x_new, r_new, p_new, rs_new
+
+    init = (jnp.asarray(0, dtype=jnp.int32), x0, r0, p0, rs0)
+    i, x, _r, _p, rs = jax.lax.while_loop(cond, body, init)
+    return x, jnp.sqrt(rs), i
+
+
 def gauss_newton(
     learning_rate: float = 1.0,
     damping: float = 0.0,
@@ -150,6 +284,22 @@ def gauss_newton(
         GaussNewton optimizer instance
     """
     return GaussNewton(learning_rate, damping, solve_method)
+
+
+def implicit_gauss_newton(
+    learning_rate: float = 1.0,
+    damping: float = 1e-4,
+    cg_iters: int = 20,
+    cg_tol: float = 1e-6,
+) -> ImplicitGaussNewton:
+    """Create a matrix-free damped Gauss-Newton optimizer."""
+
+    return ImplicitGaussNewton(
+        learning_rate=learning_rate,
+        damping=damping,
+        cg_iters=cg_iters,
+        cg_tol=cg_tol,
+    )
 
 
 class LevenbergMarquardt:

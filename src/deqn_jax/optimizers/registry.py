@@ -236,6 +236,18 @@ def _gn(config):
     )
 
 
+@register_optimizer("ign", kind=OptimizerKind.GN)
+def _ign(config):
+    from deqn_jax.optimizers.gauss_newton import implicit_gauss_newton
+
+    return implicit_gauss_newton(
+        learning_rate=config.learning_rate,
+        damping=config.damping,
+        cg_iters=config.cg_iters,
+        cg_tol=config.cg_tol,
+    )
+
+
 @register_optimizer("lm", kind=OptimizerKind.GN)
 def _lm(config):
     from deqn_jax.optimizers.gauss_newton import levenberg_marquardt

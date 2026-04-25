@@ -23,6 +23,7 @@ class TestRegistry:
         assert "lbfgs" in opts
         assert "lion" in opts
         assert "muon" in opts
+        assert "ign" in opts
         assert "kfac" not in opts
 
     def test_create_adam(self):
@@ -233,7 +234,7 @@ class TestLBFGS:
 class TestGaussNewtonIntegration:
     """Integration checks for GN/LM-specific trainer behavior."""
 
-    @pytest.mark.parametrize("optimizer_name", ["gn", "lm"])
+    @pytest.mark.parametrize("optimizer_name", ["gn", "ign", "lm"])
     def test_train_step_respects_lr_scale(self, optimizer_name):
         import equinox as eqx
 
@@ -298,6 +299,36 @@ class TestGaussNewtonIntegration:
         assert jnp.isclose(new_state.last_loss, current_loss)
         assert new_state.damping > state.damping
 
+    def test_implicit_gn_matches_damped_gn_on_linear_residuals(self):
+        from deqn_jax.optimizers.gauss_newton import (
+            gauss_newton,
+            implicit_gauss_newton,
+        )
+
+        A = jnp.array([[1.0, 2.0], [3.0, -1.0], [0.5, 1.0]])
+        b = jnp.array([1.0, -2.0, 0.25])
+        params = jnp.array([0.7, -0.3])
+        damping = 1e-3
+
+        def residual_fn(p):
+            return A @ p - b
+
+        dense = gauss_newton(learning_rate=1.0, damping=damping)
+        implicit = implicit_gauss_newton(
+            learning_rate=1.0,
+            damping=damping,
+            cg_iters=20,
+            cg_tol=1e-10,
+        )
+
+        dense_params, _ = dense.update(residual_fn, params, dense.init(params))
+        implicit_params, implicit_state = implicit.update(
+            residual_fn, params, implicit.init(params)
+        )
+
+        assert jnp.allclose(implicit_params, dense_params, atol=1e-5, rtol=1e-5)
+        assert implicit_state.last_cg_residual < 1e-6
+
 
 class TestShortTraining:
     """Integration tests: short training runs with different optimizers."""
@@ -354,6 +385,11 @@ class TestShortTraining:
 
     def test_gn(self):
         h = self._train_short("gn")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
+    def test_ign(self):
+        h = self._train_short("ign")
         assert len(h["loss"]) == 3
         assert all(jnp.isfinite(l) for l in h["loss"])
 

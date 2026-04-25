@@ -26,7 +26,7 @@ Top-level training configuration.
 | `seed` | `int` | `42` | Top-level PRNG seed. Controls network init and the rollout/loss shock streams. |
 | `network` | `NetworkConfig` | `PydanticUndefined` | Policy network architecture; see NetworkConfig. |
 | `optimizer` | `OptimizerConfig` | `PydanticUndefined` | Optimizer and LR schedule; see OptimizerConfig. |
-| `loss_type` | `str` | `'mse'` | `mse` = base residual MSE. `composite` = base + anchor + Jacobian + barriers + Newton (disaster-style). Composite is rejected at startup with MAO / GN / LM / LBFGS / PCGrad. |
+| `loss_type` | `str` | `'mse'` | `mse` = base residual MSE. `composite` = base + anchor + Jacobian + barriers + Newton (disaster-style). Composite is rejected at startup with MAO / GN / IGN / LM / LBFGS / PCGrad. |
 | `composite_loss` | `CompositeLossConfig` | `PydanticUndefined` | Composite-loss weights; only active when `loss_type='composite'`. |
 | `loss_choice` | `str` | `'mse'` | Residual aggregation over batch elements: `mse` or `huber`. Applied AFTER the shock expectation. Huber caps gradient at ±huber_delta and helps when rare pathological states dominate. |
 | `huber_delta` | `float` | `1.0` | Cutoff for Huber loss (`loss_choice='huber'`). Ignored for `loss_choice='mse'`. |
@@ -75,19 +75,21 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `lm`. |
+| `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `ign`, `lm`. |
 | `learning_rate` | `float` | `0.001` | Peak learning rate (or constant LR when `lr_schedule='constant'`). |
 | `grad_clip` | `Union[float, None]` | `None` | Global gradient-norm clipping. None disables. |
 | `weight_decay` | `float` | `0.0` | L2 weight decay (used by adamw / adam / sgd). |
 | `beta1` | `float` | `0.9` | Adam / MAO first-moment decay. |
 | `beta2` | `float` | `0.999` | Adam / MAO second-moment decay. |
 | `epsilon` | `float` | `1e-08` | Adam / MAO numerical floor. |
-| `damping` | `float` | `0.0001` | NGD preconditioner damping (adds to Fisher diagonal). |
+| `damping` | `float` | `0.0001` | Preconditioner damping for NGD / GN / IGN / LM. |
 | `decay` | `float` | `0.999` | NGD / Shampoo preconditioner EMA decay. |
 | `block_size` | `int` | `64` | Shampoo Kronecker block size. |
 | `precond_update_freq` | `int` | `10` | Shampoo preconditioner update frequency. |
 | `memory_size` | `int` | `10` | L-BFGS history size. |
 | `ns_steps` | `int` | `5` | Muon Newton-Schulz iteration count. |
+| `cg_iters` | `int` | `20` | Implicit Gauss-Newton conjugate-gradient iteration cap. |
+| `cg_tol` | `float` | `1e-06` | Implicit Gauss-Newton relative conjugate-gradient residual tolerance. |
 | `lr_schedule` | `str` | `'constant'` | LR schedule: `constant`, `cosine`, or `reduce_on_plateau`. |
 | `lr_warmup` | `int` | `0` | Linear warmup episodes before `lr_schedule` kicks in. |
 | `lr_min_factor` | `float` | `0.0` | Minimum LR as a fraction of peak (cosine / reduce_on_plateau floor). |

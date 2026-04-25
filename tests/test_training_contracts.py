@@ -237,6 +237,7 @@ def test_train_step_shock_scale_zero_freezes_rollout_shocks():
     [
         ("mao", "none"),
         ("gn", "none"),
+        ("ign", "none"),
         ("lm", "none"),
         ("lbfgs", "none"),
         ("adam", "pcgrad"),

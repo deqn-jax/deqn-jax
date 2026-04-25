@@ -6,7 +6,7 @@ Includes:
 - Multi-Adaptive Optimizer (per-equation moments)
 - Kronecker-factored Shampoo
 - L-BFGS via optax
-- Gauss-Newton / Levenberg-Marquardt for residual minimization
+- Gauss-Newton / implicit Gauss-Newton / Levenberg-Marquardt for residual minimization
 
 All standard/NGD/Shampoo/Lion/Muon/K-FAC optimizers are registered in the
 registry and created via ``create_optimizer(config)``.
@@ -21,8 +21,11 @@ from deqn_jax.optimizers import shampoo as _shampoo_mod  # noqa: F401
 from deqn_jax.optimizers.gauss_newton import (
     GaussNewton,
     GaussNewtonState,
+    ImplicitGaussNewton,
+    ImplicitGaussNewtonState,
     LevenbergMarquardt,
     gauss_newton,
+    implicit_gauss_newton,
     levenberg_marquardt,
 )
 from deqn_jax.optimizers.mao import MAOState, MAOTransform
@@ -54,7 +57,10 @@ __all__ = [
     # GN/LM
     "GaussNewton",
     "GaussNewtonState",
+    "ImplicitGaussNewton",
+    "ImplicitGaussNewtonState",
     "LevenbergMarquardt",
     "gauss_newton",
+    "implicit_gauss_newton",
     "levenberg_marquardt",
 ]
