@@ -90,8 +90,9 @@ def _normalize_input(
     input_shift: Optional[Array],
     input_scale: Optional[Array],
 ) -> Array:
-    """Apply frozen input normalization."""
-    if input_shift is not None:
+    """Apply frozen input normalization. ``shift`` and ``scale`` are
+    paired -- callers that pass one always pass the other."""
+    if input_shift is not None and input_scale is not None:
         x = (x - jax.lax.stop_gradient(input_shift)) / jax.lax.stop_gradient(
             input_scale
         )

@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **39** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=12, JAX_NOISE=5, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
+- Total: **38** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=12, JAX_NOISE=4, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -135,7 +135,7 @@ Plus two `invalid-type-form` at 150, 171 — `callable` used as a type form (pro
 **Plan:** For the unpack_array nepotism: type the local `values: list[Array]`. For the dynamic NamedTuple factory: suppress with rationale (already documented in the docstring as a runtime construction). For the `callable` usage at 150, 171: read and likely change `callable` to `Callable` (this is a real typo).
 **Cost:** S.
 
-### 11. ``networks/common.py:95`` operator issue  [JAX_NOISE]  [STATUS: TODO]
+### 11. ``networks/common.py:95`` operator issue  [JAX_NOISE]  [STATUS: DONE: real narrowing fix, not just suppression -- the conditional only checked input_shift but the body also dereferenced input_scale; both checks are required.]
 
 `(x - jax.lax.stop_gradient(input_shift)) / jax.lax.stop_gradient(input_scale)` — operator on JAX-tracer types confuses ty. The runtime is correct.
 
