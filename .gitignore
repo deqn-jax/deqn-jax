@@ -49,6 +49,7 @@ configs/dgx_*.yaml
 scripts/*
 !scripts/make_plots.py
 !scripts/gen_config_reference.py
+!scripts/check_module_graph.py
 dynare/
 PLAN.md
 docs/session_log.md

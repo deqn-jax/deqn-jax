@@ -79,6 +79,20 @@ graph TD
   - `models -.-> training`: only via the autodiff helper (`training.autodiff.euler_from_period_return`), used by the `*_autodiff` variants. Conceptually `training` shouldn't be a model dependency, but the autodiff path puts the `jax.grad` plumbing there. Acceptable given how localized it is.
   - `networks -.-> training`: a few sequence-network helpers consume `training.history` for window construction. Same trade-off.
 
+### Ground-truth verification
+
+The diagram above is hand-drawn but validated edge-for-edge against the real import graph: **22 package-level edges in `pydeps` output, 22 in the mermaid, exact match**. Regenerate the diff with:
+
+```bash
+uv run python scripts/check_module_graph.py
+```
+
+For the full module-level picture (each `*.py` as a node, clustered by package), here's the auto-generated companion via `pydeps`:
+
+![Module dependency SVG, auto-generated from pydeps](figures/module_graph.svg)
+
+The SVG shows internal package structure too (e.g., the `models/<name>/` substructure, individual `training/*.py` modules, etc.) — useful when "which file in this package?" is the question. The mermaid above is the curated package-level view for getting one's bearings.
+
 ## 2. Training cycle sequence
 
 What happens when you call `train_from_config(cfg)`:
