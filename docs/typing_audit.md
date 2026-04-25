@@ -45,7 +45,7 @@ Subset of #1 that doesn't break tests: change `state_names`, `policy_names`, `eq
 **Plan:** Three lines in `types.py`. Verify tests still pass; verify no code path actually relies on the difference between `None` and `()`.
 **Cost:** S.
 
-### 1b. ``definitions_fn`` should be required  [ANNOTATION_LIE]  [STATUS: TODO]
+### 1b. ``definitions_fn`` should be required  [ANNOTATION_LIE]  [STATUS: BLOCKED: requires updating ~7 toy `ModelSpec(...)` constructions in `tests/` to add `definitions_fn=...`; test edits beyond import-path updates are out of this loop's prompt scope. Punt to a human iteration.]
 
 The harder half of #1. Every shipped model defines `definitions_fn` and the framework calls it unconditionally on every cycle log path. Dropping the `Optional` requires updating ~7 toy `ModelSpec(...)` constructions in `tests/test_basic.py`, `tests/test_history_persistence.py`, `tests/test_training_contracts.py` to add a `definitions_fn=lambda s, p, c: {}`.
 
