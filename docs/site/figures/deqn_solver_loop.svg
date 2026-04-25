@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="0 0 800 940"
+     viewBox="0 0 820 1095"
      width="100%"
      role="img"
      aria-labelledby="svg-title svg-desc">
   <title id="svg-title">DEQN-JAX training cycle (high-level)</title>
   <desc id="svg-desc">
     Training cycle for DEQN-JAX. A one-time eager setup chain produces a
-    TrainState. The Python episode loop calls cycle_step (the single JIT
-    boundary), which runs one rollout to fill a trajectory, then sweeps
-    minibatches through grad_step, returning an updated TrainState.
+    TrainState, then the Python episode loop calls cycle_step (the single
+    JIT boundary). Inside cycle_step a SIMULATION phase runs one rollout
+    to fill a trajectory, then a TRAINING phase sweeps minibatches through
+    grad_step/compute_loss, returning an updated TrainState.
   </desc>
 
   <!--
@@ -37,6 +38,11 @@
       --arrow:        #404040;
       --arrow-w:      1.4;
 
+      /* one-time setup region */
+      --setup-fill:    #f1f3f5;
+      --setup-stroke:  #8a8f97;
+      --setup-stroke-w: 1.2;
+
       /* python outer loop */
       --pyloop-fill:    #f4f7fb;
       --pyloop-stroke:  #4a6890;
@@ -47,6 +53,10 @@
       --jit-stroke:   #c5421a;
       --jit-stroke-w: 2;
       --jit-dash:     6 4;
+      --jit-on-accent: #ffffff;  /* text colour on top of jit-stroke */
+
+      /* sim / training subdividers inside JIT */
+      --phase-line:   #b89c5e;
 
       /* TrainState (pytree threading through the loop) */
       --state-fill:   #ede7f6;
@@ -70,6 +80,12 @@
                      stroke-width: var(--arrow-w); }
     .arrow-head    { fill: var(--arrow); }
 
+    .setup-box     { fill: var(--setup-fill); stroke: var(--setup-stroke);
+                     stroke-width: var(--setup-stroke-w); }
+    .setup-label   { font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--setup-stroke);
+                     letter-spacing: 0.5px; }
+
     .pyloop-box    { fill: var(--pyloop-fill); stroke: var(--pyloop-stroke);
                      stroke-width: var(--pyloop-stroke-w); }
     .pyloop-label  { font-family: var(--font-mono); font-size: 12px;
@@ -78,8 +94,17 @@
     .jit-box       { fill: var(--jit-fill); stroke: var(--jit-stroke);
                      stroke-width: var(--jit-stroke-w);
                      stroke-dasharray: var(--jit-dash); }
-    .jit-label     { font-family: var(--font-mono); font-size: 11px;
-                     font-weight: 700; fill: var(--jit-stroke); }
+    .jit-badge     { fill: var(--jit-stroke); }
+    .jit-badge-text{ font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--jit-on-accent); }
+    .jit-pathref   { font-family: var(--font-mono); font-size: 10px;
+                     font-weight: 600; fill: var(--jit-stroke); }
+
+    .phase-divider { stroke: var(--phase-line); stroke-width: 1;
+                     stroke-dasharray: 3 3; }
+    .phase-label   { font-family: var(--font-mono); font-size: 10px;
+                     font-weight: 700; fill: var(--phase-line);
+                     letter-spacing: 1px; }
 
     .state-box     { fill: var(--state-fill); stroke: var(--state-stroke);
                      stroke-width: 1.2; }
@@ -106,156 +131,191 @@
   </defs>
 
   <!-- background -->
-  <rect class="bg" x="0" y="0" width="800" height="940"/>
+  <rect class="bg" x="0" y="0" width="820" height="1095"/>
 
   <!-- ===== title ===== -->
-  <text class="title-text"    x="400" y="36">DEQN-JAX training cycle</text>
-  <text class="subtitle-text" x="400" y="55">high-level · detailed companion: deqn_solver_loop_detailed.svg</text>
+  <text class="title-text"    x="410" y="34">DEQN-JAX training cycle</text>
+  <text class="subtitle-text" x="410" y="52">high-level · detailed companion: deqn_solver_loop_detailed.svg</text>
 
   <!--
     ============================================================
-    SETUP CHAIN (one-time, eager, top of diagram)
+    REGION A — ONE-TIME SETUP (eager, before any loop)
+    Forks after load_model: create_train_state produces TrainState
+    (data); make_train_step produces cycle_step (callable). Both
+    are inputs into the loop.
     ============================================================
   -->
 
-  <!-- 1. TrainConfig -->
-  <rect class="node" x="60"  y="92" width="180" height="56" rx="6" ry="6"/>
-  <text class="node-label"   x="150" y="116">TrainConfig</text>
-  <text class="node-pathref" x="150" y="134">config.py</text>
+  <rect class="setup-box" x="40" y="74" width="740" height="262" rx="10" ry="10"/>
+  <text class="setup-label" x="56" y="93">ONE-TIME SETUP (eager)</text>
 
-  <!-- arrow -->
-  <path class="arrow" d="M 245 120 L 295 120" marker-end="url(#arrow)"/>
+  <!-- top row: TrainConfig → load_model (centred) -->
+  <rect class="node" x="220"  y="108" width="150" height="62" rx="6" ry="6"/>
+  <text class="node-label"   x="295" y="132">TrainConfig</text>
+  <text class="node-sub"     x="295" y="148">YAML / CLI / overrides</text>
+  <text class="node-pathref" x="295" y="164">config.py</text>
 
-  <!-- 2. load_model + create_train_state -->
-  <rect class="node" x="300" y="80" width="200" height="80" rx="6" ry="6"/>
-  <text class="node-label"   x="400" y="102">load_model →</text>
-  <text class="node-label"   x="400" y="120">create_train_state</text>
-  <text class="node-pathref" x="400" y="138">models/__init__.py</text>
-  <text class="node-pathref" x="400" y="152">training/trainer.py</text>
+  <path class="arrow" d="M 375 139 L 405 139" marker-end="url(#arrow)"/>
 
-  <!-- arrow -->
-  <path class="arrow" d="M 505 120 L 555 120" marker-end="url(#arrow)"/>
+  <rect class="node" x="410"  y="108" width="150" height="62" rx="6" ry="6"/>
+  <text class="node-label"   x="485" y="132">load_model</text>
+  <text class="node-sub"     x="485" y="148">→ ModelSpec</text>
+  <text class="node-pathref" x="485" y="164">models/__init__.py</text>
 
-  <!-- 3. make_train_step (build cycle_step + jit) -->
-  <rect class="node" x="560" y="80" width="180" height="80" rx="6" ry="6"/>
-  <text class="node-label"   x="650" y="102">make_train_step</text>
-  <text class="node-sub"     x="650" y="120">→ jit(cycle_step)</text>
-  <text class="node-pathref" x="650" y="138">training/trainer.py</text>
-  <text class="node-pathref" x="650" y="152">+ training/cycle.py</text>
+  <!-- handoff: ModelSpec wire ↓ to fork -->
+  <path class="arrow" d="M 485 174 L 485 188" marker-end="url(#arrow)"/>
+  <text class="wire-label" x="485" y="201">ModelSpec</text>
 
-  <!-- TrainState pytree handoff -->
-  <path class="arrow" d="M 400 165 L 400 195" marker-end="url(#arrow)"/>
-  <rect class="state-box" x="340" y="195" width="120" height="26" rx="13" ry="13"/>
-  <text class="state-label" x="400" y="213">TrainState</text>
-  <path class="arrow" d="M 400 225 L 400 256" marker-end="url(#arrow)"/>
+  <!-- fork: ModelSpec splits to create_train_state (left) and make_train_step (right) -->
+  <path class="arrow" d="M 485 206 C 485 218, 220 218, 220 230" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 485 206 C 485 218, 620 218, 620 230" marker-end="url(#arrow)"/>
+
+  <!-- left branch: create_train_state -->
+  <rect class="node" x="80"  y="232" width="280" height="78" rx="6" ry="6"/>
+  <text class="node-label"   x="220" y="254">create_train_state</text>
+  <text class="node-sub"     x="220" y="272">network, optimizer, init states,</text>
+  <text class="node-sub"     x="220" y="288">history seed, opt_state init</text>
+  <text class="node-pathref" x="220" y="304">training/trainer.py</text>
+
+  <!-- right branch: make_train_step -->
+  <rect class="node" x="480" y="232" width="280" height="78" rx="6" ry="6"/>
+  <text class="node-label"   x="620" y="254">make_train_step</text>
+  <text class="node-sub"     x="620" y="272">dispatch on OptimizerKind,</text>
+  <text class="node-sub"     x="620" y="288">compose rollout + grad_step, jit</text>
+  <text class="node-pathref" x="620" y="304">training/trainer.py · training/cycle.py</text>
 
   <!--
     ============================================================
-    OUTER PYTHON LOOP — for ep in 0..total_episodes
+    HANDOFF — two outputs (TrainState data, cycle_step callable)
+    converge into the loop entry.
     ============================================================
   -->
 
-  <!-- container -->
-  <rect class="pyloop-box" x="50" y="260" width="700" height="615" rx="10" ry="10"/>
-  <text class="pyloop-label" x="68" y="284">for ep in 0..total_episodes:</text>
-  <text class="legend-text"  x="68" y="300">training/trainer.py — Python-side dispatch, logging, checkpointing</text>
+  <!-- pills directly below each branch -->
+  <path class="arrow" d="M 220 314 L 220 342" marker-end="url(#arrow)"/>
+  <rect class="state-box" x="160" y="344" width="120" height="26" rx="13" ry="13"/>
+  <text class="state-label" x="220" y="362">TrainState</text>
 
-  <!-- shock_scale from curriculum -->
-  <rect class="node" x="80"  y="318" width="220" height="40" rx="6" ry="6"/>
-  <text class="node-label"   x="190" y="338">shock_scale = curriculum(ep)</text>
-  <text class="node-pathref" x="190" y="352">training/trainer.py</text>
+  <path class="arrow" d="M 620 314 L 620 342" marker-end="url(#arrow)"/>
+  <rect class="state-box" x="560" y="344" width="120" height="26" rx="13" ry="13"/>
+  <text class="state-label" x="620" y="362">cycle_step</text>
 
-  <!-- side wire from shock_scale into JIT box -->
-  <path class="arrow" d="M 305 338 C 360 338, 360 392, 415 392" marker-end="url(#arrow)"/>
-  <text class="wire-label" x="370" y="370">shock_scale</text>
+  <!-- merge to loop entry -->
+  <path class="arrow" d="M 220 372 C 220 386, 410 386, 410 396" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 620 372 C 620 386, 410 386, 410 396" marker-end="url(#arrow)"/>
+
+  <text class="wire-label" x="320" y="392">data ↓</text>
+  <text class="wire-label" x="500" y="392">callable ↓</text>
 
   <!--
     ============================================================
-    JIT BOUNDARY — cycle_step
+    REGION B — PYTHON LOOP (per cycle, eager outside JIT)
+    ============================================================
+  -->
+
+  <rect class="pyloop-box" x="40" y="400" width="740" height="650" rx="10" ry="10"/>
+  <text class="pyloop-label" x="56" y="424">for ep in 0..total_episodes:</text>
+  <text class="legend-text"  x="56" y="440">training/trainer.py — eager dispatch, logging, checkpointing</text>
+
+  <!-- args row: shock_scale and lr_scale -->
+  <rect class="node" x="60" y="454" width="700" height="50" rx="6" ry="6"/>
+  <text class="node-label"   x="200" y="476">shock_scale = curriculum(ep)</text>
+  <text class="node-label"   x="600" y="476">lr_scale = lr_schedule(ep)</text>
+  <text class="node-sub"     x="410" y="494">passed as cycle_step args — feed both SIMULATION and TRAINING phases below</text>
+
+  <path class="arrow" d="M 410 510 L 410 532" marker-end="url(#arrow)"/>
+
+  <!--
+    ============================================================
+    JIT BOUNDARY — cycle_step (training/cycle.py)
     ============================================================
   -->
 
   <!-- jit box -->
-  <rect class="jit-box" x="80" y="378" width="640" height="408" rx="10" ry="10"/>
+  <rect class="jit-box" x="60" y="536" width="700" height="468" rx="10" ry="10"/>
 
-  <!-- jit corner badge -->
-  <rect x="80" y="378" width="160" height="22" rx="0" ry="0"
-        fill="var(--jit-stroke)" opacity="0.92"/>
-  <text x="92" y="394" class="jit-label" fill="#ffffff">@jax.jit cycle_step</text>
-  <text class="node-pathref" x="709" y="394" text-anchor="end" fill="var(--jit-stroke)">training/cycle.py</text>
+  <!-- jit corner badge: rect + text together, both stay readable -->
+  <rect class="jit-badge" x="60" y="536" width="200" height="22" rx="0" ry="0"/>
+  <text class="jit-badge-text" x="72" y="552">@jax.jit cycle_step</text>
+  <text class="jit-pathref"    x="270" y="552">training/cycle.py</text>
 
-  <!-- 1. rollout_fn -->
-  <rect class="node" x="120" y="426" width="240" height="80" rx="6" ry="6"/>
-  <text class="node-label"   x="240" y="448">rollout_fn</text>
-  <text class="node-sub"     x="240" y="466">lax.scan over episode_length:</text>
-  <text class="node-sub"     x="240" y="481">policy → step → next_state</text>
-  <text class="node-pathref" x="240" y="498">training/{cycle, episode}.py</text>
+  <!-- =========== SIMULATION subregion =========== -->
+  <line class="phase-divider" x1="190" y1="578" x2="745" y2="578"/>
+  <text class="phase-label"   x="80" y="582">SIMULATION</text>
 
-  <!-- arrow rollout → trajectory -->
-  <path class="arrow" d="M 365 466 L 425 466" marker-end="url(#arrow)"/>
-  <text class="wire-label" x="395" y="458">trajectory</text>
+  <rect class="node" x="100" y="596" width="620" height="78" rx="6" ry="6"/>
+  <text class="node-label"   x="410" y="618">rollout_fn  (uses shock_scale)</text>
+  <text class="node-sub"     x="410" y="636">lax.scan over episode_length:</text>
+  <text class="node-sub"     x="410" y="652">policy(state) → step(state, policy, shock) → next_state</text>
+  <text class="node-pathref" x="410" y="668">training/cycle.py · training/episode.py · models/&lt;name&gt;/dynamics.py</text>
 
-  <!-- trajectory pytree -->
-  <rect class="state-box" x="430" y="446" width="170" height="40" rx="6" ry="6"/>
-  <text class="state-label" x="515" y="464">trajectory</text>
-  <text class="node-sub"    x="515" y="478">[T, B, n_states]</text>
+  <path class="arrow" d="M 410 680 L 410 700" marker-end="url(#arrow)"/>
 
-  <!-- arrow trajectory → minibatch sweep -->
-  <path class="arrow" d="M 515 490 L 515 540" marker-end="url(#arrow)"/>
+  <rect class="state-box" x="265" y="700" width="290" height="34" rx="6" ry="6"/>
+  <text class="state-label" x="410" y="716">trajectory</text>
+  <text class="node-sub"    x="410" y="730">[T, B, n_states]   (data for training)</text>
 
-  <!-- 2. minibatch sweep -->
-  <rect class="node" x="120" y="540" width="560" height="200" rx="6" ry="6"/>
-  <text class="node-label" x="400" y="564">minibatch sweep</text>
-  <text class="node-sub"   x="400" y="582">for epoch in n_epochs: for mb in n_minibatches:</text>
+  <!-- explicit data-flow: trajectory → minibatch sweep -->
+  <path class="arrow" d="M 410 736 L 410 776" marker-end="url(#arrow)"/>
+  <text class="wire-label" x="420" y="754" text-anchor="start">shuffle + slice → batch [B, n_states]</text>
+
+  <!-- =========== TRAINING subregion =========== -->
+  <line class="phase-divider" x1="170" y1="762" x2="745" y2="762"/>
+  <text class="phase-label"   x="80" y="766">TRAINING</text>
+
+  <rect class="node" x="100" y="778" width="620" height="208" rx="6" ry="6"/>
+  <text class="node-label" x="410" y="800">minibatch sweep  (uses lr_scale, shock_scale)</text>
+  <text class="node-sub"   x="410" y="816">for epoch in n_epochs: for mb in n_minibatches:</text>
+  <text class="node-sub"   x="410" y="830">grad_step receives one batch slice per call</text>
 
   <!-- inner: grad_step -->
-  <rect class="node" x="160" y="600" width="220" height="120" rx="6" ry="6"
+  <rect class="node" x="135" y="830" width="245" height="140" rx="6" ry="6"
         fill="var(--bg)"/>
-  <text class="node-label"   x="270" y="624">grad_step</text>
-  <text class="node-sub"     x="270" y="641">value_and_grad / jacrev /</text>
-  <text class="node-sub"     x="270" y="657">lbfgs / GN — variant-specific</text>
-  <text class="node-pathref" x="270" y="678">optimizers/&lt;name&gt;.py</text>
-  <text class="node-pathref" x="270" y="692">{standard, pcgrad, mao,</text>
-  <text class="node-pathref" x="270" y="706">mao_kfac, lbfgs,</text>
-  <text class="node-pathref" x="270" y="720">gauss_newton}.py</text>
+  <text class="node-label"   x="257" y="852">grad_step</text>
+  <text class="node-sub"     x="257" y="870">value_and_grad / jacrev /</text>
+  <text class="node-sub"     x="257" y="886">lbfgs / GN — variant-specific</text>
+  <text class="node-pathref" x="257" y="910">optimizers/&lt;name&gt;.py</text>
+  <text class="node-sub"     x="257" y="936">(6 variants — fan-out in</text>
+  <text class="node-sub"     x="257" y="952">the detailed companion)</text>
 
-  <!-- arrow grad_step → compute_loss -->
-  <path class="arrow" d="M 385 660 L 425 660" marker-end="url(#arrow)"/>
+  <!-- bidirectional arrow grad_step ↔ compute_loss -->
+  <path class="arrow" d="M 385 900 L 425 900" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
 
   <!-- inner: compute_loss -->
-  <rect class="node" x="430" y="600" width="210" height="120" rx="6" ry="6"
+  <rect class="node" x="430" y="830" width="260" height="140" rx="6" ry="6"
         fill="var(--bg)"/>
-  <text class="node-label"   x="535" y="624">compute_loss</text>
-  <text class="node-sub"     x="535" y="641">shocks → vmap(residuals)</text>
-  <text class="node-sub"     x="535" y="657">→ aggregate (+ aux if</text>
-  <text class="node-sub"     x="535" y="673">composite)</text>
-  <text class="node-pathref" x="535" y="694">training/loss.py</text>
-  <text class="node-pathref" x="535" y="708">+ composite_loss.py</text>
+  <text class="node-label"   x="560" y="852">compute_loss</text>
+  <text class="node-sub"     x="560" y="870">shocks → vmap(residuals)</text>
+  <text class="node-sub"     x="560" y="886">→ aggregate (+ aux if</text>
+  <text class="node-sub"     x="560" y="902">composite)</text>
+  <text class="node-pathref" x="560" y="926">training/loss.py</text>
+  <text class="node-pathref" x="560" y="940">+ training/composite_loss.py</text>
+  <text class="node-pathref" x="560" y="954">+ training/shocks.py</text>
 
-  <!-- detail-link callout -->
-  <text class="wire-label" x="535" y="734">(detailed: see companion SVG)</text>
+  <!--
+    ============================================================
+    EXIT — back to Python side
+    ============================================================
+  -->
 
-  <!-- arrow exit JIT -->
-  <path class="arrow" d="M 400 786 L 400 810" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 410 1004 L 410 1024" marker-end="url(#arrow)"/>
 
   <!-- new TrainState pill on exit -->
-  <rect class="state-box" x="320" y="810" width="160" height="26" rx="13" ry="13"/>
-  <text class="state-label" x="400" y="828">→ new TrainState</text>
+  <rect class="state-box" x="320" y="1024" width="180" height="26" rx="13" ry="13"/>
+  <text class="state-label" x="410" y="1042">→ updated TrainState</text>
 
   <!-- log + checkpoint footer -->
-  <rect class="node" x="80"  y="846" width="640" height="20" rx="4" ry="4"
-        fill="var(--bg)" stroke="var(--text-muted)" stroke-width="0.8"/>
-  <text class="node-sub"     x="190" y="861">log metrics</text>
-  <text class="node-pathref" x="320" y="861">training/reporting.py</text>
-  <text class="node-sub"     x="450" y="861">checkpoint</text>
-  <text class="node-pathref" x="600" y="861">training/checkpointing.py</text>
+  <text class="node-sub"     x="180" y="1075">log metrics</text>
+  <text class="node-pathref" x="320" y="1075">training/reporting.py</text>
+  <text class="node-sub"     x="475" y="1075">checkpoint</text>
+  <text class="node-pathref" x="630" y="1075">training/checkpointing.py</text>
 
   <!--
     ============================================================
     LEGEND
     ============================================================
   -->
-  <g transform="translate(50, 895)">
+  <g transform="translate(40, 1085)">
     <rect class="node" x="0" y="0" width="14" height="10" rx="2" ry="2"/>
     <text class="legend-text" x="20" y="9">function / module</text>
 
@@ -265,7 +325,10 @@
     <rect class="state-box" x="305" y="0" width="14" height="10" rx="5" ry="5"/>
     <text class="legend-text" x="325" y="9">pytree (TrainState / trajectory)</text>
 
-    <rect class="pyloop-box" x="540" y="0" width="14" height="10" rx="2" ry="2"/>
-    <text class="legend-text" x="560" y="9">Python (eager) loop</text>
+    <rect class="setup-box" x="540" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="560" y="9">eager region</text>
+
+    <rect class="pyloop-box" x="660" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="680" y="9">Python loop</text>
   </g>
 </svg>
