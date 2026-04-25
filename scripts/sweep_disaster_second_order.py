@@ -107,20 +107,25 @@ def _write_result(run_id: str, payload: dict) -> None:
         json.dump(payload, f, indent=2, sort_keys=True)
 
 
-def _summarize_metrics(state) -> Dict[str, float]:
-    """Pull the terminal training metrics off the final TrainState."""
-    summary: Dict[str, float] = {}
-    try:
-        if hasattr(state, "step"):
-            summary["final_step"] = int(state.step)
-        if hasattr(state, "loss_weights") and state.loss_weights is not None:
-            import numpy as np
+def _summarize_history(history: Dict[str, list]) -> Dict[str, float]:
+    """Pull final + best scalar stats out of the history dict.
 
-            summary["loss_weights_mean"] = float(
-                np.mean(np.asarray(state.loss_weights))
-            )
-    except Exception:
-        pass
+    train_from_config returns ``(params, history)`` where history is
+    ``{"loss": [...], "grad_norm": [...]}`` — appended once per logging
+    cycle. Per-eq residuals are NOT in history; the Ralph analysis
+    loop reads them from TensorBoard events.
+    """
+    summary: Dict[str, float] = {}
+    losses = history.get("loss") or []
+    grad_norms = history.get("grad_norm") or []
+    if losses:
+        best = min(losses)
+        summary["final_loss"] = float(losses[-1])
+        summary["best_loss"] = float(best)
+        summary["best_loss_idx"] = int(losses.index(best))
+        summary["n_log_points"] = len(losses)
+    if grad_norms:
+        summary["final_grad_norm"] = float(grad_norms[-1])
     return summary
 
 
@@ -146,22 +151,22 @@ def _run_one(run_id: str, overrides: Dict[str, object]) -> dict:
 
     try:
         cfg = TrainConfig.model_validate(cfg_dict)
-        state, metrics = train_from_config(cfg)
+        _params, history = train_from_config(cfg)
         wall = time.perf_counter() - t0
-        payload.update(
-            {
-                "status": "ok",
-                "wall_seconds": wall,
-                "final_loss": float(metrics.loss),
-                "final_grad_norm": float(metrics.grad_norm),
-                "final_residuals": {
-                    k: float(v) for k, v in (metrics.residuals or {}).items()
-                },
-                **_summarize_metrics(state),
-            }
+        summary = _summarize_history(history)
+        payload.update({"status": "ok", "wall_seconds": wall, **summary})
+        loss_str = (
+            f"{summary.get('final_loss', float('nan')):.6e}"
+            if "final_loss" in summary
+            else "n/a"
+        )
+        best_str = (
+            f"{summary.get('best_loss', float('nan')):.6e}"
+            if "best_loss" in summary
+            else "n/a"
         )
         print(
-            f"[{run_id}] OK   loss={float(metrics.loss):.6e}  wall={wall:.1f}s",
+            f"[{run_id}] OK   final={loss_str}  best={best_str}  wall={wall:.1f}s",
             flush=True,
         )
     except Exception as e:
