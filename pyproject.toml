@@ -116,6 +116,33 @@ python_files = ["test_*.py"]
 line-length = 88
 target-version = "py310"
 
+[tool.pyright]
+# Pylance reads this section automatically; no .vscode/settings.json
+# needed. ``basic`` keeps the genuinely-useful checks (None-call,
+# possibly-unbound, return-type lies) while suppressing the strict-mode
+# noise that JAX/Equinox/Optax invariably produce -- partial typestubs,
+# pytree leaves typed as ``Any``, ``eqx.Module.__call__`` not visible
+# from the base class, etc.
+#
+# Tests are excluded because they intentionally pass Any-shaped dicts
+# (configs, fake states) and exercise invalid inputs to test
+# validation; Pyright on default rules flags those as type errors.
+# Run ``uv run pyright tests/`` if you want a one-off sanity pass.
+include = ["src"]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "examples/",
+    "examples_suspect/",
+    "scripts/",
+    "dynare/",
+    "docs/",
+]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportPrivateImportUsage = false
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = [

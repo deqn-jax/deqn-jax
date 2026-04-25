@@ -255,12 +255,14 @@ class EpisodeState(NamedTuple):
 class Metrics(NamedTuple):
     """Training metrics from a single step/episode.
 
-    Attributes:
-        loss: Mean squared residual
-        residuals: Dict of per-equation mean squared residuals
-        grad_norm: Gradient L2 norm (optional)
+    All three fields hold scalar JAX Arrays at runtime (built inside
+    JIT'd grad steps). They were previously annotated as plain Python
+    ``float`` / ``Dict[str, float]``, which produced ~70 spurious
+    ``reportArgumentType`` errors at every Metrics(...) call site --
+    consumers cast to ``float`` explicitly when they need a Python
+    scalar (``float(metrics.loss)``).
     """
 
-    loss: float
-    residuals: Optional[Dict[str, float]] = None
-    grad_norm: Optional[float] = None
+    loss: Array
+    residuals: Optional[Dict[str, Array]] = None
+    grad_norm: Optional[Array] = None

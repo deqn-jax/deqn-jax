@@ -95,19 +95,27 @@ class VariableSpec:
         self.state_idx = {name: i for i, name in enumerate(state_names)}
         self.policy_idx = {name: i for i, name in enumerate(policy_names)}
 
-    def unpack_state(self, arr: Array) -> NamedTuple:
+    # Return / parameter types are ``Any`` rather than ``NamedTuple``
+    # because the actual tuple class is built at __init__ from
+    # ``state_names``/``policy_names`` (see ``make_state_type``); a
+    # static checker can't see those field names through the abstract
+    # ``NamedTuple`` base. Using ``Any`` here lets ``s.pi_lag``,
+    # ``p.sav_rate``, etc. type-check at every model's
+    # ``equations.py`` call site instead of producing 200+ spurious
+    # reportAttributeAccessIssue errors.
+    def unpack_state(self, arr: Array) -> Any:
         """Unpack state array into named fields."""
         return unpack_array(arr, self.state_names, self.StateType)
 
-    def unpack_policy(self, arr: Array) -> NamedTuple:
+    def unpack_policy(self, arr: Array) -> Any:
         """Unpack policy array into named fields."""
         return unpack_array(arr, self.policy_names, self.PolicyType)
 
-    def pack_state(self, state: NamedTuple) -> Array:
+    def pack_state(self, state: Any) -> Array:
         """Pack state NamedTuple back into array."""
         return pack_array(state)
 
-    def pack_policy(self, policy: NamedTuple) -> Array:
+    def pack_policy(self, policy: Any) -> Array:
         """Pack policy NamedTuple back into array."""
         return pack_array(policy)
 
