@@ -80,7 +80,7 @@ def run_irf(
     def_names: List[str] = []
     if has_defs:
         # Probe definitions to get the keys
-        _probe_defs = model.definitions_fn(state, policy_net(state), constants)
+        _probe_defs = model.definitions_fn(state, policy_net(state), constants)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         def_names = list(_probe_defs.keys())
         for name in def_names:
             results[name] = []
@@ -120,7 +120,7 @@ def run_irf(
     # ---- Warmup: deterministic steps from SS ----
     zero_shock = jnp.zeros((1, n_shocks))
     for t in range(-warmup, 0):
-        policy = policy_net(state)
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
         record(t, state, policy)
@@ -132,7 +132,7 @@ def run_irf(
         )
 
     # ---- Period 0: record pre-shock state ----
-    policy = policy_net(state)
+    policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
     if policy.ndim == 1:
         policy = policy[None, :]
 
@@ -154,7 +154,7 @@ def run_irf(
 
     # ---- Periods 2..horizon: deterministic ----
     for t in range(1, horizon + 1):
-        policy = policy_net(state)
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
 
@@ -166,7 +166,7 @@ def run_irf(
 
         # For residuals, we need next state + next policy
         next_state = model.step_fn(state, policy, zero_shock, constants)
-        next_policy = policy_net(next_state)
+        next_policy = policy_net(next_state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if next_policy.ndim == 1:
             next_policy = next_policy[None, :]
         if model.equations_fn is not None:

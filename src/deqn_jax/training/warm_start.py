@@ -418,7 +418,7 @@ def warm_start_from_dynare(
         model.policy_upper,
     )
     if verbose:
-        test_out = policy_net(ss_state)
+        test_out = policy_net(ss_state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         ss_err = float(jnp.max(jnp.abs(test_out - ss_policy)))
         print(f"  After bias init: max SS error = {ss_err:.2e}")
 

@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **57** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=24, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
+- Total: **45** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=12, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -115,7 +115,7 @@ Two functions promise `Dict[str, float]` but return `Dict[str, str | int | float
 **Plan:** Add `# pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]  # eqx.nn.Linear is typed as Module; runtime is Linear` per assignment. Or, more sweeping: declare the eqx layer fields as `eqx.Module` (the base) at the cost of losing field-level typing. Per-line suppress is more honest.
 **Cost:** M (mechanical but many sites).
 
-### 9. Equinox ``Module.__call__`` is invisible to the type checker  [EQX_NOISE]  [STATUS: TODO]
+### 9. Equinox ``Module.__call__`` is invisible to the type checker  [EQX_NOISE]  [STATUS: SUPPRESSED]
 
 `policy_net(state)` where `policy_net: eqx.Module` produces `call-non-callable`. **20 errors**: `irf.py` (6), `evaluate.py` (4), `warm_start.py` (2), `composite_loss.py` and friends.
 

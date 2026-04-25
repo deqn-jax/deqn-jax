@@ -84,11 +84,11 @@ def euler_equation_errors(
     # JIT-compile the simulation step for speed
     @eqx.filter_jit
     def _sim_step_no_d(state, shock):
-        policy = policy_net(state)
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
         next_state = model.step_fn(state, policy, shock, constants)
-        next_policy = policy_net(next_state)
+        next_policy = policy_net(next_state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if next_policy.ndim == 1:
             next_policy = next_policy[None, :]
         residuals = model.equations_fn(
@@ -104,13 +104,13 @@ def euler_equation_errors(
 
     @eqx.filter_jit
     def _sim_step_with_d(state, shock, d_disaster):
-        policy = policy_net(state)
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
         next_state = model.step_fn(
             state, policy, shock, constants, d_disaster=d_disaster
         )
-        next_policy = policy_net(next_state)
+        next_policy = policy_net(next_state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if next_policy.ndim == 1:
             next_policy = next_policy[None, :]
         residuals = model.equations_fn(
@@ -313,7 +313,7 @@ def simulated_moments(
 
     @eqx.filter_jit
     def _sim_step(state, shock):
-        policy = policy_net(state)
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
         next_state = model.step_fn(state, policy, shock, constants)
@@ -440,7 +440,7 @@ def stability_check(
 
     @eqx.filter_jit
     def _sim_step(state, shock):
-        policy = policy_net(state)
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
         next_state = model.step_fn(state, policy, shock, constants)
