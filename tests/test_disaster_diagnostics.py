@@ -75,3 +75,27 @@ def test_eq1_price_phillips_F_diagnostics():
     missing = expected - set(out.keys())
     assert not missing, f"missing eq1_diag keys: {sorted(missing)}"
     _assert_all_float_finite(out, "eq1_diag/")
+
+
+def test_eq3_wage_phillips_F_diagnostics():
+    """eq3 helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq3_diag/mu_z_factor_mean",
+        "eq3_diag/pi_w_tilda_factor_mean",
+        "eq3_diag/pi_w_inv_factor_mean",
+        "eq3_diag/pi_inv_factor_mean",
+        "eq3_diag/F_w_mean",
+        "eq3_diag/F_w_n_mean",
+        "eq3_diag/lhs_term_mean",
+        "eq3_diag/expect_term_mean",
+        "eq3_diag/log_residual_mean",
+        "eq3_diag/log_residual_std",
+        "eq3_diag/exponent_pi_w_tilda",
+        "eq3_diag/exponent_pi_w_inv",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq3_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq3_diag/")

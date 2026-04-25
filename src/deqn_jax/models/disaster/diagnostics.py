@@ -151,6 +151,82 @@ def _eq4_diagnostics(
     }
 
 
+def _eq3_diagnostics(
+    model: ModelSpec,
+    policy_fn: Callable,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq3 (wage_phillips_F) decomposition at training states.
+
+    Mirrors ``_eq1_diagnostics`` for the F_w side of the wage-Phillips
+    recursion. The expectation has more multiplicative factors than the
+    price side, so each factor is logged separately:
+        eq3_expect = mu_z_factor * pi_w_tilda_factor * pi_w_inv_factor
+                     * (1/pi_n) * F_w_n
+        F_w = h*(1-tau_l)/lambda_w * lambda_z + beta*xi_w * eq3_expect
+    """
+    c = model.constants
+    batch_size = states.shape[0]
+
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c)
+    next_policies = jax.vmap(policy_fn)(next_states)
+    assert model.definitions_fn is not None, "disaster diagnostics needs definitions_fn"
+    defs_fn = model.definitions_fn
+    defs_n = jax.vmap(lambda s, p: defs_fn(s, p, c))(next_states, next_policies)
+
+    pi_idx = list(model.policy_names).index("pi")
+    F_w_idx = list(model.policy_names).index("F_w")
+    h_idx = list(model.policy_names).index("h")
+    lambda_z_idx = list(model.policy_names).index("lambda_z")
+    mu_z_state_idx = list(model.state_names).index("mu_z")
+
+    F_w = policy_out[:, F_w_idx]
+    F_w_n = next_policies[:, F_w_idx]
+    pi_n = next_policies[:, pi_idx]
+    h = policy_out[:, h_idx]
+    lambda_z = policy_out[:, lambda_z_idx]
+    mu_z_n = next_states[:, mu_z_state_idx]
+
+    lambda_w = c["lambda_w"]
+    iota_mu = c["iota_mu"]
+    exponent_pi_w_tilda = 1.0 / (1.0 - lambda_w)
+    exponent_pi_w_inv = lambda_w / (1.0 - lambda_w)
+    mu_z_exponent = iota_mu / (1.0 - lambda_w) - 1.0
+    mu_z_ss_exponent = (1.0 - iota_mu) / (1.0 - lambda_w)
+
+    mu_z_factor = mu_z_n**mu_z_exponent * c["mu_z_ss"] ** mu_z_ss_exponent
+    pi_w_tilda_factor = defs_n["pi_w_tilda"] ** exponent_pi_w_tilda
+    pi_w_inv_factor = (1.0 / defs_n["pi_w"]) ** exponent_pi_w_inv
+    pi_inv_factor = 1.0 / pi_n
+
+    eq3_expect = (
+        mu_z_factor * pi_w_tilda_factor * pi_w_inv_factor * pi_inv_factor * F_w_n
+    )
+    lhs_term = h * (1.0 - c["tau_l"]) / lambda_w * lambda_z
+    expect_term = c["beta"] * c["xi_w"] * eq3_expect
+    rhs = lhs_term + expect_term
+    log_residual = jnp.log(jnp.maximum(rhs, 1e-8)) - jnp.log(jnp.maximum(F_w, 1e-8))
+
+    lr = np.asarray(log_residual)
+    return {
+        "mu_z_factor_mean": float(np.mean(np.asarray(mu_z_factor))),
+        "pi_w_tilda_factor_mean": float(np.mean(np.asarray(pi_w_tilda_factor))),
+        "pi_w_inv_factor_mean": float(np.mean(np.asarray(pi_w_inv_factor))),
+        "pi_inv_factor_mean": float(np.mean(np.asarray(pi_inv_factor))),
+        "F_w_mean": float(np.mean(np.asarray(F_w))),
+        "F_w_n_mean": float(np.mean(np.asarray(F_w_n))),
+        "lhs_term_mean": float(np.mean(np.asarray(lhs_term))),
+        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+        "exponent_pi_w_tilda": float(exponent_pi_w_tilda),
+        "exponent_pi_w_inv": float(exponent_pi_w_inv),
+    }
+
+
 def _eq2_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -237,6 +313,12 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq2_diag/{k}"] = v
+
+    if "pi_w_tilda" in defs and "pi_w" in defs:
+        for k, v in _eq3_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
+            out[f"eq3_diag/{k}"] = v
 
     if "K_w" in defs and "pi_w_tilda" in defs and "pi_w" in defs:
         for k, v in _eq4_diagnostics(
