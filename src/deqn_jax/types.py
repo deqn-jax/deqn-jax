@@ -107,6 +107,38 @@ class ModelSpec(NamedTuple):
     state_bounds: Optional[Dict[str, Dict[str, float]]] = None
     definition_bounds: Optional[Dict[str, Dict[str, float]]] = None
 
+    # Optional: called once before training starts, given the loaded
+    # model and the resolved TrainConfig. Returns a (possibly modified)
+    # ModelSpec for the trainer to use. Use this to wire config-time
+    # decisions into the model -- e.g. disaster swaps `steady_state_fn`
+    # to its risky-SS variant when ``constants['p_disaster'] > 0`` and
+    # ``config.use_risky_steady_state`` allows it. Called outside JIT,
+    # so plain Python branching is fine. Default ``None`` is a no-op
+    # (model is used as-declared).
+    #
+    # Signature: setup_fn(model: ModelSpec, config) -> ModelSpec
+    setup_fn: Optional[Callable[..., "ModelSpec"]] = None
+
+    # Optional: called every ``log_every`` cycles in the Python-level
+    # logging path, given the model and current training-batch quantities,
+    # to return a dict of scalar diagnostics that the trainer prepends
+    # to TensorBoard / W&B with the model's namespace prefix. Lets a
+    # model expose its own per-equation decompositions, ratio
+    # diagnostics, soft-floor saturation fractions, etc. without the
+    # framework knowing about the model's internals. Failure is
+    # tolerated -- if the hook raises, the trainer logs a warning and
+    # continues.
+    #
+    # Signature:
+    #   scalar_diagnostics_fn(
+    #       model: ModelSpec,
+    #       policy_fn: Callable,        # eqx Module or wrapper for sequence nets
+    #       states: Array,              # [batch, n_states] training batch
+    #       policy_out: Array,          # [batch, n_policies] policy at states
+    #       defs: Dict[str, Array],     # definitions at (states, policy_out)
+    #   ) -> Dict[str, float]
+    scalar_diagnostics_fn: Optional[Callable[..., Dict[str, float]]] = None
+
 
 class ReweightState(NamedTuple):
     """Running statistics for adaptive loss reweighting.

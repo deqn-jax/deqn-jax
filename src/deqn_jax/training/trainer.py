@@ -59,146 +59,6 @@ def _print_residual_table(items: list, n_cols: int = 3):
         print("    " + "   ".join(parts))
 
 
-def _eq4_diagnostics(
-    model: ModelSpec,
-    policy_fn,
-    states: Array,
-    policy_out: Array,
-    defs: Dict[str, Array],
-) -> Dict[str, float]:
-    """Compute eq4 (wage_phillips_K) diagnostic quantities.
-
-    Runs a zero-shock forward step to get next-period definitions,
-    then decomposes the eq4 residual into its constituent terms.
-
-    Returns scalar statistics (mean/std) for TensorBoard and console logging.
-    """
-    import numpy as np
-    c = model.constants
-    batch_size = states.shape[0]
-
-    # Next state with zero shock (mean scenario)
-    zero_shock = jnp.zeros((batch_size, model.n_shocks))
-    next_states = model.step_fn(states, policy_out, zero_shock, c)
-    next_policies = jax.vmap(policy_fn)(next_states)
-    defs_n = jax.vmap(
-        lambda s, p: model.definitions_fn(s, p, c)
-    )(next_states, next_policies)
-
-    # eq4 ratio base: pi_w_tilda' * mu_z_ss / pi_w'
-    ratio_base = defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]
-    exponent = c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
-    eq4_ratio = ratio_base ** exponent
-
-    # Three terms of eq4
-    sigma_L = c["sigma_L"]
-    # h is a policy variable — extract index from policy_names
-    h_idx = list(model.policy_names).index("h") if "h" in model.policy_names else None
-    if h_idx is not None:
-        h = policy_out[:, h_idx]
-        h_term = h ** (1 + sigma_L)
-    else:
-        h_term = jnp.zeros(batch_size)
-
-    expect_term = c["beta"] * c["xi_w"] * eq4_ratio * defs_n["K_w"]
-    K_w = defs["K_w"]
-    eq4_rhs = h_term + expect_term
-    # Log-space residual (matches equations.py)
-    log_residual = jnp.log(jnp.maximum(eq4_rhs, 1e-8)) - jnp.log(jnp.maximum(K_w, 1e-8))
-
-    # K_w_inner: check how many hit the soft floor zone
-    xi_w = c["xi_w"]
-    lambda_w = c["lambda_w"]
-    K_w_inner_ratio = (defs["pi_w_tilda"] / defs["pi_w"] * c["mu_z_ss"]) ** (1 / (1 - lambda_w))
-    K_w_inner = (1 - xi_w * K_w_inner_ratio) / (1 - xi_w)
-    floor_frac = float(np.mean(np.asarray(K_w_inner) < 0.02))
-
-    rb = np.asarray(ratio_base)
-    lr = np.asarray(log_residual)
-    return {
-        "ratio_base_mean": float(np.mean(rb)),
-        "ratio_base_std": float(np.std(rb)),
-        "ratio_base_min": float(np.min(rb)),
-        "ratio_base_max": float(np.max(rb)),
-        "eq4_ratio_mean": float(np.mean(np.asarray(eq4_ratio))),
-        "K_w_mean": float(np.mean(np.asarray(K_w))),
-        "K_w_n_mean": float(np.mean(np.asarray(defs_n["K_w"]))),
-        "h_term_mean": float(np.mean(np.asarray(h_term))),
-        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
-        "log_residual_mean": float(np.mean(lr)),
-        "log_residual_std": float(np.std(lr)),
-        "K_w_inner_floor_frac": floor_frac,
-        "exponent": float(exponent),
-    }
-
-
-def _eq2_diagnostics(
-    model: ModelSpec,
-    policy_fn,
-    states: Array,
-    policy_out: Array,
-    defs: Dict[str, Array],
-) -> Dict[str, float]:
-    """Compute eq2 (price_phillips_K) diagnostic quantities.
-
-    Mirrors _eq4_diagnostics() for eq4. Decomposes eq2 residual into
-    constituent terms to diagnose convergence issues.
-
-    Returns scalar statistics (mean/std) for TensorBoard and console logging.
-    """
-    import numpy as np
-    c = model.constants
-    batch_size = states.shape[0]
-
-    # Next state with zero shock (mean scenario)
-    zero_shock = jnp.zeros((batch_size, model.n_shocks))
-    next_states = model.step_fn(states, policy_out, zero_shock, c)
-    next_policies = jax.vmap(policy_fn)(next_states)
-    defs_n = jax.vmap(
-        lambda s, p: model.definitions_fn(s, p, c)
-    )(next_states, next_policies)
-
-    # eq2 ratio base: pi_tilda' / pi'
-    ratio_base = defs_n["pi_tilda"] / next_policies[:, list(model.policy_names).index("pi")]
-    exponent = c["lambda_f"] / (1 - c["lambda_f"])
-    eq2_ratio = ratio_base ** exponent
-
-    # Three terms of eq2
-    lambda_z_idx = list(model.policy_names).index("lambda_z")
-    lambda_z = policy_out[:, lambda_z_idx]
-    lhs_term = lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"]
-    expect_term = c["beta"] * c["xi_p"] * eq2_ratio * defs_n["K_p"]
-    K_p = defs["K_p"]
-    eq2_rhs = lhs_term + expect_term
-    # Log-space residual (matches equations.py)
-    log_residual = jnp.log(jnp.maximum(eq2_rhs, 1e-8)) - jnp.log(jnp.maximum(K_p, 1e-8))
-
-    # K_p_inner: check how many hit the soft floor zone
-    xi_p = c["xi_p"]
-    lambda_f = c["lambda_f"]
-    K_p_inner_ratio = (defs["pi_tilda"] / policy_out[:, list(model.policy_names).index("pi")]) ** (1 / (1 - lambda_f))
-    K_p_inner = (1 - xi_p * K_p_inner_ratio) / (1 - xi_p)
-    floor_frac = float(np.mean(np.asarray(K_p_inner) < 0.02))
-
-    rb = np.asarray(ratio_base)
-    lr = np.asarray(log_residual)
-    return {
-        "ratio_base_mean": float(np.mean(rb)),
-        "ratio_base_std": float(np.std(rb)),
-        "ratio_base_min": float(np.min(rb)),
-        "ratio_base_max": float(np.max(rb)),
-        "eq2_ratio_mean": float(np.mean(np.asarray(eq2_ratio))),
-        "K_p_mean": float(np.mean(np.asarray(K_p))),
-        "K_p_n_mean": float(np.mean(np.asarray(defs_n["K_p"]))),
-        "lhs_term_mean": float(np.mean(np.asarray(lhs_term))),
-        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
-        "log_residual_mean": float(np.mean(lr)),
-        "log_residual_std": float(np.std(lr)),
-        "K_p_inner_floor_frac": floor_frac,
-        "exponent": float(exponent),
-    }
-
-
 def _count_params(model: eqx.Module) -> int:
     """Count trainable parameters in an Equinox model."""
     params = eqx.filter(model, eqx.is_array)
@@ -1924,26 +1784,12 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         if config.verbose:
             print(f"  Constants override: {dict(config.constants)}")
 
-    # Disaster + p_disaster > 0 → anchor to risky SS, not deterministic SS.
-    # Why: composite-loss anchor and Blanchard-Kahn linearization should
-    # supervise toward the SS the equilibrium actually contains under disaster
-    # risk. Locally-flat policy approximation (Gourio-style) — see
-    # disaster.steady_state.risky_steady_state.
-    # Set config.use_risky_steady_state=False to force deterministic SS even
-    # under disaster risk (for anchor/residual ablation experiments).
-    if (model.name == "disaster"
-            and float(model.constants.get("p_disaster", 0.0)) > 0.0):
-        if config.use_risky_steady_state:
-            from deqn_jax.models.disaster.steady_state import risky_steady_state
-            model = model._replace(steady_state_fn=risky_steady_state)
-            if config.verbose:
-                print(f"  Anchor: risky steady state (p_disaster="
-                      f"{model.constants['p_disaster']:.4f})")
-        else:
-            if config.verbose:
-                print(f"  Anchor: DETERMINISTIC SS forced "
-                      f"(use_risky_steady_state=False, "
-                      f"p_disaster={model.constants['p_disaster']:.4f})")
+    # Optional model-specific setup hook. Lets a model adapt itself to
+    # the resolved config before training (e.g. swap steady_state_fn
+    # under disaster risk). The framework stays model-agnostic; the
+    # adaptation logic lives with the model that needs it.
+    if model.setup_fn is not None:
+        model = model.setup_fn(model, config)
 
     n_equations = len(model.equation_names) if model.equation_names else 1
 
@@ -2500,8 +2346,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
 
             # Definition histograms (derived economic quantities)
-            eq2_diag = None
-            eq4_diag = None
             if model.definitions_fn is not None:
                 defs = jax.vmap(
                     lambda s, p: model.definitions_fn(s, p, model.constants)
@@ -2509,29 +2353,32 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 for name, vals in defs.items():
                     hist_dict[f"derived/{name}"] = np.asarray(vals)
 
-                # Wrap policy_fn for sequence nets (use constant history)
-                if history_len > 1:
-                    _diag_policy_fn = lambda s: state.params(make_constant_history(s[None], history_len)[0])
-                else:
-                    _diag_policy_fn = state.params
+                # Model-supplied scalar diagnostics (e.g. disaster's
+                # eq2_diag / eq4_diag Phillips-curve decompositions).
+                # Generic hook: any model can declare a
+                # ``scalar_diagnostics_fn`` on its ModelSpec returning
+                # a dict of pre-namespaced scalars to log. Failure is
+                # tolerated to avoid killing training over a bad
+                # diagnostic.
+                if model.scalar_diagnostics_fn is not None:
+                    if history_len > 1:
+                        _diag_policy_fn = lambda s: state.params(
+                            make_constant_history(s[None], history_len)[0]
+                        )
+                    else:
+                        _diag_policy_fn = state.params
+                    try:
+                        diag = model.scalar_diagnostics_fn(
+                            model, _diag_policy_fn, ep_states, policy_out, defs,
+                        )
+                        for dk, dv in diag.items():
+                            log_dict[dk] = float(dv)
+                    except Exception as exc:
+                        import warnings
+                        warnings.warn(
+                            f"scalar_diagnostics_fn raised at ep {ep_num}: {exc}"
+                        )
 
-                # eq2 (price_phillips_K) diagnostics
-                if "K_p" in defs and "pi_tilda" in defs and "s" in defs:
-                    eq2_diag = _eq2_diagnostics(
-                        model, _diag_policy_fn, ep_states, policy_out, defs,
-                    )
-                    for dk, dv in eq2_diag.items():
-                        log_dict[f"eq2_diag/{dk}"] = float(dv)
-
-                # eq4 (wage_phillips_K) diagnostics
-                if "K_w" in defs and "pi_w_tilda" in defs and "pi_w" in defs:
-                    eq4_diag = _eq4_diagnostics(
-                        model, _diag_policy_fn, ep_states, policy_out, defs,
-                    )
-                    for dk, dv in eq4_diag.items():
-                        log_dict[f"eq4_diag/{dk}"] = float(dv)
-
-            # Log all scalars (including eq2/eq4 diagnostics)
             logger.log_scalars(log_dict, step=ep_num)
 
             # Filter out arrays with NaN/Inf (early training can produce these)
@@ -2584,26 +2431,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                     print("    aux: " + "  ".join(
                         f"{n}={v:.2e}" for n, v in aux_items
                     ))
-
-            # eq2 diagnostic line (when available)
-            if eq2_diag is not None:
-                print(
-                    f"    eq2: ratio={eq2_diag['ratio_base_mean']:.4f}±{eq2_diag['ratio_base_std']:.4f}"
-                    f"  log_r={eq2_diag['log_residual_mean']:.3f}±{eq2_diag['log_residual_std']:.3f}"
-                    f"  K_p={eq2_diag['K_p_mean']:.3f}"
-                    f"  lhs={eq2_diag['lhs_term_mean']:.3f}"
-                    f"  floor%={eq2_diag['K_p_inner_floor_frac']:.1%}"
-                )
-
-            # eq4 diagnostic line (when available)
-            if eq4_diag is not None:
-                print(
-                    f"    eq4: ratio={eq4_diag['ratio_base_mean']:.4f}±{eq4_diag['ratio_base_std']:.4f}"
-                    f"  log_r={eq4_diag['log_residual_mean']:.3f}±{eq4_diag['log_residual_std']:.3f}"
-                    f"  K_w={eq4_diag['K_w_mean']:.3f}"
-                    f"  h²={eq4_diag['h_term_mean']:.3f}"
-                    f"  floor%={eq4_diag['K_w_inner_floor_frac']:.1%}"
-                )
 
         # ---- Checkpointing with config snapshot + pruning ----
         if (

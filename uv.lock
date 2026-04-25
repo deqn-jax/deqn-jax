@@ -412,6 +412,7 @@ dependencies = [
     { name = "optax" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "treescope" },
 ]
 
 [package.optional-dependencies]
@@ -475,6 +476,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tensorboardx", marker = "extra == 'logging'", specifier = ">=2.6" },
+    { name = "treescope", specifier = ">=0.1.10" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.15.0" },
 ]
 provides-extras = ["cuda", "dev", "logging", "wandb", "plotting", "docs", "all"]
