@@ -139,6 +139,33 @@ class ModelSpec(NamedTuple):
     #   ) -> Dict[str, float]
     scalar_diagnostics_fn: Optional[Callable[..., Dict[str, float]]] = None
 
+    # Optional: model-specific auxiliary terms for the composite loss
+    # (``loss_type='composite'``). Lets a model contribute extra
+    # ``aux_*``-keyed losses without the framework knowing about that
+    # model's definitions or solver internals. Called inside
+    # ``make_composite_loss``'s closure after barrier losses, with the
+    # batch-level ``defs`` dict and a kwargs dict of relevant
+    # ``CompositeLossConfig`` weights. Returns ``(aux_entries,
+    # total_contribution)``: ``aux_entries`` is merged into
+    # ``eq_losses`` (so adaptive reweighting / logging see the
+    # individual unweighted scalars under their ``aux_*`` keys);
+    # ``total_contribution`` is added directly to the running total
+    # (the hook applies its own weighting).
+    #
+    # Used by the disaster model to add Newton-step diagnostic losses
+    # (``aux_newton_cond``, ``aux_newton_resid``) that read disaster-
+    # specific definitions (``newton_h_prime``, ``newton_residual``).
+    # Other models leave this ``None``.
+    #
+    # Signature:
+    #   composite_aux_fn(
+    #       model: ModelSpec,
+    #       defs: Dict[str, Array],     # batch-level definitions
+    #       data,                       # CompositeData (linearization + SS)
+    #       weights: Dict[str, float],  # subset of CompositeLossConfig weights
+    #   ) -> Tuple[Dict[str, Array], Array]
+    composite_aux_fn: Optional[Callable[..., Tuple[Dict[str, Array], Array]]] = None
+
 
 class ReweightState(NamedTuple):
     """Running statistics for adaptive loss reweighting.

@@ -10,6 +10,7 @@ Analytical eliminations (12 original -> 9):
   s (cost min), L (balance sheet), omega_bar (bank participation)
 """
 
+from deqn_jax.models.disaster.composite_aux import composite_aux
 from deqn_jax.models.disaster.diagnostics import scalar_diagnostics
 from deqn_jax.models.disaster.dynamics import clip_state, compute_state_barrier, step
 from deqn_jax.models.disaster.equations import EQUATION_NAMES, definitions, equations
@@ -84,4 +85,5 @@ MODEL = ModelSpec(
     shock_names=("eps", "mu_ups", "mu_z", "g", "m_p"),
     setup_fn=_setup,
     scalar_diagnostics_fn=scalar_diagnostics,
+    composite_aux_fn=composite_aux,
 )

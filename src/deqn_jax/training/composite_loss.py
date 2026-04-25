@@ -207,29 +207,6 @@ def _barrier_losses(
     return losses
 
 
-def _newton_losses(
-    defs: Dict[str, Array],
-) -> Dict[str, Array]:
-    """Newton solver diagnostic losses.
-
-    Penalizes regions where the Newton solver for omega_bar is ill-conditioned
-    (h'(omega) near zero) or has high residual.
-    """
-    losses = {}
-
-    # Newton condition: penalize h'(omega) < 0.1 (ill-conditioned solver)
-    h_prime = defs["newton_h_prime"]
-    # Soft penalty: (max(0.1 - h', 0))^2
-    deficit = jnp.maximum(0.1 - h_prime, 0.0)
-    losses["aux_newton_cond"] = jnp.mean(deficit ** 2)
-
-    # Newton residual: should be near zero if solver converged
-    newton_resid = defs["newton_residual"]
-    losses["aux_newton_resid"] = jnp.mean(newton_resid ** 2)
-
-    return losses
-
-
 def make_composite_loss(
     model: ModelSpec,
     data: CompositeData,
@@ -322,10 +299,7 @@ def make_composite_loss(
         barriers = _barrier_losses(defs, data, leverage_mult)
         eq_losses.update(barriers)
 
-        newtons = _newton_losses(defs)
-        eq_losses.update(newtons)
-
-        # 5. Weighted total (anchor/jac decay with curriculum, barriers/newton don't)
+        # 5. Weighted total (anchor/jac decay with curriculum, barriers/aux don't)
         total = base_loss
         total = total + aux_decay * anchor_weight * anchor
         total = total + aux_decay * jac_weight * jac
@@ -333,8 +307,15 @@ def make_composite_loss(
             total = total + aux_decay * jac_anchor_weight * jac_anchor
         for k, v in barriers.items():
             total = total + barrier_weight * v
-        for k, v in newtons.items():
-            total = total + newton_weight * v
+
+        # Model-specific auxiliary terms (e.g. disaster's Newton solver
+        # diagnostics). Hook applies its own weighting via ``weights``.
+        if model_.composite_aux_fn is not None:
+            aux_entries, aux_total = model_.composite_aux_fn(
+                model_, defs, data, {"newton_weight": newton_weight}
+            )
+            eq_losses.update(aux_entries)
+            total = total + aux_total
 
         return total, eq_losses
 
