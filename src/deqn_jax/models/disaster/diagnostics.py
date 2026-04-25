@@ -83,6 +83,45 @@ def _eq1_diagnostics(
     }
 
 
+def _eq4a_diagnostics(
+    model: ModelSpec,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq4a (K_w definition) decomposition at training states.
+
+    Algebraic identity in log-space:
+        log(K_w) - log((1/psi_L) * K_w_inner^(1-lambda_w*(1+sigma_L))
+                       * w_tilda * F_w)
+    Uses only current-period defs — no rollout needed.
+    """
+    c = model.constants
+    F_w_idx = list(model.policy_names).index("F_w")
+    w_tilda_idx = list(model.policy_names).index("w_tilda")
+    F_w = policy_out[:, F_w_idx]
+    w_tilda = policy_out[:, w_tilda_idx]
+    K_w = defs["K_w"]
+    K_w_inner = defs["K_w_inner"]
+
+    inner_exponent = 1.0 - c["lambda_w"] * (1.0 + c["sigma_L"])
+    K_w_analytical = (1.0 / c["psi_L"]) * K_w_inner**inner_exponent * w_tilda * F_w
+    log_residual = jnp.log(jnp.maximum(K_w, 1e-8)) - jnp.log(
+        jnp.maximum(K_w_analytical, 1e-8)
+    )
+
+    floor_frac = float(np.mean(np.asarray(K_w_inner) < 0.02))
+    lr = np.asarray(log_residual)
+    return {
+        "K_w_mean": float(np.mean(np.asarray(K_w))),
+        "K_w_analytical_mean": float(np.mean(np.asarray(K_w_analytical))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+        "K_w_inner_floor_frac": floor_frac,
+        "inner_exponent": float(inner_exponent),
+    }
+
+
 def _eq4_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -357,6 +396,10 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq3_diag/{k}"] = v
+
+    if "K_w" in defs and "K_w_inner" in defs:
+        for k, v in _eq4a_diagnostics(model, states, policy_out, defs).items():
+            out[f"eq4a_diag/{k}"] = v
 
     if "K_w" in defs and "pi_w_tilda" in defs and "pi_w" in defs:
         for k, v in _eq4_diagnostics(

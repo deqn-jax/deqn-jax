@@ -116,3 +116,21 @@ def test_eq2a_Kp_definition_diagnostics():
     missing = expected - set(out.keys())
     assert not missing, f"missing eq2a_diag keys: {sorted(missing)}"
     _assert_all_float_finite(out, "eq2a_diag/")
+
+
+def test_eq4a_Kw_definition_diagnostics():
+    """eq4a (K_w definition) helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq4a_diag/K_w_mean",
+        "eq4a_diag/K_w_analytical_mean",
+        "eq4a_diag/log_residual_mean",
+        "eq4a_diag/log_residual_std",
+        "eq4a_diag/K_w_inner_floor_frac",
+        "eq4a_diag/inner_exponent",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq4a_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq4a_diag/")
