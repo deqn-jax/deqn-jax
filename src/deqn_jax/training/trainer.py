@@ -1250,31 +1250,15 @@ def make_train_step(
 
 
 # ---------------------------------------------------------------------------
-# Training entry points
+# train_from_config setup helpers
 # ---------------------------------------------------------------------------
 
-def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
-    """Train from a TrainConfig object.
+def _validate_train_config(config) -> None:
+    """Validate config invariants that don't depend on the loaded model.
 
-    This is the primary entry point for config-driven training.
-    Supports checkpoint resume, mid-training optimizer switching,
-    and grouped TensorBoard logging.
-
-    Args:
-        config: TrainConfig instance
-
-    Returns:
-        Tuple of (trained_params, history_dict)
+    Currently: fp64 toggle + composite-loss/optimizer-combo gate +
+    episode_length=1 / initialize_each_episode requirement.
     """
-    from deqn_jax.config import OptimizerConfig, TrainConfig
-    from deqn_jax.models import load_model
-
-    # Apply fp64 if requested. The CLI pre-scans configs and sets this
-    # before the trainer is entered, but programmatic callers go straight
-    # to train_from_config(cfg) and otherwise get silently downgraded to
-    # fp32. JAX requires x64 to be toggled before array creation; we do
-    # it here as the earliest point in the programmatic path. No-op if
-    # already enabled.
     if config.fp64 and not jax.config.read("jax_enable_x64"):
         jax.config.update("jax_enable_x64", True)
 
@@ -1297,13 +1281,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 "variant), or switch to loss_type='mse'."
             )
 
-    # episode_length=1 without initialize_each_episode gives no state
-    # advancement. The cycle seeds the next rollout from trajectory[-1],
-    # which when T=1 is just s_0 -- so the "rollout" is a single state
-    # that never moves and episode_state drifts only via grad-step side
-    # effects. This is almost certainly a config mistake (the user wants
-    # fresh-sample-per-step semantics). Require the flag combination to
-    # be explicit.
     if config.episode_length == 1 and not config.initialize_each_episode:
         raise ValueError(
             "episode_length=1 requires initialize_each_episode=True. "
@@ -1315,11 +1292,19 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             "training, use episode_length > 1."
         )
 
+
+def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
+    """Load the model, validate sizes, apply constants override and setup_fn.
+
+    Returns ``(model, n_equations)``. Done as one helper because the
+    validation steps depend on the loaded model and we want to apply
+    all model-side adaptations (constants override, setup_fn) before
+    computing ``n_equations``.
+    """
+    from deqn_jax.models import load_model
+
     model = load_model(config.model)
 
-    # Shape validation against the loaded model. Catches mismatches that
-    # would otherwise surface as runtime JAX shape errors deep inside
-    # the JIT'd loop, or (worse) silently produce partial minibatches.
     sim_batch_eff = config.sim_batch if config.sim_batch is not None else config.batch_size
     trajectory_pool = config.episode_length * sim_batch_eff
     if trajectory_pool < config.batch_size:
@@ -1338,7 +1323,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             f"shock_names={model.shock_names!r}."
         )
 
-    # Per-run override of model constants (e.g. {p_disaster: 0.02}).
     if config.constants:
         model = model._replace(
             constants={**model.constants, **config.constants}
@@ -1346,10 +1330,6 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         if config.verbose:
             print(f"  Constants override: {dict(config.constants)}")
 
-    # Optional model-specific setup hook. Lets a model adapt itself to
-    # the resolved config before training (e.g. swap steady_state_fn
-    # under disaster risk). The framework stays model-agnostic; the
-    # adaptation logic lives with the model that needs it.
     if model.setup_fn is not None:
         model = model.setup_fn(model, config)
 
@@ -1361,39 +1341,38 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             f"has {n_equations} equations"
         )
 
-    fp64 = jnp.zeros(1).dtype == jnp.float64
+    return model, n_equations
+
+
+def _build_initial_state(
+    config,
+    model: ModelSpec,
+    key,
+    n_equations: int,
+    effective_opt_cfg,
+):
+    """Resume from checkpoint or build fresh state, then optionally warm-start.
+
+    Returns ``(state, opt, kind, start_episode, total_for_schedule)``.
+    ``total_for_schedule`` is the episode count to feed an LR schedule
+    (config.episodes for both fresh and resume; kept here so the caller
+    doesn't need to recompute it).
+    """
+    from deqn_jax.config import TrainConfig
+
     hidden_sizes = config.network.hidden_sizes
-
-    key = jax.random.PRNGKey(config.seed)
-
-    # ---- Build LR schedule helper for logging ----
-    from deqn_jax.optimizers.registry import _build_lr_schedule
-
-    # When a schedule is active, the optimizer is created with lr=1.0.
-    # The actual LR is passed as a dynamic scalar to train_step each episode.
-    has_schedule = config.optimizer.lr_schedule != "constant"
-    if has_schedule:
-        total_for_schedule = config.episodes  # overridden below for resume
-        effective_opt_cfg = config.optimizer.model_copy(
-            update={"learning_rate": 1.0, "lr_schedule": "constant"}
-        )
-    else:
-        effective_opt_cfg = config.optimizer
-
-    # ---- Resume from checkpoint or create fresh state ----
     start_episode = 0
+    total_for_schedule = config.episodes
 
     if config.resume:
-        # Load original config to reconstruct matching template for deserialization
         ckpt_dir = os.path.dirname(config.resume)
         orig_cfg_path = os.path.join(ckpt_dir, "config.yaml")
         if os.path.exists(orig_cfg_path):
             orig_config = TrainConfig.from_yaml(orig_cfg_path)
         else:
-            orig_config = config  # assume same optimizer
+            orig_config = config
 
-        # Build template with ORIGINAL optimizer (matching checkpoint pytree structure)
-        template_state, orig_opt, orig_kind = create_train_state(
+        template_state, _orig_opt, _orig_kind = create_train_state(
             model,
             key,
             hidden_sizes=orig_config.network.hidden_sizes,
@@ -1407,12 +1386,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
 
         state = eqx.tree_deserialise_leaves(config.resume, template_state)
         start_episode = int(state.episode)
+        total_for_schedule = config.episodes
 
-        # Check if optimizer changed
-        # Resume runs TO config.episodes, not an additional config.episodes
-        total_episodes = config.episodes
-        if has_schedule:
-            total_for_schedule = total_episodes
         optimizer_changed = config.optimizer.name != orig_config.optimizer.name
         if optimizer_changed:
             new_opt, new_kind = create_optimizer(effective_opt_cfg)
@@ -1425,142 +1400,80 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 print(f"  Resumed from {config.resume} (episode {start_episode})")
                 print(f"  Switched optimizer: {orig_config.optimizer.name} -> {config.optimizer.name}")
         else:
-            # Rebuild optimizer with effective_opt_cfg (lr=1.0 when schedule active)
-            # to avoid double-LR: checkpoint optimizer has lr baked in, but
-            # lr_scale already carries the scheduled LR from _build_lr_schedule.
             opt, kind = create_optimizer(effective_opt_cfg)
             if kind == OptimizerKind.MAO and hasattr(opt, 'with_num_tasks'):
                 opt = opt.with_num_tasks(n_equations)
             if config.verbose:
                 print(f"  Resumed from {config.resume} (episode {start_episode})")
-    else:
-        state, opt, kind = create_train_state(
-            model,
-            key,
-            hidden_sizes=hidden_sizes,
-            batch_size=config.batch_size,
-            loss_weights=config.loss_weights,
-            n_equations=n_equations,
-            optimizer_config=effective_opt_cfg,
-            network_config=config.network,
-            sim_batch=config.sim_batch,
-        )
+        return state, opt, kind, start_episode, total_for_schedule
 
-        # Warm start from steady state (only for fresh training)
-        # For linear_plus_mlp: the network IS already the linearized policy by
-        # construction (delta starts at zero). Skip fitting.
-        is_linear_plus_mlp = config.network.type == "linear_plus_mlp"
-        if config.warm_start and is_linear_plus_mlp:
-            if config.verbose:
-                print("  Warm start skipped: linear_plus_mlp architecture starts at linear policy by construction.")
-        elif config.warm_start:
-            _hl = get_history_len(state.params)
-            if _hl > 1:
-                # Sequence net warm start: fit to constant-SS policy
-                # using warm_start_to_function with history wrapping
-                if model.steady_state_fn is not None:
-                    ss_state, ss_policy = model.steady_state_fn(model.constants)
-                    ws_key = jax.random.PRNGKey(0)
-                    noise = jax.random.uniform(ws_key, (256, model.n_states), minval=-0.2, maxval=0.2)
-                    sample_states = ss_state * (1 + noise)
-                    # Build constant history windows for each sample state
-                    sample_history = make_constant_history(sample_states, _hl)  # [256, H, D]
-                    # Custom loss for sequence net: supervise every sample
-                    # toward the SS policy (constant target).
-                    targets = jnp.tile(ss_policy, (256, 1))
-                    def _ws_loss(params):
-                        pred = jax.vmap(params)(sample_history)
-                        return jnp.mean((pred - targets) ** 2)
-                    from deqn_jax.training.warm_start import _lbfgs_minimize
-                    final_params, n_iters, final_loss = _lbfgs_minimize(
-                        _ws_loss, state.params, max_iter=100, tol=1e-6,
-                    )
-                    if config.verbose:
-                        print(f"  Warm start (sequence net, constant-SS): loss={final_loss:.2e}, iters={n_iters}")
-                    state = state._replace(params=final_params)
-            elif config.warm_start_dynare:
-                from deqn_jax.training.warm_start import warm_start_from_dynare
-                state = state._replace(
-                    params=warm_start_from_dynare(
-                        state.params, model,
-                        dynare_dir=config.warm_start_dynare,
-                        verbose=config.verbose,
-                    )
-                )
-            else:
-                from deqn_jax.training.warm_start import warm_start_network
-                state = state._replace(
-                    params=warm_start_network(
-                        state.params, model, verbose=config.verbose,
-                        linearize=config.warm_start_linearize,
-                    )
-                )
-
-    # ---- Metric logger ----
-    wandb_config = config.to_dict() if config.wandb_project else None
-    logger = create_logger(
-        tensorboard_dir=config.tensorboard_dir,
-        wandb_project=config.wandb_project,
-        wandb_config=wandb_config,
+    state, opt, kind = create_train_state(
+        model,
+        key,
+        hidden_sizes=hidden_sizes,
+        batch_size=config.batch_size,
+        loss_weights=config.loss_weights,
+        n_equations=n_equations,
+        optimizer_config=effective_opt_cfg,
+        network_config=config.network,
+        sim_batch=config.sim_batch,
     )
 
-    # ---- Print header ----
-    n_params = _count_params(state.params)
-    if config.verbose:
-        _print_header(
-            model_spec=model,
-            optimizer=config.optimizer.name,
-            learning_rate=config.optimizer.learning_rate,
-            hidden_sizes=hidden_sizes,
-            n_params=n_params,
-            batch_size=config.batch_size,
-            mc_samples=config.mc_samples,
-            warm_start=config.warm_start,
-            grad_clip=config.optimizer.grad_clip,
-            loss_reweight=config.loss_reweight,
-            fp64=fp64,
-            lr_schedule=config.optimizer.lr_schedule,
-            lr_warmup=config.optimizer.lr_warmup,
-            lr_min_factor=config.optimizer.lr_min_factor,
-            net_type=getattr(config.network, "type", "mlp") if config.network else "mlp",
-            history_len=get_history_len(state.params),
-        )
-
-    # Build LR schedule function for computing per-episode LR (None if constant)
-    lr_schedule_fn = None
-    if has_schedule:
-        if config.resume:
-            total_for_schedule = config.episodes
-        lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
-
-    # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
-    quad_nodes_jax = None
-    quad_weights_jax = None
-    exp_type = config.expectation_type
-    if exp_type in ("quadrature", "gh", "gauss_hermite"):
-        n_qp = config.n_quadrature_points
-        quad = gauss_hermite_nd(n_qp, model.n_shocks)
-        if quad is not None:
-            quad_nodes_jax = jnp.array(quad[0])
-            quad_weights_jax = jnp.array(quad[1])
-            if config.verbose:
-                print(f"  Quadrature: {n_qp}^{model.n_shocks} = {quad[0].shape[0]} nodes (Gauss-Hermite)")
+    is_linear_plus_mlp = config.network.type == "linear_plus_mlp"
+    if config.warm_start and is_linear_plus_mlp:
+        if config.verbose:
+            print("  Warm start skipped: linear_plus_mlp architecture starts at linear policy by construction.")
+    elif config.warm_start:
+        _hl = get_history_len(state.params)
+        if _hl > 1:
+            if model.steady_state_fn is not None:
+                ss_state, ss_policy = model.steady_state_fn(model.constants)
+                ws_key = jax.random.PRNGKey(0)
+                noise = jax.random.uniform(ws_key, (256, model.n_states), minval=-0.2, maxval=0.2)
+                sample_states = ss_state * (1 + noise)
+                sample_history = make_constant_history(sample_states, _hl)
+                targets = jnp.tile(ss_policy, (256, 1))
+                def _ws_loss(params):
+                    pred = jax.vmap(params)(sample_history)
+                    return jnp.mean((pred - targets) ** 2)
+                from deqn_jax.training.warm_start import _lbfgs_minimize
+                final_params, n_iters, final_loss = _lbfgs_minimize(
+                    _ws_loss, state.params, max_iter=100, tol=1e-6,
+                )
+                if config.verbose:
+                    print(f"  Warm start (sequence net, constant-SS): loss={final_loss:.2e}, iters={n_iters}")
+                state = state._replace(params=final_params)
+        elif config.warm_start_dynare:
+            from deqn_jax.training.warm_start import warm_start_from_dynare
+            state = state._replace(
+                params=warm_start_from_dynare(
+                    state.params, model,
+                    dynare_dir=config.warm_start_dynare,
+                    verbose=config.verbose,
+                )
+            )
         else:
-            n_total = n_qp ** model.n_shocks
-            if config.verbose:
-                print(f"  Quadrature: {n_total} nodes exceeds limit, falling back to MC")
+            from deqn_jax.training.warm_start import warm_start_network
+            state = state._replace(
+                params=warm_start_network(
+                    state.params, model, verbose=config.verbose,
+                    linearize=config.warm_start_linearize,
+                )
+            )
 
-    # ---- Determine history length from network (Python-level, before JIT) ----
-    history_len = get_history_len(state.params)
+    return state, opt, kind, start_episode, total_for_schedule
 
-    # ---- Shock mask ----
-    if config.shock_mask is not None and config.verbose:
-        shock_names = model.shock_names if model.shock_names else tuple(f"shock_{i}" for i in range(model.n_shocks))
-        active = [n for n, m in zip(shock_names, config.shock_mask) if m > 0]
-        zeroed = [n for n, m in zip(shock_names, config.shock_mask) if m == 0]
-        print(f"  Shock mask: active={active}, zeroed={zeroed}")
 
-    # ---- Build composite loss if configured ----
+def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
+    """Build the wrapped loss function for non-default loss configurations.
+
+    Returns the custom loss callable (or None if the default MSE
+    `compute_loss` should be used as-is). Handles three layered cases:
+    composite loss, state-barrier penalty, and Huber loss for the bare
+    path.
+    """
+    from functools import partial
+
     custom_loss_fn = None
     if config.loss_type == "composite":
         from deqn_jax.training.composite_loss import make_composite_loss, prepare_composite_data
@@ -1601,10 +1514,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             extras_str = " · ".join(extras)
             print(f"  Composite loss ready.{(' · ' + extras_str) if extras_str else ''}")
 
-    # ---- State barrier penalty ----
     barrier_weight = config.barrier_weight
     if barrier_weight > 0 and custom_loss_fn is None and model.state_barrier_fn is not None:
-        from functools import partial
         custom_loss_fn = partial(
             compute_loss,
             barrier_weight=barrier_weight,
@@ -1614,12 +1525,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         if config.verbose:
             print(f"  State barrier: weight={barrier_weight}")
 
-    # ---- Huber / MSE for the bare (non-composite) path ----
-    # When neither composite loss nor state barrier is wrapping, apply the
-    # loss_choice directly via a partial. No-op when loss_choice='mse' (MSE
-    # is the default inside compute_loss).
     if custom_loss_fn is None and config.loss_choice != "mse":
-        from functools import partial
         custom_loss_fn = partial(
             compute_loss,
             loss_choice=config.loss_choice,
@@ -1628,54 +1534,38 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         if config.verbose:
             print(f"  Loss choice: {config.loss_choice} (δ={config.huber_delta})")
 
-    # ---- Target network setup ----
-    use_target = config.target_update_every > 0
-    if use_target:
-        state = state._replace(target_params=state.params)
-        if config.verbose:
-            print(f"  Target network: update every {config.target_update_every} episodes"
-                  f" (tau={config.target_tau})")
+    return custom_loss_fn
 
-    # ---- Create JIT-compiled train step ----
-    gradient_surgery = config.gradient_surgery
-    train_step = make_train_step(
-        model, opt, config.episode_length, config.mc_samples, config.batch_size,
-        loss_reweight=config.loss_reweight,
-        reweight_alpha=config.reweight_alpha,
-        kind=kind,
-        gradient_surgery=gradient_surgery,
-        grad_clip=config.optimizer.grad_clip,
-        quad_nodes=quad_nodes_jax,
-        quad_weights=quad_weights_jax,
-        history_len=history_len,
-        compute_loss_fn=custom_loss_fn,
-        ss_reset_frac=config.ss_reset_frac,
-        use_target_network=use_target,
-        n_epochs_per_rollout=config.n_epochs_per_rollout,
-        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
-        initialize_each_episode=config.initialize_each_episode,
-        sorted_within_batch=config.sorted_within_batch,
-    )
 
-    if config.verbose and kind == OptimizerKind.STANDARD and gradient_surgery != "pcgrad":
-        # Compute and report the effective schedule so users can see what
-        # the trainer is actually doing per outer iteration.
-        ep_samples = config.episode_length * config.batch_size
-        mbs_avail = max(1, ep_samples // config.batch_size)
-        mbs_this_epoch = (
-            min(config.n_minibatches_per_epoch, mbs_avail)
-            if config.n_minibatches_per_epoch is not None
-            else mbs_avail
-        )
-        updates_per_cycle = config.n_epochs_per_rollout * mbs_this_epoch
-        print(
-            f"  Schedule: 1 rollout ({config.episode_length}×{config.batch_size}="
-            f"{ep_samples} states) → {config.n_epochs_per_rollout} epoch(s) × "
-            f"{mbs_this_epoch} minibatch(es) of {config.batch_size} "
-            f"= {updates_per_cycle} grad updates/cycle "
-            f"({updates_per_cycle * config.episodes} total over "
-            f"{config.episodes} cycles)"
-        )
+def _run_training_loop(
+    config,
+    model: ModelSpec,
+    state: TrainState,
+    opt: Any,
+    kind: OptimizerKind,
+    gradient_surgery: str,
+    train_step: Callable,
+    lr_schedule_fn: Optional[Callable],
+    quad_nodes_jax: Optional[Array],
+    quad_weights_jax: Optional[Array],
+    history_len: int,
+    custom_loss_fn: Optional[Callable],
+    use_target: bool,
+    n_equations: int,
+    start_episode: int,
+    logger,
+) -> Optional[Tuple[Any, Dict[str, list]]]:
+    """Run the per-episode train loop with all the runtime knobs.
+
+    Encapsulates: mid-training optimizer switching, LR scheduling
+    (stateful + stateless), curriculum and shock-mask scaling, NaN
+    detection + checkpoint rollback, early stopping, grouped logging
+    (scalars / histograms / model cycle_hook + scalar_diagnostics),
+    and periodic + best-checkpoint persistence.
+    """
+    # Local imports kept inside the helper so trainer.py's top-level imports
+    # don't grow further; these are only needed during training.
+    from deqn_jax.config import OptimizerConfig
 
     # ---- Mid-training optimizer switch setup ----
     switch_episode = config.switch_episode
@@ -1702,7 +1592,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     total_episodes = config.episodes
     if start_episode >= total_episodes:
         print(f"WARNING: checkpoint episode {start_episode} >= config.episodes {total_episodes}. Nothing to do.")
-        return
+        return None
     ep_width = len(str(total_episodes))
 
     history: Dict[str, list] = {"loss": [], "grad_norm": []}
@@ -2040,6 +1930,180 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
 
     logger.close()
     return state.params, history
+
+
+# ---------------------------------------------------------------------------
+# Training entry points
+# ---------------------------------------------------------------------------
+
+
+def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
+    """Train from a TrainConfig object.
+
+    This is the primary entry point for config-driven training.
+    Supports checkpoint resume, mid-training optimizer switching,
+    and grouped TensorBoard logging.
+
+    Args:
+        config: TrainConfig instance
+
+    Returns:
+        Tuple of (trained_params, history_dict)
+    """
+    _validate_train_config(config)
+    model, n_equations = _resolve_model_for_training(config)
+
+    fp64 = jnp.zeros(1).dtype == jnp.float64
+    hidden_sizes = config.network.hidden_sizes
+    key = jax.random.PRNGKey(config.seed)
+
+    # ---- Build LR schedule helper for logging ----
+    from deqn_jax.optimizers.registry import _build_lr_schedule
+
+    # When a schedule is active, the optimizer is created with lr=1.0.
+    # The actual LR is passed as a dynamic scalar to train_step each episode.
+    has_schedule = config.optimizer.lr_schedule != "constant"
+    if has_schedule:
+        effective_opt_cfg = config.optimizer.model_copy(
+            update={"learning_rate": 1.0, "lr_schedule": "constant"}
+        )
+    else:
+        effective_opt_cfg = config.optimizer
+
+    state, opt, kind, start_episode, total_for_schedule = _build_initial_state(
+        config, model, key, n_equations, effective_opt_cfg,
+    )
+
+    # ---- Metric logger ----
+    wandb_config = config.to_dict() if config.wandb_project else None
+    logger = create_logger(
+        tensorboard_dir=config.tensorboard_dir,
+        wandb_project=config.wandb_project,
+        wandb_config=wandb_config,
+    )
+
+    # ---- Print header ----
+    if config.verbose:
+        _print_header(
+            model_spec=model,
+            optimizer=config.optimizer.name,
+            learning_rate=config.optimizer.learning_rate,
+            hidden_sizes=hidden_sizes,
+            n_params=_count_params(state.params),
+            batch_size=config.batch_size,
+            mc_samples=config.mc_samples,
+            warm_start=config.warm_start,
+            grad_clip=config.optimizer.grad_clip,
+            loss_reweight=config.loss_reweight,
+            fp64=fp64,
+            lr_schedule=config.optimizer.lr_schedule,
+            lr_warmup=config.optimizer.lr_warmup,
+            lr_min_factor=config.optimizer.lr_min_factor,
+            net_type=getattr(config.network, "type", "mlp") if config.network else "mlp",
+            history_len=get_history_len(state.params),
+        )
+
+    # Build LR schedule function for computing per-episode LR (None if constant)
+    lr_schedule_fn = None
+    if has_schedule:
+        lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
+
+    # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
+    quad_nodes_jax = None
+    quad_weights_jax = None
+    exp_type = config.expectation_type
+    if exp_type in ("quadrature", "gh", "gauss_hermite"):
+        n_qp = config.n_quadrature_points
+        quad = gauss_hermite_nd(n_qp, model.n_shocks)
+        if quad is not None:
+            quad_nodes_jax = jnp.array(quad[0])
+            quad_weights_jax = jnp.array(quad[1])
+            if config.verbose:
+                print(f"  Quadrature: {n_qp}^{model.n_shocks} = {quad[0].shape[0]} nodes (Gauss-Hermite)")
+        else:
+            n_total = n_qp ** model.n_shocks
+            if config.verbose:
+                print(f"  Quadrature: {n_total} nodes exceeds limit, falling back to MC")
+
+    # ---- Determine history length from network (Python-level, before JIT) ----
+    history_len = get_history_len(state.params)
+
+    # ---- Shock mask ----
+    if config.shock_mask is not None and config.verbose:
+        shock_names = model.shock_names if model.shock_names else tuple(f"shock_{i}" for i in range(model.n_shocks))
+        active = [n for n, m in zip(shock_names, config.shock_mask) if m > 0]
+        zeroed = [n for n, m in zip(shock_names, config.shock_mask) if m == 0]
+        print(f"  Shock mask: active={active}, zeroed={zeroed}")
+
+    custom_loss_fn = _build_custom_loss_fn(config, model, history_len)
+
+    # ---- Target network setup ----
+    use_target = config.target_update_every > 0
+    if use_target:
+        state = state._replace(target_params=state.params)
+        if config.verbose:
+            print(f"  Target network: update every {config.target_update_every} episodes"
+                  f" (tau={config.target_tau})")
+
+    # ---- Create JIT-compiled train step ----
+    gradient_surgery = config.gradient_surgery
+    train_step = make_train_step(
+        model, opt, config.episode_length, config.mc_samples, config.batch_size,
+        loss_reweight=config.loss_reweight,
+        reweight_alpha=config.reweight_alpha,
+        kind=kind,
+        gradient_surgery=gradient_surgery,
+        grad_clip=config.optimizer.grad_clip,
+        quad_nodes=quad_nodes_jax,
+        quad_weights=quad_weights_jax,
+        history_len=history_len,
+        compute_loss_fn=custom_loss_fn,
+        ss_reset_frac=config.ss_reset_frac,
+        use_target_network=use_target,
+        n_epochs_per_rollout=config.n_epochs_per_rollout,
+        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
+        initialize_each_episode=config.initialize_each_episode,
+        sorted_within_batch=config.sorted_within_batch,
+    )
+
+    if config.verbose and kind == OptimizerKind.STANDARD and gradient_surgery != "pcgrad":
+        # Compute and report the effective schedule so users can see what
+        # the trainer is actually doing per outer iteration.
+        ep_samples = config.episode_length * config.batch_size
+        mbs_avail = max(1, ep_samples // config.batch_size)
+        mbs_this_epoch = (
+            min(config.n_minibatches_per_epoch, mbs_avail)
+            if config.n_minibatches_per_epoch is not None
+            else mbs_avail
+        )
+        updates_per_cycle = config.n_epochs_per_rollout * mbs_this_epoch
+        print(
+            f"  Schedule: 1 rollout ({config.episode_length}×{config.batch_size}="
+            f"{ep_samples} states) → {config.n_epochs_per_rollout} epoch(s) × "
+            f"{mbs_this_epoch} minibatch(es) of {config.batch_size} "
+            f"= {updates_per_cycle} grad updates/cycle "
+            f"({updates_per_cycle * config.episodes} total over "
+            f"{config.episodes} cycles)"
+        )
+
+    return _run_training_loop(
+        config=config,
+        model=model,
+        state=state,
+        opt=opt,
+        kind=kind,
+        gradient_surgery=gradient_surgery,
+        train_step=train_step,
+        lr_schedule_fn=lr_schedule_fn,
+        quad_nodes_jax=quad_nodes_jax,
+        quad_weights_jax=quad_weights_jax,
+        history_len=history_len,
+        custom_loss_fn=custom_loss_fn,
+        use_target=use_target,
+        n_equations=n_equations,
+        start_episode=start_episode,
+        logger=logger,
+    )
 
 
 def train(
