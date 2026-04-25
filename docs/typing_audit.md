@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **37** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=11, JAX_NOISE=4, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=0.
+- Total: **35** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=11, JAX_NOISE=4, PYDANTIC_DICT=0, OPTIONAL_NARROWING=14, DECISION_NEEDED=0.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -149,7 +149,7 @@ Plus two `invalid-type-form` at 150, 171 — `callable` used as a type form (pro
 **Plan:** Investigate. Either tighten the dict typing (build from a known set of keys) or suppress.
 **Cost:** M.
 
-### 13. ``config.py:1151, 1155`` Pydantic dict-of-Any  [PYDANTIC_DICT]  [STATUS: TODO]
+### 13. ``config.py:1151, 1155`` Pydantic dict-of-Any  [PYDANTIC_DICT]  [STATUS: SUPPRESSED]
 
 `net_dict["hidden_sizes"] = tuple(...)` where `net_dict` is a Pydantic-derived `dict[str, Any & str]`. Two errors at one logical site.
 

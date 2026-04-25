@@ -1146,13 +1146,18 @@ class TrainConfig(_ConfigBase):
         if isinstance(net_dict, str):
             net_dict = {"type": net_dict}
 
-        # Convert hidden_sizes list to tuple
+        # Convert hidden_sizes list to tuple. The dict came from YAML
+        # so its element type is Any; ty narrows it to ``str`` after
+        # the ``isinstance(..., list)`` check on a *different* key,
+        # which makes the tuple-of-Any assignment look invalid.
+        # Pydantic re-validates on construction, so the runtime type
+        # is checked there.
         if "hidden_sizes" in net_dict and isinstance(net_dict["hidden_sizes"], list):
-            net_dict["hidden_sizes"] = tuple(net_dict["hidden_sizes"])
+            net_dict["hidden_sizes"] = tuple(net_dict["hidden_sizes"])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment]
 
         # Convert activations list to tuple
         if "activations" in net_dict and isinstance(net_dict["activations"], list):
-            net_dict["activations"] = tuple(net_dict["activations"])
+            net_dict["activations"] = tuple(net_dict["activations"])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment]
 
         # Convert loss_weights list (YAML gives lists)
         if "loss_weights" in d and isinstance(d["loss_weights"], list):
