@@ -8,7 +8,7 @@ import numpy as np
 from jax import Array
 from scipy.optimize import root
 
-from deqn_jax.models.disaster.equations import G_omega, Gamma, equations, solve_omega_bar
+from deqn_jax.models.disaster.equations import Gamma, equations, solve_omega_bar
 from deqn_jax.models.disaster.variables import CONSTANTS, OMEGA_BAR_SS, SPEC, STEADY_STATE
 
 
@@ -65,7 +65,6 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
 
         # Now recompute with solved omega_bar
         Gamma_val = Gamma(omega_bar, c["sigma_omega"])
-        G_val = G_omega(omega_bar, c["sigma_omega"])
         n = (c["gamma_e"] / (pi * mu_z)) * (1.0 - Gamma_val) * R_k * q * k + c["w_e"]
         L = q * k / (n + 1e-8)
 
@@ -159,7 +158,6 @@ def _solve_risky_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     from deqn_jax.models.disaster.dynamics import step as step_fn
     c = constants
     p_disaster = float(c.get("p_disaster", 0.0))
-    theta = float(c.get("theta_disaster", 0.0))
 
     if p_disaster <= 0.0:
         return _solve_steady_state(constants)
@@ -235,14 +233,28 @@ _risky_ss_cache: dict = {}
 
 
 def risky_steady_state(constants: Dict) -> Tuple[Array, Array]:
-    """Return risky steady state for the given calibration.
+    """Heuristic anchor for disaster-risk training. NOT the true risky SS.
 
-    Agents price in disaster probability p > 0 and the disaster magnitude.
-    Reduces to deterministic SS when p_disaster = 0.
+    Solves the fixed point ``E_d[F(s, π(s), s'(s, d), π(s'(s, d)))] = 0``
+    under the simplification that ``π(s'(s, d)) = π(s)`` in BOTH disaster
+    realisations -- i.e. next-period policy is treated as locally flat
+    around the anchor. The true risky SS would solve the same fixed point
+    against the actual nonlinear policy ``π``, which is what training is
+    learning, so we cannot evaluate it without circularity. We accept the
+    flat-next-policy approximation as a deliberate trade.
 
-    Uses locally-flat policy approximation: next-period policies in both
-    disaster realizations are taken to equal the risky-SS policy. This is
-    first-order correct and sufficient for warm-starting / anchoring.
+    Quantitative effect of the approximation, evaluated against the
+    Blanchard-Kahn linear next-policy ``π_lin``: the mixture residual at
+    this anchor is ~3e-3 at p=0.02 (negligible) and ~1.5e-2 at p=0.10
+    (visibly material). Treat the anchor as a *good initialisation* for
+    the network, not as ground truth -- training is what should pull the
+    policy onto the actual risky-SS manifold.
+
+    Reduces to the deterministic SS when ``p_disaster = 0``. When
+    ``p_disaster > 0`` and ``config.use_risky_steady_state`` is True (the
+    default) the disaster ``setup_fn`` swaps this in for
+    ``ModelSpec.steady_state_fn`` so the composite-loss anchor and the BK
+    linearisation both target it.
     """
     key = _constants_key(constants)
     if key not in _risky_ss_cache:
