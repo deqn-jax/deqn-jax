@@ -1,0 +1,77 @@
+"""Tests for disaster scalar_diagnostics decompositions.
+
+Each test loads the disaster model, builds a small synthetic state batch
+around the deterministic steady state, runs ``scalar_diagnostics``, and
+asserts that every expected ``eq{N}_diag/*`` key is present, is a Python
+``float``, and is finite.
+
+These tests pin the dispatcher contract — if a helper accidentally returns
+JAX arrays, NaNs, or drops a key, the test catches it before training
+silently logs garbage.
+"""
+
+import math
+
+import jax.numpy as jnp
+import jax.random as random
+
+from deqn_jax.models.disaster import MODEL
+from deqn_jax.models.disaster.diagnostics import scalar_diagnostics
+
+
+def _setup_batch(batch_size: int = 16, jitter: float = 0.01):
+    """Build a state batch and matching policy_out around the deterministic SS.
+
+    Returns: (states, policy_out, ss_policy_fn, defs_dict)
+    """
+    assert MODEL.steady_state_fn is not None
+    ss_state, ss_policy = MODEL.steady_state_fn(MODEL.constants)
+
+    key = random.PRNGKey(0)
+    state_noise = jitter * random.normal(key, (batch_size, MODEL.n_states))
+    states = ss_state[None, :] + state_noise
+    policy_out = jnp.broadcast_to(ss_policy[None, :], (batch_size, MODEL.n_policies))
+
+    def policy_fn(s):
+        return ss_policy
+
+    import jax
+
+    assert MODEL.definitions_fn is not None
+    defs_fn = MODEL.definitions_fn
+    defs = jax.vmap(lambda s, p: defs_fn(s, p, MODEL.constants))(states, policy_out)
+
+    return states, policy_out, policy_fn, defs
+
+
+def _assert_all_float_finite(out: dict, prefix: str):
+    """Every key starting with ``prefix`` must be float and finite."""
+    matched = {k: v for k, v in out.items() if k.startswith(prefix)}
+    assert matched, f"no keys with prefix {prefix!r} in {sorted(out.keys())}"
+    for k, v in matched.items():
+        assert isinstance(v, float), f"{k} = {v!r} is {type(v).__name__}, not float"
+        assert math.isfinite(v), f"{k} = {v!r} is not finite"
+
+
+def test_eq1_price_phillips_F_diagnostics():
+    """eq1 helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq1_diag/ratio_base_mean",
+        "eq1_diag/ratio_base_std",
+        "eq1_diag/ratio_base_min",
+        "eq1_diag/ratio_base_max",
+        "eq1_diag/eq1_ratio_mean",
+        "eq1_diag/F_p_mean",
+        "eq1_diag/F_p_n_mean",
+        "eq1_diag/lhs_term_mean",
+        "eq1_diag/expect_term_mean",
+        "eq1_diag/log_residual_mean",
+        "eq1_diag/log_residual_std",
+        "eq1_diag/exponent",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq1_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq1_diag/")

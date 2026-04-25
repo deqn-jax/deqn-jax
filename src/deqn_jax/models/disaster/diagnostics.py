@@ -23,6 +23,66 @@ from jax import Array
 from deqn_jax.types import ModelSpec
 
 
+def _eq1_diagnostics(
+    model: ModelSpec,
+    policy_fn: Callable,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq1 (price_phillips_F) decomposition at training states.
+
+    Mirrors ``_eq2_diagnostics`` for the F_p side of the price-Phillips
+    recursion. Residual structure:
+        F_p = lambda_z * y_z + beta * xi_p * (pi_tilda_n/pi_n)^(1/(1-lambda_f)) * F_p_n
+    """
+    c = model.constants
+    batch_size = states.shape[0]
+
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c)
+    next_policies = jax.vmap(policy_fn)(next_states)
+    assert model.definitions_fn is not None, "disaster diagnostics needs definitions_fn"
+    defs_fn = model.definitions_fn
+    defs_n = jax.vmap(lambda s, p: defs_fn(s, p, c))(next_states, next_policies)
+
+    pi_idx = list(model.policy_names).index("pi")
+    F_p_idx = list(model.policy_names).index("F_p")
+    lambda_z_idx = list(model.policy_names).index("lambda_z")
+
+    F_p = policy_out[:, F_p_idx]
+    F_p_n = next_policies[:, F_p_idx]
+    pi_n = next_policies[:, pi_idx]
+    lambda_z = policy_out[:, lambda_z_idx]
+
+    ratio_base = defs_n["pi_tilda"] / pi_n
+    exponent = 1.0 / (1.0 - c["lambda_f"])
+    eq1_ratio = ratio_base**exponent
+
+    eq1_expect = eq1_ratio * F_p_n
+    lhs_term = lambda_z * defs["y_z"]
+    expect_term = c["beta"] * c["xi_p"] * eq1_expect
+    rhs = lhs_term + expect_term
+    log_residual = jnp.log(jnp.maximum(rhs, 1e-8)) - jnp.log(jnp.maximum(F_p, 1e-8))
+
+    rb = np.asarray(ratio_base)
+    lr = np.asarray(log_residual)
+    return {
+        "ratio_base_mean": float(np.mean(rb)),
+        "ratio_base_std": float(np.std(rb)),
+        "ratio_base_min": float(np.min(rb)),
+        "ratio_base_max": float(np.max(rb)),
+        "eq1_ratio_mean": float(np.mean(np.asarray(eq1_ratio))),
+        "F_p_mean": float(np.mean(np.asarray(F_p))),
+        "F_p_n_mean": float(np.mean(np.asarray(F_p_n))),
+        "lhs_term_mean": float(np.mean(np.asarray(lhs_term))),
+        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+        "exponent": float(exponent),
+    }
+
+
 def _eq4_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -165,6 +225,12 @@ def scalar_diagnostics(
     relevant Phillips-curve definitions.
     """
     out: Dict[str, float] = {}
+
+    if "pi_tilda" in defs and "y_z" in defs:
+        for k, v in _eq1_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
+            out[f"eq1_diag/{k}"] = v
 
     if "K_p" in defs and "pi_tilda" in defs and "s" in defs:
         for k, v in _eq2_diagnostics(
