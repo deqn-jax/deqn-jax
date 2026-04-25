@@ -20,7 +20,14 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from deqn_jax.models.disaster.equations import S_adj_prime, _soft_floor
+from deqn_jax.models.disaster.equations import (
+    G_omega,
+    G_omega_prime,
+    Gamma,
+    Gamma_prime,
+    S_adj_prime,
+    _soft_floor,
+)
 from deqn_jax.types import ModelSpec
 
 
@@ -510,6 +517,81 @@ def _eq7_diagnostics(
     }
 
 
+def _eq8_diagnostics(
+    model: ModelSpec,
+    policy_fn: Callable,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq8 (entrepreneur_contract) decomposition.
+
+    The financial-friction equation. Residual is a DIFFERENCE (not a
+    ratio), so log_residual is replaced with signed-residual mean/std.
+    Structure:
+        Rk_over_R    = R_k_n / R
+        ratio_term   = Gamma'_n / (Gamma'_n - mu_mon * G'_n)
+        bracket_term = 1 - Rk_over_R * (Gamma_n - mu_mon * G_n)
+        residual     = Rk_over_R * (1 - Gamma_n) - ratio_term * bracket_term
+
+    The Gamma / G family is computed at omega_bar_next, the Newton-
+    solved default-threshold. Logs Rk_over_R nonlinearity, financial-
+    friction depths (Gamma_n, G_n, derivatives), omega_bar_next stats,
+    Newton residual at next state, ratio_term, bracket_term, the two
+    summands (term_a, term_b), and signed residual.
+    """
+    c = model.constants
+    batch_size = states.shape[0]
+
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c)
+    next_policies = jax.vmap(policy_fn)(next_states)
+    assert model.definitions_fn is not None, "disaster diagnostics needs definitions_fn"
+    defs_fn = model.definitions_fn
+    defs_n = jax.vmap(lambda s, p: defs_fn(s, p, c))(next_states, next_policies)
+
+    omega_bar_next = defs_n["omega_bar"]
+    sigma_omega = c["sigma_omega"]
+    mu_mon = c["mu_mon"]
+
+    Gamma_next = Gamma(omega_bar_next, sigma_omega)
+    Gamma_prime_next = Gamma_prime(omega_bar_next, sigma_omega)
+    G_next = G_omega(omega_bar_next, sigma_omega)
+    G_prime_next = G_omega_prime(omega_bar_next, sigma_omega)
+
+    Rk_over_R = defs_n["R_k"] / (defs["R"] + 1e-8)
+    ratio_term = Gamma_prime_next / (Gamma_prime_next - mu_mon * G_prime_next + 1e-8)
+    bracket_term = 1.0 - Rk_over_R * (Gamma_next - mu_mon * G_next)
+    term_a = Rk_over_R * (1.0 - Gamma_next)
+    term_b = ratio_term * bracket_term
+    signed_residual = term_a - term_b
+
+    rk_r = np.asarray(Rk_over_R)
+    ob = np.asarray(omega_bar_next)
+    sr = np.asarray(signed_residual)
+    return {
+        "Rk_over_R_mean": float(np.mean(rk_r)),
+        "Rk_over_R_std": float(np.std(rk_r)),
+        "Rk_over_R_min": float(np.min(rk_r)),
+        "Rk_over_R_max": float(np.max(rk_r)),
+        "Gamma_next_mean": float(np.mean(np.asarray(Gamma_next))),
+        "G_next_mean": float(np.mean(np.asarray(G_next))),
+        "Gamma_prime_next_mean": float(np.mean(np.asarray(Gamma_prime_next))),
+        "G_prime_next_mean": float(np.mean(np.asarray(G_prime_next))),
+        "omega_bar_next_mean": float(np.mean(ob)),
+        "omega_bar_next_std": float(np.std(ob)),
+        "omega_bar_next_min": float(np.min(ob)),
+        "omega_bar_next_max": float(np.max(ob)),
+        "newton_residual_n_mean": float(np.mean(np.asarray(defs_n["newton_residual"]))),
+        "ratio_term_mean": float(np.mean(np.asarray(ratio_term))),
+        "bracket_term_mean": float(np.mean(np.asarray(bracket_term))),
+        "term_a_mean": float(np.mean(np.asarray(term_a))),
+        "term_b_mean": float(np.mean(np.asarray(term_b))),
+        "signed_residual_mean": float(np.mean(sr)),
+        "signed_residual_std": float(np.std(sr)),
+    }
+
+
 def scalar_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -569,5 +651,11 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq7_diag/{k}"] = v
+
+    if "omega_bar" in defs and "R" in defs and "R_k" in defs:
+        for k, v in _eq8_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
+            out[f"eq8_diag/{k}"] = v
 
     return out

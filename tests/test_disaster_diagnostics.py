@@ -188,3 +188,34 @@ def test_eq7_investment_euler_diagnostics():
     missing = expected - set(out.keys())
     assert not missing, f"missing eq7_diag keys: {sorted(missing)}"
     _assert_all_float_finite(out, "eq7_diag/")
+
+
+def test_eq8_entrepreneur_contract_diagnostics():
+    """eq8 (entrepreneur contract) helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq8_diag/Rk_over_R_mean",
+        "eq8_diag/Rk_over_R_std",
+        "eq8_diag/Rk_over_R_min",
+        "eq8_diag/Rk_over_R_max",
+        "eq8_diag/Gamma_next_mean",
+        "eq8_diag/G_next_mean",
+        "eq8_diag/Gamma_prime_next_mean",
+        "eq8_diag/G_prime_next_mean",
+        "eq8_diag/omega_bar_next_mean",
+        "eq8_diag/omega_bar_next_std",
+        "eq8_diag/omega_bar_next_min",
+        "eq8_diag/omega_bar_next_max",
+        "eq8_diag/newton_residual_n_mean",
+        "eq8_diag/ratio_term_mean",
+        "eq8_diag/bracket_term_mean",
+        "eq8_diag/term_a_mean",
+        "eq8_diag/term_b_mean",
+        "eq8_diag/signed_residual_mean",
+        "eq8_diag/signed_residual_std",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq8_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq8_diag/")
