@@ -227,6 +227,40 @@ def _eq3_diagnostics(
     }
 
 
+def _eq2a_diagnostics(
+    model: ModelSpec,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq2a (K_p definition) decomposition at training states.
+
+    Algebraic identity in log-space: ``log(K_p) - log(F_p * K_p_inner^(1-lambda_f))``.
+    Uses only current-period defs — no rollout needed (cheaper than the
+    recursion helpers).
+    """
+    c = model.constants
+    F_p_idx = list(model.policy_names).index("F_p")
+    F_p = policy_out[:, F_p_idx]
+    K_p = defs["K_p"]
+    K_p_inner = defs["K_p_inner"]
+
+    K_p_analytical = F_p * K_p_inner ** (1.0 - c["lambda_f"])
+    log_residual = jnp.log(jnp.maximum(K_p, 1e-8)) - jnp.log(
+        jnp.maximum(K_p_analytical, 1e-8)
+    )
+
+    floor_frac = float(np.mean(np.asarray(K_p_inner) < 0.02))
+    lr = np.asarray(log_residual)
+    return {
+        "K_p_mean": float(np.mean(np.asarray(K_p))),
+        "K_p_analytical_mean": float(np.mean(np.asarray(K_p_analytical))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+        "K_p_inner_floor_frac": floor_frac,
+    }
+
+
 def _eq2_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -307,6 +341,10 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq1_diag/{k}"] = v
+
+    if "K_p" in defs and "K_p_inner" in defs:
+        for k, v in _eq2a_diagnostics(model, states, policy_out, defs).items():
+            out[f"eq2a_diag/{k}"] = v
 
     if "K_p" in defs and "pi_tilda" in defs and "s" in defs:
         for k, v in _eq2_diagnostics(
