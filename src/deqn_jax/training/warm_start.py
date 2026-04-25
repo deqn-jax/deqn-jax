@@ -59,8 +59,9 @@ def _init_output_bias_to_ss(
                 raw_i = float(jnp.log(jnp.exp(diff) - 1))
             target_raw = target_raw.at[i].set(raw_i)
 
-    # Set the last layer's bias and zero its weights
-    last_layer = policy_net.layers[-1]
+    # Set the last layer's bias and zero its weights. ``.layers`` is
+    # an MLP-subclass attribute; the base Module type doesn't expose it.
+    last_layer = policy_net.layers[-1]  # pyright: ignore[reportAttributeAccessIssue]  # ty: ignore[unresolved-attribute]
     new_bias = target_raw
     new_weight = jnp.zeros_like(last_layer.weight)
 

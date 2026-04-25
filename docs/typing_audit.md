@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **38** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=12, JAX_NOISE=4, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
+- Total: **37** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=11, JAX_NOISE=4, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=0.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -142,7 +142,7 @@ Plus two `invalid-type-form` at 150, 171 — `callable` used as a type form (pro
 **Plan:** Suppress with `# ty: ignore[unsupported-operator]  # jax.lax.stop_gradient return type confuses the type checker`.
 **Cost:** S.
 
-### 12. ``warm_start.py`` Dynare ghx/ghu CSV typing  [DECISION_NEEDED]  [STATUS: TODO]
+### 12. ``warm_start.py`` Dynare ghx/ghu CSV typing  [DECISION_NEEDED]  [STATUS: DONE: CSV-dict errors resolved transitively by earlier list-of-Array typing fixes; the remaining warm_start.py:63 EQX `.layers` access was suppressed as a drive-by.]
 
 `warm_start.py:357, 376` — dict.get / `__getitem__` typing on dicts built from CSV columns. Requires reading the surrounding logic to decide whether the keys are statically known or really runtime-dynamic.
 
