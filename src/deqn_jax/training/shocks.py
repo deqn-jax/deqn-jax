@@ -80,18 +80,26 @@ def maybe_draw_disaster(
 ) -> Optional[Array]:
     """Draw per-sample Bernoulli(p_disaster) if the model supports disasters.
 
-    Returns ``[batch, 1]`` array of 0/1 floats, or ``None`` if:
+    Returns a ``[batch]`` array of 0/1 floats, or ``None`` if:
     - the step_fn doesn't have a ``d_disaster`` kwarg, or
     - ``constants['p_disaster']`` is missing or zero.
 
     ``None`` is the caller's signal to call step_fn without the kwarg.
+
+    Shape note: the residual-side ``compute_residuals`` calls step_fn
+    with a *scalar* d_disaster (one value per branch of the disaster
+    mixture). The rollout side wants a per-sample indicator. Both must
+    broadcast cleanly against ``defs["k"]`` which is ``[batch]``; a
+    trailing singleton dim here would broadcast to ``[batch, batch]``
+    inside step_fn (silent until ``jnp.stack`` later mismatches), so
+    we return a flat ``[batch]`` vector.
     """
     if not step_accepts_disaster(model.step_fn):
         return None
     p = model.constants.get("p_disaster", 0.0)
     if p <= 0.0:
         return None
-    u = jax.random.uniform(key, (batch_size, 1))
+    u = jax.random.uniform(key, (batch_size,))
     return (u < p).astype(jnp.float32)
 
 

@@ -159,6 +159,41 @@ def test_run_episode_passes_disaster_indicator_when_probability_is_one():
     assert jnp.allclose(final_state, jnp.full((3, 1), 30.0))
 
 
+def test_run_episode_disaster_indicator_broadcasts_against_per_sample_quantity():
+    """Regression: maybe_draw_disaster must return [batch], not [batch, 1].
+
+    The disaster model's step_fn computes ``k_next = defs["k"] * exp(-theta *
+    d_disaster)`` where ``defs["k"]`` is shape ``[batch]``. If d_disaster
+    arrives as ``[batch, 1]`` it numpy-broadcasts to ``[batch, batch]`` and
+    a downstream ``jnp.stack(axis=1)`` fails. The previous toy step_fn
+    defensively reshaped d_disaster, so it didn't catch this; this one
+    mirrors the real model's shape-naive pattern.
+    """
+    from deqn_jax.training.episode import run_episode
+
+    def disaster_step(state, policy, shock, constants, d_disaster=0.0):
+        # state: [batch, 1]; treat the single state dim as a per-sample
+        # capital-like quantity and apply k_next = k * exp(-theta * d).
+        k = state[:, 0]                              # [batch]
+        k_next = k * jnp.exp(-1.0 * d_disaster)      # must stay [batch]
+        return jnp.stack([k_next], axis=1)           # [batch, 1]
+
+    model = _toy_model(constants={"p_disaster": 1.0}, step_fn=disaster_step)
+    init = jnp.full((3, 1), 10.0)
+    _, final_state = run_episode(
+        model,
+        ZeroPolicy(jnp.array(0.0)),
+        init,
+        jax.random.PRNGKey(0),
+        episode_length=2,
+    )
+
+    # k -> 10 * exp(-1)^2 = 10 * exp(-2). Loose tolerance since shock_scale
+    # in the rollout doesn't enter this branch but we don't depend on it.
+    assert final_state.shape == (3, 1)
+    assert jnp.allclose(final_state[:, 0], 10.0 * jnp.exp(-2.0), atol=1e-6)
+
+
 def test_train_step_shock_scale_zero_freezes_rollout_shocks():
     from deqn_jax.optimizers import OptimizerKind
     from deqn_jax.training.trainer import make_train_step
