@@ -182,6 +182,7 @@ def list_optimizers() -> List[str]:
 # Built-in optax registrations
 # ---------------------------------------------------------------------------
 
+
 @register_optimizer("adam")
 def _adam(config):
     return optax.adam(
@@ -228,6 +229,7 @@ def _muon(config):
 @register_optimizer("gn", kind=OptimizerKind.GN)
 def _gn(config):
     from deqn_jax.optimizers.gauss_newton import gauss_newton
+
     return gauss_newton(
         learning_rate=config.learning_rate,
         damping=config.damping,
@@ -237,6 +239,7 @@ def _gn(config):
 @register_optimizer("lm", kind=OptimizerKind.GN)
 def _lm(config):
     from deqn_jax.optimizers.gauss_newton import levenberg_marquardt
+
     return levenberg_marquardt(
         learning_rate=config.learning_rate,
         initial_damping=config.damping,

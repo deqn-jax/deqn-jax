@@ -93,7 +93,9 @@ class LinearPlusMLP(eqx.Module):
         # match (shift 0, scale 1 on the extra dim — no rescaling applied
         # to the regime coordinate, which is already O(1e-2)).
         if n_extra > 0 and input_shift is not None:
-            input_shift = jnp.concatenate([jnp.asarray(input_shift), jnp.zeros(n_extra)])
+            input_shift = jnp.concatenate(
+                [jnp.asarray(input_shift), jnp.zeros(n_extra)]
+            )
         if n_extra > 0 and input_scale is not None:
             input_scale = jnp.concatenate([jnp.asarray(input_scale), jnp.ones(n_extra)])
 

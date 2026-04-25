@@ -33,6 +33,7 @@ class CompositeData(NamedTuple):
         anchor_deviations: anchor_points - ss_state [n_anchor, n_states]
         anchor_lin_policy: Linear policy at anchor points [n_anchor, n_policies]
     """
+
     P: Array
     ss_state: Array
     ss_policy: Array
@@ -114,10 +115,12 @@ def _make_markov_wrapper(
     """
     if history_len <= 1:
         return policy_fn
+
     def wrapper(state: Array) -> Array:
         # state: [n_states] -> [H, n_states] constant window
         window = jnp.broadcast_to(state, (history_len, state.shape[-1]))
         return policy_fn(window)
+
     return wrapper
 
 
@@ -192,7 +195,9 @@ def _barrier_losses(
 
     # Net worth barrier: max(0, -log(n))^2 — only penalizes n < 1 (approaching zero)
     n = defs["n"]
-    losses["aux_barrier_n"] = jnp.mean(jnp.maximum(0.0, -jnp.log(jnp.maximum(n, 1e-8))) ** 2)
+    losses["aux_barrier_n"] = jnp.mean(
+        jnp.maximum(0.0, -jnp.log(jnp.maximum(n, 1e-8))) ** 2
+    )
 
     # Leverage penalty: (L - L_ss)^2 / L_ss^2 when L > leverage_mult * L_ss
     L = defs["L"]
@@ -202,7 +207,9 @@ def _barrier_losses(
 
     # Consumption barrier: max(0, -log(c))^2 — only penalizes c < 1
     c = defs["c"]
-    losses["aux_barrier_c"] = jnp.mean(jnp.maximum(0.0, -jnp.log(jnp.maximum(c, 1e-8))) ** 2)
+    losses["aux_barrier_c"] = jnp.mean(
+        jnp.maximum(0.0, -jnp.log(jnp.maximum(c, 1e-8))) ** 2
+    )
 
     return losses
 
@@ -256,9 +263,15 @@ def make_composite_loss(
         # as a parameter here -- the trainer does not thread it through.
         # 1. Base residual loss — MSE or Huber on per-state mean residual.
         base_loss, eq_losses = compute_loss(
-            model_, policy_fn, states, key, mc_samples,
-            weights=weights, shock_scale=shock_scale,
-            quad_nodes=quad_nodes, quad_weights=quad_weights,
+            model_,
+            policy_fn,
+            states,
+            key,
+            mc_samples,
+            weights=weights,
+            shock_scale=shock_scale,
+            quad_nodes=quad_nodes,
+            quad_weights=quad_weights,
             target_policy_fn=target_policy_fn,
             loss_choice=loss_choice,
             huber_delta=huber_delta,
@@ -293,7 +306,9 @@ def make_composite_loss(
         # Extract current states from history window for definitions()
         current_states = states[:, -1, :] if states.ndim == 3 else states
         defs = jax.vmap(
-            lambda s: model_.definitions_fn(s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants)
+            lambda s: model_.definitions_fn(
+                s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants
+            )
         )(current_states)
 
         barriers = _barrier_losses(defs, data, leverage_mult)

@@ -31,6 +31,6 @@ def step(
 
     # Idiosyncratic productivity shock (AR(1), unconditional std = sigma_a)
     eps = shock[:, 0] if shock.ndim > 1 else shock
-    a_next = rho_a * s.a + jnp.sqrt(1 - rho_a ** 2) * sigma_a * eps
+    a_next = rho_a * s.a + jnp.sqrt(1 - rho_a**2) * sigma_a * eps
 
     return jnp.stack([k_next, a_next], axis=1)

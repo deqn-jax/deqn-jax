@@ -9,7 +9,11 @@ This is the canonical test case for DEQN methods.
 """
 
 from deqn_jax.models.brock_mirman.dynamics import step
-from deqn_jax.models.brock_mirman.equations import EQUATION_NAMES, definitions, equations
+from deqn_jax.models.brock_mirman.equations import (
+    EQUATION_NAMES,
+    definitions,
+    equations,
+)
 from deqn_jax.models.brock_mirman.steady_state import init_state, steady_state
 from deqn_jax.models.brock_mirman.variables import (
     CONSTANTS,

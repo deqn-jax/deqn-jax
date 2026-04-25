@@ -22,6 +22,7 @@ from deqn_jax.plots._style import deqn_style
 
 # ---------------------------------------------------------------------------
 
+
 def _pct_deviation(series: np.ndarray) -> np.ndarray:
     """Percent deviation of each point from series[0]."""
     ss = series[0]
@@ -74,9 +75,11 @@ def plot_irf_grid(
 
     with deqn_style():
         fig, axes = plt.subplots(
-            nrows, ncols,
+            nrows,
+            ncols,
             figsize=(col_width * ncols, row_height * nrows),
-            sharex=True, squeeze=False,
+            sharex=True,
+            squeeze=False,
         )
 
         for i, shock in enumerate(shocks):

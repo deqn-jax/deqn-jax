@@ -29,6 +29,7 @@ from deqn_jax.irf import load_policy_from_checkpoint
 # 1. Euler Equation Errors
 # ---------------------------------------------------------------------------
 
+
 def euler_equation_errors(
     policy_net: eqx.Module,
     model,
@@ -70,7 +71,6 @@ def euler_equation_errors(
     key = jax.random.PRNGKey(seed)
 
     eq_names = list(model.equation_names) if model.equation_names else []
-    n_eq = len(eq_names)
 
     # Detect disaster support once, outside JIT. If present, we draw
     # Bernoulli(p_disaster) each period so the ergodic accuracy report
@@ -78,6 +78,7 @@ def euler_equation_errors(
     # disaster-calibrated model produces a normal-shock-only path and
     # the reported accuracy excludes the disaster branch entirely.
     from deqn_jax.training.shocks import step_accepts_disaster
+
     supports_disaster = step_accepts_disaster(model.step_fn)
     p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
 
@@ -91,9 +92,15 @@ def euler_equation_errors(
         next_policy = policy_net(next_state)
         if next_policy.ndim == 1:
             next_policy = next_policy[None, :]
-        residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
-        row = jnp.stack([residuals[name][0] if residuals[name].ndim > 0
-                        else residuals[name] for name in eq_names])
+        residuals = model.equations_fn(
+            state, policy, next_state, next_policy, constants
+        )
+        row = jnp.stack(
+            [
+                residuals[name][0] if residuals[name].ndim > 0 else residuals[name]
+                for name in eq_names
+            ]
+        )
         return next_state, row, state[0]
 
     @eqx.filter_jit
@@ -101,13 +108,21 @@ def euler_equation_errors(
         policy = policy_net(state)
         if policy.ndim == 1:
             policy = policy[None, :]
-        next_state = model.step_fn(state, policy, shock, constants, d_disaster=d_disaster)
+        next_state = model.step_fn(
+            state, policy, shock, constants, d_disaster=d_disaster
+        )
         next_policy = policy_net(next_state)
         if next_policy.ndim == 1:
             next_policy = next_policy[None, :]
-        residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
-        row = jnp.stack([residuals[name][0] if residuals[name].ndim > 0
-                        else residuals[name] for name in eq_names])
+        residuals = model.equations_fn(
+            state, policy, next_state, next_policy, constants
+        )
+        row = jnp.stack(
+            [
+                residuals[name][0] if residuals[name].ndim > 0 else residuals[name]
+                for name in eq_names
+            ]
+        )
         return next_state, row, state[0]
 
     all_residuals = []
@@ -129,7 +144,11 @@ def euler_equation_errors(
             all_states.append(st)
 
         # Clip for simulation safety (trajectory propagation only)
-        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
+        state = (
+            model.clip_state_fn(next_state)
+            if model.clip_state_fn is not None
+            else next_state
+        )
 
     residuals_array = jnp.stack(all_residuals)  # [T, n_eq]
     states_array = jnp.stack(all_states)  # [T, n_states]
@@ -154,7 +173,9 @@ def print_euler_errors(result: Dict, label: str = ""):
         header += f" — {label}"
     print(f"\n{header}")
     print("=" * 100)
-    print(f"{'Equation':>30s}  {'Mean':>7s}  {'p50':>7s}  {'p95':>7s}  {'p99':>7s}  {'p99.9':>7s}  {'Max':>7s}  {'Grade':>12s}")
+    print(
+        f"{'Equation':>30s}  {'Mean':>7s}  {'p50':>7s}  {'p95':>7s}  {'p99':>7s}  {'p99.9':>7s}  {'Max':>7s}  {'Grade':>12s}"
+    )
     print("-" * 100)
 
     for i, name in enumerate(eq_names):
@@ -176,32 +197,41 @@ def print_euler_errors(result: Dict, label: str = ""):
         else:
             grade = "POOR"
 
-        print(f"{name:>30s}  {mean_val:>7.2f}  {p50:>7.2f}  {p95:>7.2f}  "
-              f"{p99:>7.2f}  {p999:>7.2f}  {max_val:>7.2f}  {grade:>12s}")
+        print(
+            f"{name:>30s}  {mean_val:>7.2f}  {p50:>7.2f}  {p95:>7.2f}  "
+            f"{p99:>7.2f}  {p999:>7.2f}  {max_val:>7.2f}  {grade:>12s}"
+        )
 
     # Overall summary
     all_log = log_errors.flatten()
     print("-" * 100)
-    print(f"{'OVERALL':>30s}  {float(jnp.mean(all_log)):>7.2f}  "
-          f"{float(jnp.percentile(all_log, 50)):>7.2f}  "
-          f"{float(jnp.percentile(all_log, 95)):>7.2f}  "
-          f"{float(jnp.percentile(all_log, 99)):>7.2f}  "
-          f"{float(jnp.percentile(all_log, 99.9)):>7.2f}  "
-          f"{float(jnp.max(all_log)):>7.2f}")
+    print(
+        f"{'OVERALL':>30s}  {float(jnp.mean(all_log)):>7.2f}  "
+        f"{float(jnp.percentile(all_log, 50)):>7.2f}  "
+        f"{float(jnp.percentile(all_log, 95)):>7.2f}  "
+        f"{float(jnp.percentile(all_log, 99)):>7.2f}  "
+        f"{float(jnp.percentile(all_log, 99.9)):>7.2f}  "
+        f"{float(jnp.max(all_log)):>7.2f}"
+    )
     print()
 
     # Interpretation
     overall_mean = float(jnp.mean(all_log))
     overall_max = float(jnp.max(all_log))
-    print(f"  Mean log10 error: {overall_mean:.2f} → {10**overall_mean:.1e} "
-          f"({'<0.1% Good' if overall_mean < -3 else '<1% Acceptable' if overall_mean < -2 else 'POOR >1%'})")
-    print(f"  Max  log10 error: {overall_max:.2f} → {10**overall_max:.1e} "
-          f"({'<1% Good' if overall_max < -2 else '<10% Acceptable' if overall_max < -1 else 'POOR >10%'})")
+    print(
+        f"  Mean log10 error: {overall_mean:.2f} → {10**overall_mean:.1e} "
+        f"({'<0.1% Good' if overall_mean < -3 else '<1% Acceptable' if overall_mean < -2 else 'POOR >1%'})"
+    )
+    print(
+        f"  Max  log10 error: {overall_max:.2f} → {10**overall_max:.1e} "
+        f"({'<1% Good' if overall_max < -2 else '<10% Acceptable' if overall_max < -1 else 'POOR >10%'})"
+    )
 
 
 # ---------------------------------------------------------------------------
 # 2. Market Clearing (resource constraint)
 # ---------------------------------------------------------------------------
+
 
 def market_clearing_errors(
     policy_net: eqx.Module,
@@ -236,14 +266,19 @@ def market_clearing_errors(
         "equation": eq_names[rc_idx],
         "mean_abs": float(jnp.mean(jnp.abs(rc_residuals))),
         "max_abs": float(jnp.max(jnp.abs(rc_residuals))),
-        "mean_log10": float(jnp.mean(jnp.log10(jnp.maximum(jnp.abs(rc_residuals), 1e-20)))),
-        "max_log10": float(jnp.max(jnp.log10(jnp.maximum(jnp.abs(rc_residuals), 1e-20)))),
+        "mean_log10": float(
+            jnp.mean(jnp.log10(jnp.maximum(jnp.abs(rc_residuals), 1e-20)))
+        ),
+        "max_log10": float(
+            jnp.max(jnp.log10(jnp.maximum(jnp.abs(rc_residuals), 1e-20)))
+        ),
     }
 
 
 # ---------------------------------------------------------------------------
 # 3. Simulated Moments
 # ---------------------------------------------------------------------------
+
 
 def simulated_moments(
     policy_net: eqx.Module,
@@ -298,9 +333,13 @@ def simulated_moments(
             all_states.append(st)
             all_policies.append(pol)
 
-        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
+        state = (
+            model.clip_state_fn(next_state)
+            if model.clip_state_fn is not None
+            else next_state
+        )
 
-    states = jnp.stack(all_states)    # [T, n_states]
+    states = jnp.stack(all_states)  # [T, n_states]
     policies = jnp.stack(all_policies)  # [T, n_policies]
 
     moments = {}
@@ -313,7 +352,9 @@ def simulated_moments(
             "min": float(jnp.min(col)),
             "max": float(jnp.max(col)),
             "ss": ss_val,
-            "mean_dev_pct": float((jnp.mean(col) - ss_val) / abs(ss_val) * 100) if abs(ss_val) > 0.01 else 0.0,
+            "mean_dev_pct": float((jnp.mean(col) - ss_val) / abs(ss_val) * 100)
+            if abs(ss_val) > 0.01
+            else 0.0,
         }
 
     for i, name in enumerate(policy_names):
@@ -325,7 +366,9 @@ def simulated_moments(
             "min": float(jnp.min(col)),
             "max": float(jnp.max(col)),
             "ss": ss_val,
-            "mean_dev_pct": float((jnp.mean(col) - ss_val) / abs(ss_val) * 100) if abs(ss_val) > 0.01 else 0.0,
+            "mean_dev_pct": float((jnp.mean(col) - ss_val) / abs(ss_val) * 100)
+            if abs(ss_val) > 0.01
+            else 0.0,
         }
 
     return moments
@@ -343,20 +386,25 @@ def print_moments(
         header += f" — {label}"
     print(f"\n{header}")
     print("=" * 95)
-    print(f"{'Variable':>20s}  {'SS':>8s}  {'Mean':>8s}  {'Std':>8s}  "
-          f"{'Min':>8s}  {'Max':>8s}  {'Dev%':>7s}")
+    print(
+        f"{'Variable':>20s}  {'SS':>8s}  {'Mean':>8s}  {'Std':>8s}  "
+        f"{'Min':>8s}  {'Max':>8s}  {'Dev%':>7s}"
+    )
     print("-" * 95)
 
     for name, m in moments.items():
         dev = m["mean_dev_pct"]
         flag = " !" if abs(dev) > 10 else "  " if abs(dev) > 5 else ""
-        print(f"{name:>20s}  {m['ss']:>8.4f}  {m['mean']:>8.4f}  {m['std']:>8.4f}  "
-              f"{m['min']:>8.4f}  {m['max']:>8.4f}  {dev:>+6.1f}%{flag}")
+        print(
+            f"{name:>20s}  {m['ss']:>8.4f}  {m['mean']:>8.4f}  {m['std']:>8.4f}  "
+            f"{m['min']:>8.4f}  {m['max']:>8.4f}  {dev:>+6.1f}%{flag}"
+        )
 
 
 # ---------------------------------------------------------------------------
 # 4. Stability check — does the economy survive?
 # ---------------------------------------------------------------------------
+
 
 def stability_check(
     policy_net: eqx.Module,
@@ -378,7 +426,6 @@ def stability_check(
     state = ss_state[None, :]
     key = jax.random.PRNGKey(seed)
 
-    policy_names = list(model.policy_names)
     policy_lower = model.policy_lower
     policy_upper = model.policy_upper
 
@@ -425,7 +472,11 @@ def stability_check(
             bound_hits += int(jnp.sum(lower_ok) + jnp.sum(upper_ok))
             total_outputs += int(jnp.sum(finite))
 
-        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
+        state = (
+            model.clip_state_fn(next_state)
+            if model.clip_state_fn is not None
+            else next_state
+        )
 
     # Check final state deviation from SS. Floor the normalisation at
     # 0.1 so states with SS = 0 (e.g. m_p, the monetary-policy shock) or
@@ -448,6 +499,7 @@ def stability_check(
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def run_evaluate_cli(args):
     """CLI handler for 'deqn-jax evaluate'."""
@@ -490,10 +542,14 @@ def run_evaluate_cli(args):
 
     # 3. Market clearing
     print("[3/4] Market clearing...")
-    mc = market_clearing_errors(policy_net, model, n_periods=args.periods, seed=args.seed)
+    mc = market_clearing_errors(
+        policy_net, model, n_periods=args.periods, seed=args.seed
+    )
     if "error" not in mc:
         print(f"  {mc['equation']}:")
-        print(f"    Mean |error|:  {mc['mean_abs']:.2e} (log10: {mc['mean_log10']:.2f})")
+        print(
+            f"    Mean |error|:  {mc['mean_abs']:.2e} (log10: {mc['mean_log10']:.2f})"
+        )
         print(f"    Max  |error|:  {mc['max_abs']:.2e} (log10: {mc['max_log10']:.2f})")
 
     # 4. Simulated moments
@@ -523,6 +579,15 @@ def run_evaluate_cli(args):
             writer = csv.writer(f)
             writer.writerow(["variable", "ss", "mean", "std", "min", "max", "dev_pct"])
             for name, m in moments.items():
-                writer.writerow([name, m["ss"], m["mean"], m["std"],
-                               m["min"], m["max"], m["mean_dev_pct"]])
+                writer.writerow(
+                    [
+                        name,
+                        m["ss"],
+                        m["mean"],
+                        m["std"],
+                        m["min"],
+                        m["max"],
+                        m["mean_dev_pct"],
+                    ]
+                )
         print(f"Saved moments to {csv_path}")

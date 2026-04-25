@@ -25,6 +25,7 @@ from deqn_jax.models import load_model
 # Core IRF simulation
 # ---------------------------------------------------------------------------
 
+
 def run_irf(
     policy_net: eqx.Module,
     model,
@@ -55,7 +56,11 @@ def run_irf(
     n_shocks = model.n_shocks
 
     # Shock index mapping
-    shock_names = list(model.shock_names) if model.shock_names else [f"shock_{i}" for i in range(n_shocks)]
+    shock_names = (
+        list(model.shock_names)
+        if model.shock_names
+        else [f"shock_{i}" for i in range(n_shocks)]
+    )
     if shock_name not in shock_names:
         raise ValueError(f"Unknown shock '{shock_name}'. Choose from: {shock_names}")
     shock_idx = shock_names.index(shock_name)
@@ -80,8 +85,13 @@ def run_irf(
         for name in def_names:
             results[name] = []
 
-    def record(t: int, st: Array, pol: Array, defs: Optional[Dict] = None,
-               residuals: Optional[Dict] = None):
+    def record(
+        t: int,
+        st: Array,
+        pol: Array,
+        defs: Optional[Dict] = None,
+        residuals: Optional[Dict] = None,
+    ):
         results["period"].append(t)
         st_flat = st[0] if st.ndim == 2 else st
         pol_flat = pol[0] if pol.ndim == 2 else pol
@@ -94,18 +104,18 @@ def run_irf(
         for name in def_names:
             if defs is not None and name in defs:
                 v = defs[name]
-                v = v[0] if hasattr(v, 'ndim') and v.ndim > 0 else v
+                v = v[0] if hasattr(v, "ndim") and v.ndim > 0 else v
                 results[name].append(float(v))
             else:
-                results[name].append(float('nan'))
+                results[name].append(float("nan"))
 
         for name in eq_names:
             if residuals is not None and name in residuals:
                 v = residuals[name]
-                v = v[0] if hasattr(v, 'ndim') and v.ndim > 0 else v
+                v = v[0] if hasattr(v, "ndim") and v.ndim > 0 else v
                 results[name].append(float(v))
             else:
-                results[name].append(float('nan'))
+                results[name].append(float("nan"))
 
     # ---- Warmup: deterministic steps from SS ----
     zero_shock = jnp.zeros((1, n_shocks))
@@ -115,7 +125,11 @@ def run_irf(
             policy = policy[None, :]
         record(t, state, policy)
         next_state = model.step_fn(state, policy, zero_shock, constants)
-        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
+        state = (
+            model.clip_state_fn(next_state)
+            if model.clip_state_fn is not None
+            else next_state
+        )
 
     # ---- Period 0: record pre-shock state ----
     policy = policy_net(state)
@@ -132,7 +146,11 @@ def run_irf(
     shock = jnp.zeros((1, n_shocks))
     shock = shock.at[0, shock_idx].set(shock_size)
     next_state = model.step_fn(state, policy, shock, constants)
-    state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
+    state = (
+        model.clip_state_fn(next_state)
+        if model.clip_state_fn is not None
+        else next_state
+    )
 
     # ---- Periods 2..horizon: deterministic ----
     for t in range(1, horizon + 1):
@@ -152,10 +170,16 @@ def run_irf(
         if next_policy.ndim == 1:
             next_policy = next_policy[None, :]
         if model.equations_fn is not None:
-            residuals = model.equations_fn(state, policy, next_state, next_policy, constants)
+            residuals = model.equations_fn(
+                state, policy, next_state, next_policy, constants
+            )
 
         record(t, state, policy, defs, residuals)
-        state = model.clip_state_fn(next_state) if model.clip_state_fn is not None else next_state
+        state = (
+            model.clip_state_fn(next_state)
+            if model.clip_state_fn is not None
+            else next_state
+        )
 
     return results
 
@@ -212,6 +236,7 @@ def run_girf(
 # Loading checkpoint → policy network
 # ---------------------------------------------------------------------------
 
+
 def load_policy_from_checkpoint(
     checkpoint_path: str,
     config_path: Optional[str] = None,
@@ -231,8 +256,7 @@ def load_policy_from_checkpoint(
         config_path = str(ckpt_dir / "config.yaml")
         if not Path(config_path).exists():
             raise FileNotFoundError(
-                f"No config.yaml found in {ckpt_dir}. "
-                f"Pass --config explicitly."
+                f"No config.yaml found in {ckpt_dir}. Pass --config explicitly."
             )
 
     with open(config_path) as f:
@@ -264,7 +288,9 @@ def load_policy_from_checkpoint(
     from deqn_jax.config import OptimizerConfig
     from deqn_jax.training.trainer import create_train_state
 
-    n_equations = len(model.equation_names) if model.equation_names else model.n_policies
+    n_equations = (
+        len(model.equation_names) if model.equation_names else model.n_policies
+    )
 
     # Parse loss_weights from config
     loss_weights = cfg.get("loss_weights", None)
@@ -284,12 +310,12 @@ def load_policy_from_checkpoint(
         opt_cfg_dict["name"] = switch_opt
         if cfg.get("switch_lr") is not None:
             opt_cfg_dict["learning_rate"] = cfg["switch_lr"]
-    opt_cfg = OptimizerConfig(**{
-        k: v for k, v in opt_cfg_dict.items()
-        if k in OptimizerConfig.model_fields
-    })
+    opt_cfg = OptimizerConfig(
+        **{k: v for k, v in opt_cfg_dict.items() if k in OptimizerConfig.model_fields}
+    )
 
     from deqn_jax.config import NetworkConfig
+
     net_config = NetworkConfig(
         type=net_type,
         hidden_sizes=hidden_sizes,
@@ -304,7 +330,8 @@ def load_policy_from_checkpoint(
     )
 
     template_state, _, _ = create_train_state(
-        model, key,
+        model,
+        key,
         hidden_sizes=hidden_sizes,
         batch_size=cfg.get("batch_size", 64),
         loss_weights=loss_weights,
@@ -318,7 +345,7 @@ def load_policy_from_checkpoint(
 
     # Restore correct bounds (old checkpoints may have drifted bounds
     # due to a bug where output_lower/output_upper were trainable)
-    if model.policy_lower is not None and hasattr(policy_net, 'output_lower'):
+    if model.policy_lower is not None and hasattr(policy_net, "output_lower"):
         if model.policy_upper is not None:
             policy_net = eqx.tree_at(
                 lambda net: (net.output_lower, net.output_upper),
@@ -338,6 +365,7 @@ def load_policy_from_checkpoint(
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+
 
 def save_irf_csv(results: Dict[str, List[float]], path: str):
     """Save IRF results to CSV."""
@@ -401,6 +429,7 @@ def print_irf_summary(results: Dict[str, List[float]], shock_name: str):
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def run_irf_cli(args):
     """CLI handler for 'deqn-jax irf'."""
     # Enable fp64 if config says so
@@ -416,7 +445,9 @@ def run_irf_cli(args):
     policy_net, model = load_policy_from_checkpoint(
         args.checkpoint, config_path if Path(config_path).exists() else None
     )
-    print(f"Model: {model.name}, params: {sum(p.size for p in jax.tree.leaves(policy_net))}")
+    print(
+        f"Model: {model.name}, params: {sum(p.size for p in jax.tree.leaves(policy_net))}"
+    )
 
     # Run IRF for each shock
     shocks = args.shocks if args.shocks else ["eps", "mu_ups", "mu_z", "g", "m_p"]
@@ -425,7 +456,11 @@ def run_irf_cli(args):
 
     use_girf = getattr(args, "girf", False)
     runner = run_girf if use_girf else run_irf
-    label = "GIRF (shocked − no-shock baseline)" if use_girf else "IRF (shocked path, no baseline)"
+    label = (
+        "GIRF (shocked − no-shock baseline)"
+        if use_girf
+        else "IRF (shocked path, no baseline)"
+    )
     print(f"\nMode: {label}")
 
     for shock_name in shocks:
@@ -434,7 +469,8 @@ def run_irf_cli(args):
         print(f"{'=' * 70}")
 
         results = runner(
-            policy_net, model,
+            policy_net,
+            model,
             shock_name=shock_name,
             shock_size=args.shock_size,
             horizon=args.horizon,

@@ -36,16 +36,16 @@ SPEC = VariableSpec(
 
 CONSTANTS = {
     "alpha": 0.3,
-    "beta": 0.7,        # low beta because each period is a generation
-    "gamma": 1.0,       # log utility
+    "beta": 0.7,  # low beta because each period is a generation
+    "gamma": 1.0,  # log utility
     # Shock parameterisation: eta = eta_mid + eta_half * eps1
     #                         delta = delta_mid + delta_half * eps2
     # with eps1, eps2 in {-1, +1} via GH-2 quadrature.
     "eta_mid": 1.0,
-    "eta_half": 0.05,   # eta in {0.95, 1.05}
+    "eta_half": 0.05,  # eta in {0.95, 1.05}
     "delta_mid": 0.7,
     "delta_half": 0.2,  # delta in {0.5, 0.9}
-    "labor_1": 1.0,     # agent 1 labor endowment; others 0
+    "labor_1": 1.0,  # agent 1 labor endowment; others 0
 }
 
 # Savings are non-negative; softplus output via inf upper bound.

@@ -57,7 +57,7 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
     K_ss = kappa * L_ss
 
     # Output and savings rate at SS
-    y_ss = (K_ss ** alpha) * (L_ss ** (1.0 - alpha))
+    y_ss = (K_ss**alpha) * (L_ss ** (1.0 - alpha))
     sav_rate_ss = delta * K_ss / y_ss
     z_ss = 0.0
 

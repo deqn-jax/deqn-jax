@@ -175,13 +175,15 @@ class TransformerPolicy(eqx.Module):
     def _forward_single(self, x: Array) -> Array:
         """Forward pass for single sequence [history_len, n_states]."""
         # Normalize each timestep
-        x = jax.vmap(lambda x_t: _normalize_input(x_t, self.input_shift, self.input_scale))(x)
+        x = jax.vmap(
+            lambda x_t: _normalize_input(x_t, self.input_shift, self.input_scale)
+        )(x)
 
         # Project to hidden dim: [H, D] -> [H, hidden_dim]
         x = jax.vmap(self.input_proj)(x)
 
         # Add positional embeddings
-        x = x + self.pos_embed[:x.shape[0]]
+        x = x + self.pos_embed[: x.shape[0]]
 
         # Transformer blocks
         for block in self.blocks:

@@ -71,8 +71,7 @@ class WandbLogger:
             import wandb
         except ImportError:
             raise ImportError(
-                "wandb required for W&B logging. "
-                "Install with: uv pip install wandb"
+                "wandb required for W&B logging. Install with: uv pip install wandb"
             )
         wandb.init(project=project, config=config)
         self._wandb = wandb

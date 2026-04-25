@@ -46,18 +46,30 @@ def make_grad_step_pcgrad(
 
         def eq_loss_vector(params):
             _, eq_losses = compute_loss(
-                model, params, batch, loss_key, mc_samples,
-                weights=state.loss_weights, shock_scale=shock_scale,
-                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                model,
+                params,
+                batch,
+                loss_key,
+                mc_samples,
+                weights=state.loss_weights,
+                shock_scale=shock_scale,
+                quad_nodes=quad_nodes,
+                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
             return eq_losses_to_array(eq_losses)
 
         def total_loss_fn(params):
             loss, eq_losses = _compute_loss_total(
-                model, params, batch, loss_key, mc_samples,
-                weights=state.loss_weights, shock_scale=shock_scale,
-                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                model,
+                params,
+                batch,
+                loss_key,
+                mc_samples,
+                weights=state.loss_weights,
+                shock_scale=shock_scale,
+                quad_nodes=quad_nodes,
+                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
             return loss, eq_losses
@@ -66,10 +78,14 @@ def make_grad_step_pcgrad(
         params_arrays = eqx.filter(state.params, eqx.is_array)
         flat_params, unflatten_fn = jax.flatten_util.ravel_pytree(params_arrays)
         eq_jac_arrays = eqx.filter(eq_jac, eqx.is_array)
-        flat_eq_grads = jnp.stack([
-            jax.flatten_util.ravel_pytree(jax.tree.map(lambda x: x[i], eq_jac_arrays))[0]
-            for i in range(n_eq)
-        ])
+        flat_eq_grads = jnp.stack(
+            [
+                jax.flatten_util.ravel_pytree(
+                    jax.tree.map(lambda x: x[i], eq_jac_arrays)
+                )[0]
+                for i in range(n_eq)
+            ]
+        )
         gram = flat_eq_grads @ flat_eq_grads.T
         norms_sq = jnp.diag(gram)
         coeffs = jnp.where(gram < 0, gram / (norms_sq[None, :] + 1e-8), 0.0)
@@ -78,23 +94,34 @@ def make_grad_step_pcgrad(
         final_flat_grad = jnp.sum(projected, axis=0)
         grads_arrays = unflatten_fn(final_flat_grad)
 
-        updates, new_opt_state = opt.update(grads_arrays, state.opt_state, params_arrays)
+        updates, new_opt_state = opt.update(
+            grads_arrays, state.opt_state, params_arrays
+        )
         updates = jax.tree.map(lambda u: lr_scale * u, updates)
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
         loss, eq_losses = total_loss_fn(state.params)
-        grad_norm = jnp.sqrt(jnp.sum(final_flat_grad ** 2))
+        grad_norm = jnp.sqrt(jnp.sum(final_flat_grad**2))
 
         new_weights, new_rw = update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+            eq_losses,
+            state,
+            loss_reweight,
+            reweight_alpha,
+            n_eq,
         )
         new_state = TrainState(
-            params=new_params, opt_state=new_opt_state,
-            episode_state=state.episode_state, key=new_key,
-            step=state.step + 1, episode=state.episode,
-            loss_weights=new_weights, reweight_state=new_rw,
+            params=new_params,
+            opt_state=new_opt_state,
+            episode_state=state.episode_state,
+            key=new_key,
+            step=state.step + 1,
+            episode=state.episode,
+            loss_weights=new_weights,
+            reweight_state=new_rw,
             target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
     return grad_step

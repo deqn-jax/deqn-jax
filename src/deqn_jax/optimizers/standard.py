@@ -56,26 +56,40 @@ def make_grad_step_standard(
 
         def loss_fn(params):
             loss, eq_losses = _compute_loss(
-                model, params, batch, loss_key, mc_samples,
-                weights=state.loss_weights, shock_scale=shock_scale,
-                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                model,
+                params,
+                batch,
+                loss_key,
+                mc_samples,
+                weights=state.loss_weights,
+                shock_scale=shock_scale,
+                quad_nodes=quad_nodes,
+                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
             return loss, eq_losses
 
-        (loss, eq_losses), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(state.params)
+        (loss, eq_losses), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
+            state.params
+        )
 
         params_arrays = eqx.filter(state.params, eqx.is_array)
         grads_arrays = eqx.filter(grads, eqx.is_array)
 
-        updates, new_opt_state = opt.update(grads_arrays, state.opt_state, params_arrays)
+        updates, new_opt_state = opt.update(
+            grads_arrays, state.opt_state, params_arrays
+        )
         updates = jax.tree.map(lambda u: lr_scale * u, updates)
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
         grad_norm = optax.global_norm(grads_arrays)
 
         new_weights, new_rw = update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+            eq_losses,
+            state,
+            loss_reweight,
+            reweight_alpha,
+            n_eq,
         )
         new_state = TrainState(
             params=new_params,

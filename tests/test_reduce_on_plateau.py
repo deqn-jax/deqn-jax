@@ -7,8 +7,10 @@ import pytest
 # Scheduler state-machine tests (unit-level)
 # ---------------------------------------------------------------------------
 
+
 def _make(factor=0.5, patience=3, cooldown=0, min_delta=1e-6, min_lr=1e-5):
     from deqn_jax.optimizers.registry import ReduceLROnPlateau
+
     return ReduceLROnPlateau(
         initial_lr=1e-3,
         factor=factor,
@@ -72,21 +74,21 @@ def test_improvement_resets_patience_counter():
     s = _make(factor=0.5, patience=3, cooldown=0)
     s(0, 0.1)
     s(1, 0.1)
-    s(2, 0.1)          # 2 non-improvements; one more would trigger
-    lr_after_improve = s(3, 0.05)   # improvement -> counter resets
+    s(2, 0.1)  # 2 non-improvements; one more would trigger
+    lr_after_improve = s(3, 0.05)  # improvement -> counter resets
     assert lr_after_improve == pytest.approx(1e-3)
     # After the reset, we need 3 more non-improvements to trigger decay.
-    s(4, 0.06)         # non-improvement; wait=1
-    s(5, 0.06)         # non-improvement; wait=2
-    assert s(6, 0.06) == pytest.approx(5e-4)   # wait=3 -> decay
+    s(4, 0.06)  # non-improvement; wait=1
+    s(5, 0.06)  # non-improvement; wait=2
+    assert s(6, 0.06) == pytest.approx(5e-4)  # wait=3 -> decay
 
 
 def test_min_delta_filters_noise():
     s = _make(factor=0.5, patience=2, cooldown=0, min_delta=0.01)
     s(0, 0.1)
-    s(1, 0.099)        # 0.001 drop < min_delta -> counted as non-improvement
-    s(2, 0.098)        # 0.001 drop < min_delta -> non-improvement
-    lr = s(3, 0.097)   # third non-improvement -> decay
+    s(1, 0.099)  # 0.001 drop < min_delta -> counted as non-improvement
+    s(2, 0.098)  # 0.001 drop < min_delta -> non-improvement
+    lr = s(3, 0.097)  # third non-improvement -> decay
     assert lr == pytest.approx(5e-4)
 
 
@@ -94,21 +96,29 @@ def test_min_delta_filters_noise():
 # End-to-end tests (training loop integration)
 # ---------------------------------------------------------------------------
 
+
 def test_reduce_on_plateau_smoke_end_to_end():
     from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
     from deqn_jax.training.trainer import train_from_config
 
     cfg = TrainConfig(
         model="brock_mirman",
-        episodes=3, batch_size=16, episode_length=8, mc_samples=2,
+        episodes=3,
+        batch_size=16,
+        episode_length=8,
+        mc_samples=2,
         network=NetworkConfig(hidden_sizes=(8,)),
         optimizer=OptimizerConfig(
-            name="adam", learning_rate=1e-3,
+            name="adam",
+            learning_rate=1e-3,
             lr_schedule="reduce_on_plateau",
-            lr_reduce_patience=1, lr_reduce_cooldown=0, lr_reduce_factor=0.5,
+            lr_reduce_patience=1,
+            lr_reduce_cooldown=0,
+            lr_reduce_factor=0.5,
             lr_min_factor=1e-3,
         ),
-        verbose=False, log_every=1,
+        verbose=False,
+        log_every=1,
     )
     _, h = train_from_config(cfg)
     assert np.isfinite(h["loss"][-1])

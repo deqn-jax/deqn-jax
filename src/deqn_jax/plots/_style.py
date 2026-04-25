@@ -49,9 +49,11 @@ def get_ax(ax: Optional["plt.Axes"] = None, figsize=(6, 4)) -> "plt.Axes":
 
 # Colour palettes -----------------------------------------------------------
 
+
 def p_disaster_palette(p_values):
     """Ordered colours for a p_disaster sweep (increasing p → darker)."""
     import numpy as np
+
     n = len(p_values)
     # Avoid the very light end of viridis so the lowest p is still visible.
     return plt.cm.viridis(np.linspace(0.15, 0.9, max(n, 2)))[:n]

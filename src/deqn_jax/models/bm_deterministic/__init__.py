@@ -15,7 +15,11 @@ Azinovic, Gaegauf & Scheidegger (2022), IER 63(4), 1471-1525.
 """
 
 from deqn_jax.models.bm_deterministic.dynamics import step
-from deqn_jax.models.bm_deterministic.equations import EQUATION_NAMES, definitions, equations
+from deqn_jax.models.bm_deterministic.equations import (
+    EQUATION_NAMES,
+    definitions,
+    equations,
+)
 from deqn_jax.models.bm_deterministic.hooks import make_cycle_hook
 from deqn_jax.models.bm_deterministic.steady_state import init_state, steady_state
 from deqn_jax.models.bm_deterministic.variables import (

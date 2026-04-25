@@ -39,12 +39,12 @@ from deqn_jax.optimizers.registry import OptimizerKind, register_optimizer
 class MAOKFACState(NamedTuple):
     """State for MAO-KFAC optimizer."""
 
-    count: Array       # scalar step count
-    shared_R: Any      # pytree, each leaf [in_dim, in_dim]
-    per_eq_L: Any      # pytree, each leaf [n_eq, out_dim, out_dim]
-    per_eq_v: Array    # [n_eq] second moment of natural grad norms
-    R_inv4: Any        # cached R^{-1/4}, pytree, each leaf [in_dim, in_dim]
-    L_inv4: Any        # cached per-eq L^{-1/4}, pytree, each leaf [n_eq, out_dim, out_dim]
+    count: Array  # scalar step count
+    shared_R: Any  # pytree, each leaf [in_dim, in_dim]
+    per_eq_L: Any  # pytree, each leaf [n_eq, out_dim, out_dim]
+    per_eq_v: Array  # [n_eq] second moment of natural grad norms
+    R_inv4: Any  # cached R^{-1/4}, pytree, each leaf [in_dim, in_dim]
+    L_inv4: Any  # cached per-eq L^{-1/4}, pytree, each leaf [n_eq, out_dim, out_dim]
 
 
 def _matrix_power_neg_quarter(M: Array, ridge: float = 1e-6) -> Array:
@@ -143,12 +143,12 @@ class MAOKFACTransform:
 
         def update_R(j_leaf, R_old):
             j_3d = _to_3d(j_leaf)  # [n_eq, out, in]
-            JtJ = jnp.mean(jnp.einsum('noi,noj->nij', j_3d, j_3d), axis=0)
+            JtJ = jnp.mean(jnp.einsum("noi,noj->nij", j_3d, j_3d), axis=0)
             return bk * R_old + (1.0 - bk) * JtJ
 
         def update_L(j_leaf, L_old):
             j_3d = _to_3d(j_leaf)  # [n_eq, out, in]
-            JJt = jnp.einsum('noi,npi->nop', j_3d, j_3d)  # [n_eq, out, out]
+            JJt = jnp.einsum("noi,npi->nop", j_3d, j_3d)  # [n_eq, out, out]
             return bk * L_old + (1.0 - bk) * JJt
 
         new_R = jax.tree.map(update_R, eq_jacobian, state.shared_R)
@@ -159,16 +159,22 @@ class MAOKFACTransform:
         def maybe_update_R_inv(R_new, R_inv_old):
             new_inv = _matrix_power_neg_quarter(R_new, ridge=damping)
             return jax.lax.cond(
-                do_update, lambda _: new_inv, lambda _: R_inv_old, None,
+                do_update,
+                lambda _: new_inv,
+                lambda _: R_inv_old,
+                None,
             )
 
         def maybe_update_L_inv(L_new, L_inv_old):
             # vmap eigendecomposition across equations
-            new_inv = jax.vmap(
-                lambda M: _matrix_power_neg_quarter(M, ridge=damping)
-            )(L_new)  # [n_eq, out, out]
+            new_inv = jax.vmap(lambda M: _matrix_power_neg_quarter(M, ridge=damping))(
+                L_new
+            )  # [n_eq, out, out]
             return jax.lax.cond(
-                do_update, lambda _: new_inv, lambda _: L_inv_old, None,
+                do_update,
+                lambda _: new_inv,
+                lambda _: L_inv_old,
+                None,
             )
 
         new_R_inv4 = jax.tree.map(maybe_update_R_inv, new_R, state.R_inv4)
@@ -180,15 +186,18 @@ class MAOKFACTransform:
             is_1d = j_leaf.ndim == 2
             j_3d = _to_3d(j_leaf)  # [n_eq, out, in]
             # L_inv @ J: [n_eq,out,out] @ [n_eq,out,in] -> [n_eq,out,in]
-            p = jnp.einsum('nop,npi->noi', L_inv, j_3d)
+            p = jnp.einsum("nop,npi->noi", L_inv, j_3d)
             # @ R_inv: [n_eq,out,in] @ [in,in] -> [n_eq,out,in]
-            p = jnp.einsum('noi,ij->noj', p, R_inv)
+            p = jnp.einsum("noi,ij->noj", p, R_inv)
             if is_1d:
                 return p.squeeze(-1)  # [n_eq, out]
             return p
 
         natural_grads = jax.tree.map(
-            precondition, eq_jacobian, new_L_inv4, new_R_inv4,
+            precondition,
+            eq_jacobian,
+            new_L_inv4,
+            new_R_inv4,
         )
 
         # --- 4. MAO normalization: balance equation contributions ---
@@ -196,11 +205,12 @@ class MAOKFACTransform:
         per_eq_norms_sq = jnp.zeros(n_tasks)
         for leaf in jax.tree.leaves(natural_grads):
             per_eq_norms_sq = per_eq_norms_sq + jnp.sum(
-                leaf.reshape(n_tasks, -1) ** 2, axis=1,
+                leaf.reshape(n_tasks, -1) ** 2,
+                axis=1,
             )
 
         new_v = bm * state.per_eq_v + (1.0 - bm) * per_eq_norms_sq
-        v_hat = new_v / (1.0 - bm ** count)  # bias correction
+        v_hat = new_v / (1.0 - bm**count)  # bias correction
 
         def normalize_and_average(ng_leaf):
             scale = 1.0 / (jnp.sqrt(v_hat) + eps)  # [n_eq]

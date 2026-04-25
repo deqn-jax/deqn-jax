@@ -20,10 +20,8 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
       At the asymptotic savings rate (high k, no risk):
         1 - c_share = (beta * (1+r)^(1-gamma))^(1/gamma)
     """
-    beta = constants["beta"]
     r = constants["r_ss"]
     w = constants["w_ss"]
-    gamma = constants["gamma"]
     K = constants["K_agg"]
 
     k_ss = K

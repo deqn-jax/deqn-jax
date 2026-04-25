@@ -22,6 +22,7 @@ from deqn_jax.plots._style import deqn_style, get_ax
 
 # ---------------------------------------------------------------------------
 
+
 def _x_axis(history: Mapping, fallback_len: int) -> np.ndarray:
     """Use `episodes` if present, else an index [0, n)."""
     eps = history.get("episodes")

@@ -55,8 +55,14 @@ def real_edges() -> set[tuple[str, str]]:
     """Run pydeps and return the package-level edge set, filtered to within-package."""
     out = subprocess.check_output(
         [
-            "uv", "run", "pydeps", "src/deqn_jax",
-            "--show-deps", "--no-output", "--noshow", "--max-bacon=4",
+            "uv",
+            "run",
+            "pydeps",
+            "src/deqn_jax",
+            "--show-deps",
+            "--no-output",
+            "--noshow",
+            "--max-bacon=4",
         ],
         text=True,
     )

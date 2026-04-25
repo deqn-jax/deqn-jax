@@ -11,6 +11,7 @@ class TestRegistry:
 
     def test_list_optimizers(self):
         from deqn_jax.optimizers import list_optimizers
+
         opts = list_optimizers()
         assert "adam" in opts
         assert "sgd" in opts
@@ -27,6 +28,7 @@ class TestRegistry:
     def test_create_adam(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers import OptimizerKind, create_optimizer
+
         opt, kind = create_optimizer(OptimizerConfig(name="adam"))
         assert kind == OptimizerKind.STANDARD
 
@@ -34,6 +36,7 @@ class TestRegistry:
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers import OptimizerKind, create_optimizer
         from deqn_jax.optimizers.mao import _MAOFactory
+
         opt, kind = create_optimizer(OptimizerConfig(name="mao"))
         assert kind == OptimizerKind.MAO
         assert isinstance(opt, _MAOFactory)
@@ -41,18 +44,21 @@ class TestRegistry:
     def test_create_lbfgs(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers import OptimizerKind, create_optimizer
+
         opt, kind = create_optimizer(OptimizerConfig(name="lbfgs"))
         assert kind == OptimizerKind.LBFGS
 
     def test_unknown_optimizer_raises(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers import create_optimizer
+
         with pytest.raises(ValueError, match="Unknown optimizer"):
             create_optimizer(OptimizerConfig(name="nonexistent"))
 
     def test_grad_clip_chained(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers import create_optimizer
+
         opt, kind = create_optimizer(OptimizerConfig(name="adam", grad_clip=1.0))
         # Should be a chained transform (clip + adam)
         params = {"w": jnp.ones(3)}
@@ -65,6 +71,7 @@ class TestNGD:
 
     def test_init_and_update(self):
         from deqn_jax.optimizers.ngd import ngd
+
         opt = ngd(learning_rate=0.1, damping=1e-4)
         params = {"w": jnp.ones((3, 2))}
         state = opt.init(params)
@@ -76,6 +83,7 @@ class TestNGD:
     def test_reduces_loss(self):
         """NGD reduces a simple quadratic loss."""
         from deqn_jax.optimizers.ngd import ngd
+
         opt = ngd(learning_rate=0.01)
         params = jnp.array([1.0, 2.0, 3.0])
         state = opt.init(params)
@@ -85,7 +93,7 @@ class TestNGD:
             updates, state = opt.update(grads, state, params)
             params = optax.apply_updates(params, updates)
 
-        assert jnp.sum(params ** 2) < 14.0  # Should decrease from 14
+        assert jnp.sum(params**2) < 14.0  # Should decrease from 14
 
 
 class TestMAO:
@@ -93,6 +101,7 @@ class TestMAO:
 
     def test_init_and_update(self):
         from deqn_jax.optimizers.mao import MAOTransform
+
         mao = MAOTransform(learning_rate=1e-3, n_tasks=3)
         params = {"w": jnp.ones((4, 2)), "b": jnp.ones(2)}
         state = mao.init(params)
@@ -111,6 +120,7 @@ class TestMAO:
     def test_factory(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers.mao import MAOTransform, _MAOFactory
+
         factory = _MAOFactory(OptimizerConfig(name="mao", learning_rate=1e-3))
         mao = factory.with_num_tasks(5)
         assert isinstance(mao, MAOTransform)
@@ -122,6 +132,7 @@ class TestMAOKFAC:
 
     def test_init_and_update(self):
         from deqn_jax.optimizers.mao_kfac import MAOKFACTransform
+
         opt = MAOKFACTransform(learning_rate=1e-3, n_tasks=3, precond_update_freq=1)
         params = {"w": jnp.ones((4, 2)), "b": jnp.ones(2)}
         state = opt.init(params)
@@ -141,6 +152,7 @@ class TestMAOKFAC:
     def test_factory(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers.mao_kfac import MAOKFACTransform, _MAOKFACFactory
+
         factory = _MAOKFACFactory(OptimizerConfig(name="mao_kfac", learning_rate=1e-3))
         opt = factory.with_num_tasks(5)
         assert isinstance(opt, MAOKFACTransform)
@@ -149,6 +161,7 @@ class TestMAOKFAC:
     def test_shared_R_per_eq_L(self):
         """Verify shared R is same for all eqs, per-eq L differs."""
         from deqn_jax.optimizers.mao_kfac import MAOKFACTransform
+
         opt = MAOKFACTransform(learning_rate=1e-3, n_tasks=2, precond_update_freq=1)
         params = {"w": jnp.ones((4, 3))}
         state = opt.init(params)
@@ -171,6 +184,7 @@ class TestMAOKFAC:
     def test_precond_update_freq(self):
         """Cached inverses only update when count % freq == 0."""
         from deqn_jax.optimizers.mao_kfac import MAOKFACTransform
+
         opt = MAOKFACTransform(learning_rate=1e-3, n_tasks=2, precond_update_freq=3)
         params = {"w": jnp.ones((3, 2))}
         state = opt.init(params)
@@ -193,6 +207,7 @@ class TestShampoo:
 
     def test_init_and_update(self):
         from deqn_jax.optimizers.shampoo import shampoo
+
         opt = shampoo(learning_rate=0.01)
         params = {"w": jnp.ones((4, 3)), "b": jnp.ones(3)}
         state = opt.init(params)
@@ -210,6 +225,7 @@ class TestLBFGS:
     def test_create(self):
         from deqn_jax.config import OptimizerConfig
         from deqn_jax.optimizers import OptimizerKind, create_optimizer
+
         opt, kind = create_optimizer(OptimizerConfig(name="lbfgs"))
         assert kind == OptimizerKind.LBFGS
 
@@ -288,6 +304,7 @@ class TestShortTraining:
 
     def _train_short(self, optimizer_name, **extra_kwargs):
         from deqn_jax.training.trainer import train
+
         params, history = train(
             "brock_mirman",
             episodes=3,

@@ -41,6 +41,7 @@ def make_rollout_fn(
     init_state_fn draw every rollout (deterministic-model "fresh sample
     per episode" semantics; see TrainConfig docstring).
     """
+
     @jax.jit
     def rollout_fn(
         state: TrainState,
@@ -49,30 +50,45 @@ def make_rollout_fn(
         key, episode_key, reset_key = jax.random.split(state.key, 3)
         ep_states = state.episode_state
         if initialize_each_episode and model.init_state_fn is not None:
-            ep_states = model.init_state_fn(reset_key, ep_states.shape[0], model.constants)
+            ep_states = model.init_state_fn(
+                reset_key, ep_states.shape[0], model.constants
+            )
         elif ss_reset_frac > 0.0:
             batch_n = ep_states.shape[0]
             n_reset = int(ss_reset_frac * batch_n)
             if n_reset > 0:
                 ss_state, _ = model.steady_state_fn(model.constants)
                 noise = jax.random.uniform(
-                    reset_key, (n_reset, model.n_states), minval=-0.05, maxval=0.05,
+                    reset_key,
+                    (n_reset, model.n_states),
+                    minval=-0.05,
+                    maxval=0.05,
                 )
                 fresh = ss_state * (1 + noise)
                 ep_states = ep_states.at[:n_reset].set(fresh)
         if history_len > 1:
             trajectory, final_state, final_history = run_episode_with_history(
-                model, state.params, ep_states, episode_key, episode_length, history_len,
+                model,
+                state.params,
+                ep_states,
+                episode_key,
+                episode_length,
+                history_len,
                 shock_scale=shock_scale,
                 init_history=state.history_state,
             )
         else:
             trajectory, final_state = run_episode(
-                model, state.params, ep_states, episode_key, episode_length,
+                model,
+                state.params,
+                ep_states,
+                episode_key,
+                episode_length,
                 shock_scale=shock_scale,
             )
             final_history = state.history_state  # None for MLP; pass through unchanged
         return trajectory, final_state, final_history, key
+
     return rollout_fn
 
 
@@ -97,6 +113,7 @@ def make_cycle_step(
     rather than IID-shuffled samples. Batch order is shuffled; intra-batch
     order is preserved. See TrainConfig docstring.
     """
+
     def cycle_step(
         state: TrainState,
         lr_scale: Array,
@@ -110,14 +127,18 @@ def make_cycle_step(
         # overlap by one state, and each cycle advances T-1 transitions).
         # We use trajectory[-1] = s_{T-1} for seeding to match that
         # convention; final_carry_state is discarded.
-        trajectory, _final_after_T, final_history, new_key = rollout_fn(state, shock_scale)
+        trajectory, _final_after_T, final_history, new_key = rollout_fn(
+            state, shock_scale
+        )
         next_seed = trajectory[-1]
         # Persist the history window alongside episode_state so recurrent
         # policies see continuous trajectories across cycles instead of
         # a constant-prefix rebuild at every rollout. For MLP (history_len=1)
         # final_history passes through as None.
         state = state._replace(
-            episode_state=next_seed, key=new_key, history_state=final_history,
+            episode_state=next_seed,
+            key=new_key,
+            history_state=final_history,
         )
 
         # 2. Build the minibatch dataset from the full trajectory.
@@ -176,7 +197,7 @@ def make_cycle_step(
                     start = b * batch_size
                     minibatch = jax.lax.dynamic_slice_in_dim(dataset, start, batch_size)
                 else:
-                    idx = perm[mb_idx * batch_size:(mb_idx + 1) * batch_size]
+                    idx = perm[mb_idx * batch_size : (mb_idx + 1) * batch_size]
                     minibatch = dataset[idx]
                 state, last_metrics = grad_step(state, minibatch, lr_scale, shock_scale)
                 loss_acc = loss_acc + last_metrics.loss

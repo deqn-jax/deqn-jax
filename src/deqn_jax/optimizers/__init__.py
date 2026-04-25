@@ -25,8 +25,8 @@ from deqn_jax.optimizers.gauss_newton import (
     gauss_newton,
     levenberg_marquardt,
 )
-from deqn_jax.optimizers.mao import MAOState, MAOTransform, _MAOFactory
-from deqn_jax.optimizers.mao_kfac import MAOKFACState, MAOKFACTransform, _MAOKFACFactory
+from deqn_jax.optimizers.mao import MAOState, MAOTransform
+from deqn_jax.optimizers.mao_kfac import MAOKFACState, MAOKFACTransform
 from deqn_jax.optimizers.ngd import NGDState, ngd
 from deqn_jax.optimizers.registry import (  # noqa: F401
     OptimizerKind,

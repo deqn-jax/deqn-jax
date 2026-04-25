@@ -40,9 +40,7 @@ from jax import Array
 from deqn_jax.models.irbc.dynamics import step as irbc_step
 from deqn_jax.models.irbc.variables import N_COUNTRIES, N_SHOCKS, SPEC
 
-EQUATION_NAMES = tuple(
-    ["euler_0", "euler_1", "arc", "fb_0", "fb_1"]
-)
+EQUATION_NAMES = tuple(["euler_0", "euler_1", "arc", "fb_0", "fb_1"])
 
 
 def _adj_cost(k: Array, k_next: Array, kappa: float) -> Array:
@@ -73,7 +71,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     s = SPEC.unpack_state(state)
     p = SPEC.unpack_policy(policy)
 
-    beta = constants["beta"]                    # noqa: F841 (kept for readability)
+    beta = constants["beta"]  # noqa: F841 (kept for readability)
     delta = constants["delta"]
     zeta = constants["zeta"]
     kappa = constants["kappa"]
@@ -94,11 +92,11 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Output, marginal product of capital, adjustment cost, investment.
     Z = [jnp.exp(zs[j]) for j in range(N_COUNTRIES)]
     y = [A_tfp * Z[j] * jnp.power(ks[j], zeta) for j in range(N_COUNTRIES)]
-    mpk = [zeta * A_tfp * Z[j] * jnp.power(ks[j], zeta - 1.0)
-           for j in range(N_COUNTRIES)]
+    mpk = [
+        zeta * A_tfp * Z[j] * jnp.power(ks[j], zeta - 1.0) for j in range(N_COUNTRIES)
+    ]
     adj_cost = [_adj_cost(ks[j], ks_next[j], kappa) for j in range(N_COUNTRIES)]
-    i = [ks_next[j] - (1.0 - delta) * ks[j] + adj_cost[j]
-         for j in range(N_COUNTRIES)]
+    i = [ks_next[j] - (1.0 - delta) * ks[j] + adj_cost[j] for j in range(N_COUNTRIES)]
 
     defs = {"lam": lam}
     for j in range(N_COUNTRIES):
@@ -166,16 +164,17 @@ def equations(
         d_adj_next = _d_adj_cost_dk(ks_next[j], ks_nextnext[j], kappa)
         M_next_j = (1.0 - delta) + mpk_next[j] - d_adj_next
         rhs_continuation = lam_next * M_next_j - (1.0 - delta) * mus_next[j]
-        out[f"euler_{j}"] = (
-            mus[j] + beta * rhs_continuation - lam * (1.0 + d_adj_today)
-        )
+        out[f"euler_{j}"] = mus[j] + beta * rhs_continuation - lam * (1.0 + d_adj_today)
 
     # Aggregate resource constraint: sum_j (y_j + (1-delta) k_j - k_j' - adj_j - c_j) = 0.
     arc = jnp.zeros_like(ks[0])
     for j in range(N_COUNTRIES):
         arc = arc + (
-            defs[f"y_{j}"] + (1.0 - delta) * ks[j]
-            - ks_next[j] - defs[f"adj_cost_{j}"] - defs[f"c_{j}"]
+            defs[f"y_{j}"]
+            + (1.0 - delta) * ks[j]
+            - ks_next[j]
+            - defs[f"adj_cost_{j}"]
+            - defs[f"c_{j}"]
         )
     out["arc"] = arc
 
@@ -185,9 +184,6 @@ def equations(
     # the equilibrium zero in place.
     for j in range(N_COUNTRIES):
         i_j = defs[f"i_{j}"]
-        out[f"fb_{j}"] = (
-            mus[j] + i_j
-            - jnp.sqrt(mus[j] * mus[j] + i_j * i_j + fb_eps)
-        )
+        out[f"fb_{j}"] = mus[j] + i_j - jnp.sqrt(mus[j] * mus[j] + i_j * i_j + fb_eps)
 
     return out

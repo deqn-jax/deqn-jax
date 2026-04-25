@@ -33,8 +33,10 @@ from deqn_jax.models.olg_analytic_6.variables import A
 
 def analytic_beta_h(beta: float) -> list:
     """Krueger-Kubler saving fractions beta_h for h = 1..A-1."""
-    return [beta * (1.0 - beta ** (A - 1 - h)) / (1.0 - beta ** (A - h))
-            for h in range(A - 1)]
+    return [
+        beta * (1.0 - beta ** (A - 1 - h)) / (1.0 - beta ** (A - h))
+        for h in range(A - 1)
+    ]
 
 
 def steady_state(constants: Dict) -> Tuple[Array, Array]:
@@ -49,7 +51,7 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
     def K_implied(K):
         L = labor_1
         r = alpha * eta * K ** (alpha - 1.0) * L ** (1.0 - alpha) + (1.0 - delta)
-        w = (1.0 - alpha) * eta * K ** alpha * L ** (-alpha)
+        w = (1.0 - alpha) * eta * K**alpha * L ** (-alpha)
         k2 = b[0] * w
         k3 = b[1] * r * k2
         k4 = b[2] * r * k3
@@ -84,7 +86,7 @@ def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
     - eta, delta ~ uniformly from {eta_mid +/- eta_half} x {delta_mid +/- delta_half}
     """
     ss, _ = steady_state(constants)
-    k_ss = ss[:5]   # k2..k6 SS values
+    k_ss = ss[:5]  # k2..k6 SS values
 
     k_key, eta_key, delta_key = jax.random.split(key, 3)
     # Jitter each k-dimension by +/- 50%
@@ -98,7 +100,9 @@ def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
     delta_mid = constants["delta_mid"]
 
     eta_signs = jax.random.choice(eta_key, jnp.array([-1.0, 1.0]), shape=(batch_size,))
-    delta_signs = jax.random.choice(delta_key, jnp.array([-1.0, 1.0]), shape=(batch_size,))
+    delta_signs = jax.random.choice(
+        delta_key, jnp.array([-1.0, 1.0]), shape=(batch_size,)
+    )
     eta_samples = eta_mid + eta_half * eta_signs
     delta_samples = delta_mid + delta_half * delta_signs
 
@@ -115,25 +119,26 @@ def analytic_policy(state: Array, constants: Dict) -> Array:
     Returns [batch, A-1] savings.
     """
     from deqn_jax.models.olg_analytic_6.variables import SPEC
+
     s = SPEC.unpack_state(state)
     alpha = constants["alpha"]
     labor_1 = constants["labor_1"]
     b = analytic_beta_h(constants["beta"])
 
     batch_size = state.shape[0]
-    k = jnp.stack(
-        [jnp.zeros((batch_size,)), s.k2, s.k3, s.k4, s.k5, s.k6], axis=1
-    )
+    k = jnp.stack([jnp.zeros((batch_size,)), s.k2, s.k3, s.k4, s.k5, s.k6], axis=1)
     K = jnp.sum(k, axis=1)
     L = jnp.full((batch_size,), labor_1)
 
-    r = alpha * s.eta * jnp.power(K, alpha - 1.0) * jnp.power(L, 1.0 - alpha) + (1.0 - s.delta)
+    r = alpha * s.eta * jnp.power(K, alpha - 1.0) * jnp.power(L, 1.0 - alpha) + (
+        1.0 - s.delta
+    )
     w = (1.0 - alpha) * s.eta * jnp.power(K, alpha) * jnp.power(L, -alpha)
 
     fin = k * r[:, None]
     lab = jnp.zeros_like(k).at[:, 0].set(labor_1 * w)
-    inc = fin + lab        # [batch, A]
+    inc = fin + lab  # [batch, A]
 
     # Savings for agents 1..A-1: s^h = b[h-1] * inc^h
-    b_arr = jnp.array(b)   # [A-1]
-    return inc[:, :A - 1] * b_arr[None, :]
+    b_arr = jnp.array(b)  # [A-1]
+    return inc[:, : A - 1] * b_arr[None, :]

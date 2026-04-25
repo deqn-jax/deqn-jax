@@ -20,8 +20,8 @@ def _run_cycle_capture(sorted_flag: bool, seed: int = 0):
     from deqn_jax.types import Metrics, TrainState, make_reweight_state
 
     episode_length = 8
-    batch_size = 4            # = minibatch size; 8 samples per trajectory
-    sim_batch = 3             # 3 parallel trajectories
+    batch_size = 4  # = minibatch size; 8 samples per trajectory
+    sim_batch = 3  # 3 parallel trajectories
 
     # Fake trajectory with identifiable entries: entry at [t, b, :] encodes
     # b and t as state values so we can detect layout.
@@ -29,8 +29,8 @@ def _run_cycle_capture(sorted_flag: bool, seed: int = 0):
     # We use MODEL.brock_mirman (n_states=2) for signature compatibility.
     t_grid = jnp.arange(episode_length, dtype=jnp.float32)
     b_grid = jnp.arange(sim_batch, dtype=jnp.float32)
-    T, B = jnp.meshgrid(t_grid, b_grid, indexing="ij")   # [T, B]
-    trajectory = jnp.stack([B, T], axis=-1)              # [T, B, 2]
+    T, B = jnp.meshgrid(t_grid, b_grid, indexing="ij")  # [T, B]
+    trajectory = jnp.stack([B, T], axis=-1)  # [T, B, 2]
     assert trajectory.shape == (episode_length, sim_batch, 2)
 
     # Stub rollout_fn: returns the prepared trajectory and a fake final state.
@@ -91,8 +91,9 @@ def test_sorted_false_is_iid_shuffle():
         traj_ids = set(np.unique(mb[:, 0]).tolist())
         if len(traj_ids) > 1:
             multi_traj_batches += 1
-    assert multi_traj_batches >= 1, \
+    assert multi_traj_batches >= 1, (
         "With sorted=False, expected minibatches to mix trajectories; none did."
+    )
 
 
 def test_sorted_true_gives_single_trajectory_contiguous_segments():
@@ -105,14 +106,16 @@ def test_sorted_true_gives_single_trajectory_contiguous_segments():
     for i, mb in enumerate(minibatches):
         # mb is shape [batch_size, 2]: column 0 = trajectory id, col 1 = time.
         traj_ids = np.unique(mb[:, 0])
-        assert traj_ids.size == 1, \
+        assert traj_ids.size == 1, (
             f"minibatch {i} spans multiple trajectories: {traj_ids}"
+        )
 
         times = mb[:, 1]
         # Times should be consecutive integers (contiguous segment).
         sorted_times = np.sort(times)
-        assert np.all(np.diff(sorted_times) == 1), \
+        assert np.all(np.diff(sorted_times) == 1), (
             f"minibatch {i} times are not contiguous: {times}"
+        )
 
 
 def test_sorted_true_shuffles_batch_order_across_seeds():
@@ -135,8 +138,9 @@ def test_sorted_true_shuffles_batch_order_across_seeds():
     c_order = [int(np.unique(mb[:, 0])[0]) for mb in c]
 
     orders = {tuple(a_order), tuple(b_order), tuple(c_order)}
-    assert len(orders) >= 2, \
+    assert len(orders) >= 2, (
         f"Expected distinct batch orderings across seeds, got {orders}"
+    )
 
 
 def test_sorted_within_batch_config_field_plumbed_end_to_end():

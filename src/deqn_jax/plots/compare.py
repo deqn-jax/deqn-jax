@@ -36,7 +36,9 @@ def _extract_history_from_block(block: str) -> Dict:
         losses.append(float(loss_s))
         grads.append(float(grad_s))
     best_match = _BEST_RE.search(block)
-    best = (float(best_match.group(1)), int(best_match.group(2))) if best_match else None
+    best = (
+        (float(best_match.group(1)), int(best_match.group(2))) if best_match else None
+    )
     return {
         "episodes": np.asarray(eps),
         "loss": np.asarray(losses),
@@ -81,6 +83,7 @@ def parse_log_single(path, run_name: str) -> Dict[str, Dict]:
 # ---------------------------------------------------------------------------
 # Plots
 # ---------------------------------------------------------------------------
+
 
 def plot_multi_run_loss(
     runs: Mapping[str, Mapping],

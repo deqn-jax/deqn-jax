@@ -42,8 +42,10 @@ def make_cycle_hook(
         ``hook(state, model, episode) -> None``.
     """
     if figures_dir is None:
+
         def _noop(state, model, episode):
             return None
+
         return _noop
 
     out = Path(figures_dir)
@@ -62,7 +64,9 @@ def make_cycle_hook(
         fig, axes = plt.subplots(1, 2, figsize=(11, 4))
 
         axes[0].plot(k_np, s_pred, lw=2, label=r"DEQN policy $\mathcal{N}(K)$")
-        axes[0].axhline(s_star, color="k", ls="--", label=fr"$\alpha\beta = {s_star:.4f}$")
+        axes[0].axhline(
+            s_star, color="k", ls="--", label=rf"$\alpha\beta = {s_star:.4f}$"
+        )
         axes[0].set_xlabel("K")
         axes[0].set_ylabel("savings rate $s$")
         axes[0].set_title(f"policy (episode {episode})")

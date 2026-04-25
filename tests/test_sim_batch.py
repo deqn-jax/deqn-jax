@@ -19,10 +19,15 @@ def test_sim_batch_none_defaults_to_batch_size():
     from deqn_jax.training.trainer import train_from_config
 
     cfg = TrainConfig(
-        model="brock_mirman", episodes=1, batch_size=32, episode_length=4, mc_samples=2,
+        model="brock_mirman",
+        episodes=1,
+        batch_size=32,
+        episode_length=4,
+        mc_samples=2,
         network=NetworkConfig(hidden_sizes=(8,)),
         optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
-        verbose=False, log_every=1,
+        verbose=False,
+        log_every=1,
     )
     _, h = train_from_config(cfg)
     # Just confirm training runs to completion without shape errors.
@@ -37,11 +42,16 @@ def test_sim_batch_larger_than_batch_size():
     from deqn_jax.training.trainer import train_from_config
 
     cfg = TrainConfig(
-        model="brock_mirman", episodes=2, batch_size=64, sim_batch=256,
-        episode_length=8, mc_samples=2,
+        model="brock_mirman",
+        episodes=2,
+        batch_size=64,
+        sim_batch=256,
+        episode_length=8,
+        mc_samples=2,
         network=NetworkConfig(hidden_sizes=(16,)),
         optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
-        verbose=False, log_every=2,
+        verbose=False,
+        log_every=2,
     )
     _, h = train_from_config(cfg)
     assert np.isfinite(h["loss"][-1])
@@ -58,7 +68,8 @@ def test_sim_batch_carries_through_episode_state():
 
     key = jax.random.PRNGKey(0)
     state, _, _ = create_train_state(
-        MODEL, key,
+        MODEL,
+        key,
         hidden_sizes=(8,),
         batch_size=32,
         sim_batch=128,
@@ -81,7 +92,8 @@ def test_sim_batch_none_uses_batch_size_for_episode_state():
 
     key = jax.random.PRNGKey(0)
     state, _, _ = create_train_state(
-        MODEL, key,
+        MODEL,
+        key,
         hidden_sizes=(8,),
         batch_size=48,
         sim_batch=None,

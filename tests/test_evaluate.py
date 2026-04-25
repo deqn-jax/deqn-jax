@@ -39,14 +39,22 @@ class TestEulerEquationErrors:
     def test_burn_in_equal_to_n_periods_keeps_one_sample(self, tiny_model_and_net):
         model, net = tiny_model_and_net
         result = euler_equation_errors(
-            net, model, n_periods=30, burn_in=30, seed=0,
+            net,
+            model,
+            n_periods=30,
+            burn_in=30,
+            seed=0,
         )
         assert result["residuals"].shape[0] >= 1
 
     def test_explicit_burn_in_respected(self, tiny_model_and_net):
         model, net = tiny_model_and_net
         result = euler_equation_errors(
-            net, model, n_periods=100, burn_in=25, seed=0,
+            net,
+            model,
+            n_periods=100,
+            burn_in=25,
+            seed=0,
         )
         # n_periods - burn_in samples retained
         assert result["residuals"].shape[0] == 75
@@ -63,8 +71,14 @@ class TestPrintMoments:
     def test_header_uses_actual_period_count(self, capsys):
         """Regression: was hardcoded to 'Simulated Moments (10,000 periods)' for any n."""
         moments = {
-            "k": {"mean": 1.0, "std": 0.1, "min": 0.8, "max": 1.2,
-                  "ss": 1.0, "mean_dev_pct": 0.0},
+            "k": {
+                "mean": 1.0,
+                "std": 0.1,
+                "min": 0.8,
+                "max": 1.2,
+                "ss": 1.0,
+                "mean_dev_pct": 0.0,
+            },
         }
         print_moments(moments, label="test", n_periods=2000)
         captured = capsys.readouterr()
@@ -73,8 +87,14 @@ class TestPrintMoments:
 
     def test_header_fallback_when_n_periods_omitted(self, capsys):
         moments = {
-            "k": {"mean": 1.0, "std": 0.1, "min": 0.8, "max": 1.2,
-                  "ss": 1.0, "mean_dev_pct": 0.0},
+            "k": {
+                "mean": 1.0,
+                "std": 0.1,
+                "min": 0.8,
+                "max": 1.2,
+                "ss": 1.0,
+                "mean_dev_pct": 0.0,
+            },
         }
         print_moments(moments, label="")
         captured = capsys.readouterr()

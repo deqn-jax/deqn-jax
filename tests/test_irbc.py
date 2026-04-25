@@ -13,12 +13,14 @@ import pytest
 @pytest.fixture
 def model_and_ss():
     from deqn_jax.models.irbc import MODEL
+
     ss_state, ss_policy = MODEL.steady_state_fn(MODEL.constants)
     return MODEL, ss_state, ss_policy
 
 
 def test_irbc_registers_and_loads():
     from deqn_jax.models import list_models, load_model
+
     model = load_model("irbc")
     assert model.name == "irbc"
     assert "irbc" in dict(list_models())

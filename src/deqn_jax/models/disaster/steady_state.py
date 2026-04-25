@@ -9,7 +9,12 @@ from jax import Array
 from scipy.optimize import root
 
 from deqn_jax.models.disaster.equations import Gamma, equations, solve_omega_bar
-from deqn_jax.models.disaster.variables import CONSTANTS, OMEGA_BAR_SS, SPEC, STEADY_STATE
+from deqn_jax.models.disaster.variables import (
+    CONSTANTS,
+    OMEGA_BAR_SS,
+    SPEC,
+    STEADY_STATE,
+)
 
 
 def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
@@ -40,7 +45,9 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
 
         # R_k does NOT depend on omega_bar
         r_k = c["alpha"] * (mu_z * h / k) ** (1 - c["alpha"]) * s
-        R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * q) / q * pi + c["tau_k"] * c["delta"]
+        R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * q) / q * pi + c["tau_k"] * c[
+            "delta"
+        ]
 
         # At SS: R_lag = R, L_lag = L, but L is unknown.
         # Use the Taylor rule to get R first:
@@ -58,7 +65,9 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
         # We need L_lag (= L at SS). Bootstrap from a guess:
         omega_bar_init = jnp.array(OMEGA_BAR_SS)
         Gamma_val_init = Gamma(omega_bar_init, c["sigma_omega"])
-        n_init = (c["gamma_e"] / (pi * mu_z)) * (1.0 - Gamma_val_init) * R_k * q * k + c["w_e"]
+        n_init = (c["gamma_e"] / (pi * mu_z)) * (
+            1.0 - Gamma_val_init
+        ) * R_k * q * k + c["w_e"]
         L_init = q * k / (n_init + 1e-8)
         target = (L_init - 1.0) / (L_init * R_k / R + 1e-10)
         omega_bar = solve_omega_bar(target, c["sigma_omega"], c["mu_mon"])
@@ -68,8 +77,9 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
         n = (c["gamma_e"] / (pi * mu_z)) * (1.0 - Gamma_val) * R_k * q * k + c["w_e"]
         L = q * k / (n + 1e-8)
 
-        return jnp.array([pi, k, cc, q, i, R, w_tilda, L,
-                          1.0, 1.0, c["g_ss"], mu_z, 0.0])
+        return jnp.array(
+            [pi, k, cc, q, i, R, w_tilda, L, 1.0, 1.0, c["g_ss"], mu_z, 0.0]
+        )
 
     def _resid_jax(x):
         state = _build_state(x)
@@ -86,7 +96,7 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
         x = jnp.array(x_np)
         return np.array(_jac_fn(x))
 
-    sol = root(residuals, x0, jac=jacobian, method='hybr', tol=1e-14)
+    sol = root(residuals, x0, jac=jacobian, method="hybr", tol=1e-14)
     max_resid = np.max(np.abs(sol.fun))
     if not sol.success and max_resid > 1e-6:
         print(f"WARNING: SS solver did not converge: {sol.message}")
@@ -140,6 +150,7 @@ def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
 # Risky steady state
 # ---------------------------------------------------------------------------
 
+
 def _solve_risky_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     """Numerically solve for the RISKY steady state under disaster risk.
 
@@ -156,6 +167,7 @@ def _solve_risky_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     Falls back to the deterministic SS when p_disaster = 0.
     """
     from deqn_jax.models.disaster.dynamics import step as step_fn
+
     c = constants
     p_disaster = float(c.get("p_disaster", 0.0))
 
@@ -173,12 +185,16 @@ def _solve_risky_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
         k = i / (1.0 - (1.0 - c["delta"]) / mu_z)
         s = (mu_z * h / k) ** c["alpha"] * w_tilda / (1 - c["alpha"])
         r_k = c["alpha"] * (mu_z * h / k) ** (1 - c["alpha"]) * s
-        R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * q) / q * pi + c["tau_k"] * c["delta"]
+        R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * q) / q * pi + c["tau_k"] * c[
+            "delta"
+        ]
         R = pi * mu_z / c["beta"]
 
         omega_bar_init = jnp.array(OMEGA_BAR_SS)
         Gamma_val_init = Gamma(omega_bar_init, c["sigma_omega"])
-        n_init = (c["gamma_e"] / (pi * mu_z)) * (1.0 - Gamma_val_init) * R_k * q * k + c["w_e"]
+        n_init = (c["gamma_e"] / (pi * mu_z)) * (
+            1.0 - Gamma_val_init
+        ) * R_k * q * k + c["w_e"]
         L_init = q * k / (n_init + 1e-8)
         target = (L_init - 1.0) / (L_init * R_k / R + 1e-10)
         omega_bar = solve_omega_bar(target, c["sigma_omega"], c["mu_mon"])
@@ -187,8 +203,9 @@ def _solve_risky_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
         n = (c["gamma_e"] / (pi * mu_z)) * (1.0 - Gamma_val) * R_k * q * k + c["w_e"]
         L = q * k / (n + 1e-8)
 
-        return jnp.array([pi, k, cc, q, i, R, w_tilda, L,
-                          1.0, 1.0, c["g_ss"], mu_z, 0.0])
+        return jnp.array(
+            [pi, k, cc, q, i, R, w_tilda, L, 1.0, 1.0, c["g_ss"], mu_z, 0.0]
+        )
 
     def _resid_jax(x):
         """Mixture-residual across disaster realizations at the candidate SS."""
@@ -218,7 +235,7 @@ def _solve_risky_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     def jacobian(x_np):
         return np.array(_jac_fn(jnp.array(x_np)))
 
-    sol = root(residuals, x0, jac=jacobian, method='hybr', tol=1e-12)
+    sol = root(residuals, x0, jac=jacobian, method="hybr", tol=1e-12)
     max_resid = np.max(np.abs(sol.fun))
     if not sol.success and max_resid > 1e-5:
         print(f"WARNING: Risky SS solver did not fully converge: {sol.message}")

@@ -25,8 +25,9 @@ class TestBrockMirmanConvergence:
         final_loss = history["loss"][-1]
 
         # Loss should decrease by at least 2x
-        assert final_loss < initial_loss / 2, \
+        assert final_loss < initial_loss / 2, (
             f"Loss didn't decrease enough: {initial_loss:.4e} -> {final_loss:.4e}"
+        )
 
     def test_convergence_to_low_loss(self):
         """Model should converge to reasonably low loss."""
@@ -100,8 +101,9 @@ class TestDisasterTraining:
         final_loss = min(history["loss"][-20:])
 
         # Loss should decrease (disaster is hard, so just check it goes down)
-        assert final_loss < initial_loss, \
+        assert final_loss < initial_loss, (
             f"Loss didn't decrease: {initial_loss:.4e} -> {final_loss:.4e}"
+        )
 
     def test_no_nan_loss(self):
         """Training should not produce NaN losses."""

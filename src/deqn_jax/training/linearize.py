@@ -72,19 +72,27 @@ def linearize_model(
     p_disaster = float(constants.get("p_disaster", 0.0))
 
     if p_disaster > 0.0:
+
         def G_vec(s, p):
             shock = jnp.zeros((1, model.n_shocks))
             ns_0 = model.step_fn(
-                s[None, :], p[None, :], shock, constants,
+                s[None, :],
+                p[None, :],
+                shock,
+                constants,
                 d_disaster=jnp.array(0.0),
             )
             ns_1 = model.step_fn(
-                s[None, :], p[None, :], shock, constants,
+                s[None, :],
+                p[None, :],
+                shock,
+                constants,
                 d_disaster=jnp.array(1.0),
             )
             ns = (1.0 - p_disaster) * ns_0 + p_disaster * ns_1
             return ns[0]
     else:
+
         def G_vec(s, p):
             shock = jnp.zeros((1, model.n_shocks))
             ns = model.step_fn(s[None, :], p[None, :], shock, constants)
@@ -111,21 +119,25 @@ def linearize_model(
     # A = [[I,    0  ],    B = [[G_s,  G_p ],
     #      [F_sn, F_pn]]        [-F_s, -F_p]]
 
-    A = np.block([
-        [np.eye(n_s),       np.zeros((n_s, n_p))],
-        [np.array(F_sn),    np.array(F_pn)],
-    ])
-    B = np.block([
-        [np.array(G_s),     np.array(G_p)],
-        [-np.array(F_s),    -np.array(F_p)],
-    ])
+    A = np.block(
+        [
+            [np.eye(n_s), np.zeros((n_s, n_p))],
+            [np.array(F_sn), np.array(F_pn)],
+        ]
+    )
+    B = np.block(
+        [
+            [np.array(G_s), np.array(G_p)],
+            [-np.array(F_s), -np.array(F_p)],
+        ]
+    )
 
     # --- QZ decomposition ---
     # ordqz(B, A) gives eigenvalues of A^{-1}B, sorted stable first
-    AA, BB, alpha, beta, Q, Z = ordqz(B, A, output='complex', sort='iuc')
+    AA, BB, alpha, beta, Q, Z = ordqz(B, A, output="complex", sort="iuc")
 
     # Generalized eigenvalues
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         eigenvalues = np.where(np.abs(beta) > 1e-15, np.abs(alpha / beta), np.inf)
 
     n_stable = np.sum(eigenvalues < 1.0)
@@ -198,17 +210,25 @@ def compute_ergodic_covariance(
     p_disaster = float(constants.get("p_disaster", 0.0))
 
     if p_disaster > 0.0:
+
         def step_wrt_shock(shock):
             ns_0 = model.step_fn(
-                ss_state[None, :], ss_policy[None, :], shock[None, :],
-                constants, d_disaster=jnp.array(0.0),
+                ss_state[None, :],
+                ss_policy[None, :],
+                shock[None, :],
+                constants,
+                d_disaster=jnp.array(0.0),
             )[0]
             ns_1 = model.step_fn(
-                ss_state[None, :], ss_policy[None, :], shock[None, :],
-                constants, d_disaster=jnp.array(1.0),
+                ss_state[None, :],
+                ss_policy[None, :],
+                shock[None, :],
+                constants,
+                d_disaster=jnp.array(1.0),
             )[0]
             return (1.0 - p_disaster) * ns_0 + p_disaster * ns_1
     else:
+
         def step_wrt_shock(shock):
             return model.step_fn(
                 ss_state[None, :], ss_policy[None, :], shock[None, :], constants
@@ -248,6 +268,7 @@ def linear_policy_fn(
     Returns:
         Function: state [n_states] -> policy [n_policies]
     """
+
     def policy_fn(state: Array) -> Array:
         deviation = state - ss_state
         return ss_policy + P @ deviation

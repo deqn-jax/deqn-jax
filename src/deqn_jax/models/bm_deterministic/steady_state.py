@@ -34,7 +34,7 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
 
     k_ss = ((1.0 / beta - 1.0 + delta) / alpha) ** (1.0 / (alpha - 1.0))
 
-    y_ss = k_ss ** alpha
+    y_ss = k_ss**alpha
     sav_rate_ss = delta * k_ss / y_ss  # equal to alpha*beta when delta=1
 
     return jnp.array([k_ss]), jnp.array([sav_rate_ss])

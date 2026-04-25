@@ -50,7 +50,7 @@ def ngd(
     ) -> Tuple[Any, NGDState]:
         # Update Fisher diagonal: F ← decay * F + (1-decay) * g²
         new_fisher = jax.tree.map(
-            lambda f, g: decay * f + (1.0 - decay) * g ** 2,
+            lambda f, g: decay * f + (1.0 - decay) * g**2,
             state.fisher_diag,
             updates,
         )

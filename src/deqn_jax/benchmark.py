@@ -33,6 +33,7 @@ def benchmark_model(
     # Load model
     from deqn_jax.models import load_model
     from deqn_jax.training.trainer import create_train_state, make_train_step
+
     MODEL = load_model(model_name)
 
     if verbose:
@@ -47,7 +48,8 @@ def benchmark_model(
     learning_rate = 1e-3
 
     state = create_train_state(
-        MODEL, key,
+        MODEL,
+        key,
         hidden_sizes=hidden_sizes,
         learning_rate=learning_rate,
         batch_size=batch_size,
@@ -67,7 +69,9 @@ def benchmark_model(
     warmup_time = time.perf_counter() - warmup_start
 
     if verbose:
-        print(f"  Warmup time: {warmup_time:.2f}s ({warmup_time/warmup_episodes*1000:.1f}ms/episode)")
+        print(
+            f"  Warmup time: {warmup_time:.2f}s ({warmup_time / warmup_episodes * 1000:.1f}ms/episode)"
+        )
         print()
 
     # Timed run
@@ -84,7 +88,9 @@ def benchmark_model(
         if verbose and (ep + 1) % 100 == 0:
             elapsed = time.perf_counter() - start_time
             eps_per_sec = (ep + 1) / elapsed
-            print(f"  Episode {ep + 1:4d} | Loss: {metrics.loss:.4e} | {eps_per_sec:.1f} ep/s")
+            print(
+                f"  Episode {ep + 1:4d} | Loss: {metrics.loss:.4e} | {eps_per_sec:.1f} ep/s"
+            )
 
     jax.block_until_ready(state.params)
     total_time = time.perf_counter() - start_time
@@ -119,14 +125,16 @@ def benchmark_model(
 def main():
     parser = argparse.ArgumentParser(description="Benchmark DEQN-JAX training")
     parser.add_argument(
-        "--model", "-m",
+        "--model",
+        "-m",
         type=str,
         default="brock_mirman",
         choices=["brock_mirman", "disaster"],
         help="Model to benchmark",
     )
     parser.add_argument(
-        "--episodes", "-n",
+        "--episodes",
+        "-n",
         type=int,
         default=500,
         help="Number of episodes",
@@ -155,7 +163,8 @@ def main():
         help="Use float64 precision",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Suppress output",
     )
@@ -177,7 +186,9 @@ def main():
     )
 
     if args.quiet:
-        print(f"{results['episodes_per_second']:.1f} ep/s, final loss: {results['final_loss']:.4e}")
+        print(
+            f"{results['episodes_per_second']:.1f} ep/s, final loss: {results['final_loss']:.4e}"
+        )
 
 
 if __name__ == "__main__":

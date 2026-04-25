@@ -28,9 +28,21 @@ from deqn_jax.config import (
 
 SECTIONS = [
     ("TrainConfig", TrainConfig, "Top-level training configuration."),
-    ("OptimizerConfig", OptimizerConfig, "Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML."),
-    ("NetworkConfig", NetworkConfig, "Policy network architecture; nested under ``network:`` in YAML."),
-    ("CompositeLossConfig", CompositeLossConfig, "Composite-loss weights (only active when ``loss_type: composite``); nested under ``composite_loss:`` in YAML."),
+    (
+        "OptimizerConfig",
+        OptimizerConfig,
+        "Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.",
+    ),
+    (
+        "NetworkConfig",
+        NetworkConfig,
+        "Policy network architecture; nested under ``network:`` in YAML.",
+    ),
+    (
+        "CompositeLossConfig",
+        CompositeLossConfig,
+        "Composite-loss weights (only active when ``loss_type: composite``); nested under ``composite_loss:`` in YAML.",
+    ),
 ]
 
 
@@ -49,7 +61,10 @@ def _format_type(annotation: _t.Any) -> str:
         if hasattr(annotation, "__name__"):
             return annotation.__name__
         return str(annotation)
-    if origin is _t.Union or (hasattr(annotation, "__class__") and annotation.__class__.__name__ == "UnionType"):
+    if origin is _t.Union or (
+        hasattr(annotation, "__class__")
+        and annotation.__class__.__name__ == "UnionType"
+    ):
         inner = ", ".join(_format_type(a) for a in args)
         return f"Union[{inner}]"
     origin_name = getattr(origin, "__name__", str(origin))
@@ -96,7 +111,9 @@ def render_class(name: str, cls: _t.Any, subtitle: str) -> str:
 
 
 def main() -> None:
-    out_path = Path(__file__).resolve().parent.parent / "docs" / "site" / "config_reference.md"
+    out_path = (
+        Path(__file__).resolve().parent.parent / "docs" / "site" / "config_reference.md"
+    )
 
     preface = """# Config reference
 

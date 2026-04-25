@@ -46,7 +46,7 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
     k_ss = ((1.0 / beta - 1.0 + delta) / alpha) ** (1.0 / (alpha - 1.0))
     z_ss = 0.0
 
-    y_ss = k_ss ** alpha
+    y_ss = k_ss**alpha
     s_ss = delta * k_ss
     sav_rate_ss = s_ss / y_ss
 

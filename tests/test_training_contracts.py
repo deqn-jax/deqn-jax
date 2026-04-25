@@ -106,10 +106,12 @@ def test_composite_loss_barrier_weight_affects_total_loss():
             return jnp.zeros(1)
         return jnp.zeros((states.shape[0], 1))
 
-    states = jnp.array([
-        [0.5, 12.0, 0.5, 1.0, 0.0],
-        [0.25, 8.0, 0.25, 1.0, 0.0],
-    ])
+    states = jnp.array(
+        [
+            [0.5, 12.0, 0.5, 1.0, 0.0],
+            [0.25, 8.0, 0.25, 1.0, 0.0],
+        ]
+    )
     common = dict(
         anchor_weight=0.0,
         jac_weight=0.0,
@@ -118,14 +120,24 @@ def test_composite_loss_barrier_weight_affects_total_loss():
         leverage_mult=2.0,
     )
     loss_no_barrier = make_composite_loss(
-        model, data, barrier_weight=0.0, **common,
+        model,
+        data,
+        barrier_weight=0.0,
+        **common,
     )
     loss_with_barrier = make_composite_loss(
-        model, data, barrier_weight=3.0, **common,
+        model,
+        data,
+        barrier_weight=3.0,
+        **common,
     )
 
-    total0, eq0 = loss_no_barrier(model, policy_fn, states, jax.random.PRNGKey(0), mc_samples=1)
-    total3, eq3 = loss_with_barrier(model, policy_fn, states, jax.random.PRNGKey(0), mc_samples=1)
+    total0, eq0 = loss_no_barrier(
+        model, policy_fn, states, jax.random.PRNGKey(0), mc_samples=1
+    )
+    total3, eq3 = loss_with_barrier(
+        model, policy_fn, states, jax.random.PRNGKey(0), mc_samples=1
+    )
 
     barrier_sum = eq3["aux_barrier_n"] + eq3["aux_barrier_L"] + eq3["aux_barrier_c"]
     assert float(barrier_sum) > 0.0
@@ -174,9 +186,9 @@ def test_run_episode_disaster_indicator_broadcasts_against_per_sample_quantity()
     def disaster_step(state, policy, shock, constants, d_disaster=0.0):
         # state: [batch, 1]; treat the single state dim as a per-sample
         # capital-like quantity and apply k_next = k * exp(-theta * d).
-        k = state[:, 0]                              # [batch]
-        k_next = k * jnp.exp(-1.0 * d_disaster)      # must stay [batch]
-        return jnp.stack([k_next], axis=1)           # [batch, 1]
+        k = state[:, 0]  # [batch]
+        k_next = k * jnp.exp(-1.0 * d_disaster)  # must stay [batch]
+        return jnp.stack([k_next], axis=1)  # [batch, 1]
 
     model = _toy_model(constants={"p_disaster": 1.0}, step_fn=disaster_step)
     init = jnp.full((3, 1), 10.0)

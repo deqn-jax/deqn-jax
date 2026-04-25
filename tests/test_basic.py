@@ -177,7 +177,9 @@ class TestTraining:
         )
 
         init_state = sample_initial_states(MODEL, k2, batch_size=8)
-        trajectory, final_state = run_episode(MODEL, mlp, init_state, k3, episode_length=10)
+        trajectory, final_state = run_episode(
+            MODEL, mlp, init_state, k3, episode_length=10
+        )
 
         assert trajectory.shape == (10, 8, 2)
         assert final_state.shape == (8, 2)

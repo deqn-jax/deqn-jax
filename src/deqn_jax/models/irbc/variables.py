@@ -35,12 +35,12 @@ SPEC = VariableSpec(
 CONSTANTS = {
     # Preferences / technology (symmetric).
     "beta": 0.99,
-    "delta": 0.01,       # intentionally low; Simon's IRBC uses 0.01 for simplicity
-    "zeta": 0.36,        # capital share in Cobb-Douglas
-    "kappa": 0.5,        # quadratic capital-adjustment-cost coefficient
-    "rho_z": 0.95,       # TFP autocorrelation
-    "sigma_eps": 0.01,   # std of both country-specific and aggregate innovations
-    "A_tfp": 0.055836,   # TFP scale, calibrated so MPK_ss = 1/beta
+    "delta": 0.01,  # intentionally low; Simon's IRBC uses 0.01 for simplicity
+    "zeta": 0.36,  # capital share in Cobb-Douglas
+    "kappa": 0.5,  # quadratic capital-adjustment-cost coefficient
+    "rho_z": 0.95,  # TFP autocorrelation
+    "sigma_eps": 0.01,  # std of both country-specific and aggregate innovations
+    "A_tfp": 0.055836,  # TFP scale, calibrated so MPK_ss = 1/beta
     # Heterogeneous risk aversion. Notebook uses a linear spread [0.25, 1.0]
     # across N=2 countries; exposed here as separate keys for Pydantic
     # compatibility (constants are Dict[str, float]).
@@ -59,6 +59,6 @@ CONSTANTS = {
 POLICY_LOWER = jnp.full(5, 1e-6)
 POLICY_UPPER = jnp.full(5, jnp.inf)
 
-N_SHOCKS = 3     # eps_0, eps_1, eps_agg
+N_SHOCKS = 3  # eps_0, eps_1, eps_agg
 
 DESCRIPTION = "2-country International RBC with irreversibility (Fischer-Burmeister)"

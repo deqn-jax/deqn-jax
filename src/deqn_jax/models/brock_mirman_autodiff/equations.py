@@ -20,7 +20,9 @@ from deqn_jax.training.autodiff import euler_from_period_return
 EQUATION_NAMES = ("euler",)
 
 
-def period_return(k: Array, k_next: Array, z: Array, policy: Array, constants: Dict) -> Array:
+def period_return(
+    k: Array, k_next: Array, z: Array, policy: Array, constants: Dict
+) -> Array:
     """Pi(K_t, K_{t+1}, z_t, policy_t) = u(C_t). Budget constraint baked in.
 
     Brock-Mirman absorbs the savings rate into K_next via the budget,
@@ -35,7 +37,7 @@ def period_return(k: Array, k_next: Array, z: Array, policy: Array, constants: D
     Z = jnp.exp(z[0])
     y = Z * jnp.power(k, alpha)
     invest = k_next - (1.0 - delta) * k
-    c = jnp.maximum(y - invest, 1e-6)     # small floor for numerical safety
+    c = jnp.maximum(y - invest, 1e-6)  # small floor for numerical safety
 
     if gamma == 1.0:
         return jnp.log(c)
@@ -47,8 +49,8 @@ def period_return(k: Array, k_next: Array, z: Array, policy: Array, constants: D
 equations = euler_from_period_return(
     period_return_fn=period_return,
     step_fn=step,
-    capital_idx=0,     # state = (k, z); capital is dim 0
-    exog_idx=(1,),     # z is dim 1
+    capital_idx=0,  # state = (k, z); capital is dim 0
+    exog_idx=(1,),  # z is dim 1
     n_shocks=1,
 )
 

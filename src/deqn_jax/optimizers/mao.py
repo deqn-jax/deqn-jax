@@ -88,14 +88,14 @@ class MAOTransform:
             eq_jacobian,
         )
         new_v = jax.tree.map(
-            lambda v, j: b2 * v + (1.0 - b2) * j ** 2,
+            lambda v, j: b2 * v + (1.0 - b2) * j**2,
             state.v,
             eq_jacobian,
         )
 
         # Bias correction
-        bc1 = 1.0 - b1 ** count
-        bc2 = 1.0 - b2 ** count
+        bc1 = 1.0 - b1**count
+        bc2 = 1.0 - b2**count
 
         # Per-equation Adam updates, then sum across equations
         def compute_update(m_leaf, v_leaf):
@@ -176,10 +176,15 @@ def make_grad_step_mao(
         def per_eq_loss_fn(p_arrays):
             full_params = eqx.combine(p_arrays, params_static)
             _, eq_losses = compute_loss(
-                model, full_params, batch, loss_key, mc_samples,
+                model,
+                full_params,
+                batch,
+                loss_key,
+                mc_samples,
                 weights=None,
                 shock_scale=shock_scale,
-                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                quad_nodes=quad_nodes,
+                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
             return eq_losses_to_array(eq_losses)
@@ -188,16 +193,22 @@ def make_grad_step_mao(
 
         def total_loss_fn(params):
             loss, eq_losses = _compute_loss_total(
-                model, params, batch, loss_key, mc_samples,
-                weights=state.loss_weights, shock_scale=shock_scale,
-                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                model,
+                params,
+                batch,
+                loss_key,
+                mc_samples,
+                weights=state.loss_weights,
+                shock_scale=shock_scale,
+                quad_nodes=quad_nodes,
+                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
             return loss, eq_losses
 
-        (loss, eq_losses), grads = eqx.filter_value_and_grad(total_loss_fn, has_aux=True)(
-            state.params
-        )
+        (loss, eq_losses), grads = eqx.filter_value_and_grad(
+            total_loss_fn, has_aux=True
+        )(state.params)
         grad_norm = optax.global_norm(eqx.filter(grads, eqx.is_array))
 
         updates, new_opt_state = mao_opt.update(eq_jac, state.opt_state, params_arrays)
@@ -210,14 +221,23 @@ def make_grad_step_mao(
         new_params = eqx.combine(new_params_arrays, state.params)
 
         new_weights, new_rw = update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+            eq_losses,
+            state,
+            loss_reweight,
+            reweight_alpha,
+            n_eq,
         )
         new_state = TrainState(
-            params=new_params, opt_state=new_opt_state,
-            episode_state=state.episode_state, key=new_key,
-            step=state.step + 1, episode=state.episode,
-            loss_weights=new_weights, reweight_state=new_rw,
+            params=new_params,
+            opt_state=new_opt_state,
+            episode_state=state.episode_state,
+            key=new_key,
+            step=state.step + 1,
+            episode=state.episode,
+            loss_weights=new_weights,
+            reweight_state=new_rw,
             target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
     return grad_step

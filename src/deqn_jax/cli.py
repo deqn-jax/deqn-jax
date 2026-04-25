@@ -27,7 +27,8 @@ def main():
         help="Model to train (brock_mirman, disaster)",
     )
     train_parser.add_argument(
-        "-n", "--episodes",
+        "-n",
+        "--episodes",
         type=int,
         default=None,
         help="Number of training episodes (default: 1000)",
@@ -39,7 +40,8 @@ def main():
         help="Hidden layer sizes, comma-separated (default: 64,64)",
     )
     train_parser.add_argument(
-        "--lr", "--learning-rate",
+        "--lr",
+        "--learning-rate",
         type=float,
         default=None,
         help="Learning rate (default: 1e-3)",
@@ -63,7 +65,8 @@ def main():
         help="Monte Carlo samples (default: 5)",
     )
     train_parser.add_argument(
-        "-o", "--optimizer",
+        "-o",
+        "--optimizer",
         type=str,
         default=None,
         help="Optimizer name (default: adam). Use 'deqn-jax optimizers' to list.",
@@ -99,21 +102,24 @@ def main():
         help="Gradient surgery method for multi-equation conflict resolution",
     )
     train_parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Suppress output",
     )
 
     # Config options
     train_parser.add_argument(
-        "-c", "--config",
+        "-c",
+        "--config",
         type=str,
         default=None,
         metavar="PATH",
         help="YAML config file",
     )
     train_parser.add_argument(
-        "-s", "--set",
+        "-s",
+        "--set",
         type=str,
         action="append",
         default=None,
@@ -243,7 +249,8 @@ def main():
         help="Path to checkpoint .eqx file",
     )
     irf_parser.add_argument(
-        "--shock", "-s",
+        "--shock",
+        "-s",
         type=str,
         action="append",
         dest="shocks",
@@ -268,7 +275,8 @@ def main():
         help="Config YAML (auto-detected from checkpoint dir if omitted)",
     )
     irf_parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default=None,
         help="Output directory (default: irf_results)",
@@ -277,20 +285,23 @@ def main():
         "--girf",
         action="store_true",
         help="Generalized IRF: subtract a no-shock baseline trajectory "
-             "(same initial state, zero shocks) from the shocked path. "
-             "Required for nonlinear models where the initial state is not "
-             "a fixed point of step(·, 0, d=0) — e.g. disaster with risky SS.",
+        "(same initial state, zero shocks) from the shocked path. "
+        "Required for nonlinear models where the initial state is not "
+        "a fixed point of step(·, 0, d=0) — e.g. disaster with risky SS.",
     )
 
     # Evaluate command
-    eval_parser = subparsers.add_parser("evaluate", help="Evaluate trained model accuracy")
+    eval_parser = subparsers.add_parser(
+        "evaluate", help="Evaluate trained model accuracy"
+    )
     eval_parser.add_argument(
         "checkpoint",
         type=str,
         help="Path to checkpoint .eqx file",
     )
     eval_parser.add_argument(
-        "--periods", "-n",
+        "--periods",
+        "-n",
         type=int,
         default=10_000,
         help="Simulation length (default: 10,000)",
@@ -314,7 +325,8 @@ def main():
         help="Label for output (default: checkpoint dir name)",
     )
     eval_parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default=None,
         help="Output directory for CSV results",
@@ -324,8 +336,15 @@ def main():
     subparsers.add_parser("check", help="Check installation")
 
     # Init-config command
-    init_parser = subparsers.add_parser("init-config", help="Generate default config file")
-    init_parser.add_argument("output", nargs="?", default="train.yaml", help="Output path (default: train.yaml)")
+    init_parser = subparsers.add_parser(
+        "init-config", help="Generate default config file"
+    )
+    init_parser.add_argument(
+        "output",
+        nargs="?",
+        default="train.yaml",
+        help="Output path (default: train.yaml)",
+    )
 
     args = parser.parse_args()
 
@@ -355,14 +374,17 @@ def run_train(args):
     # Set precision before importing JAX — check both CLI flag and config file
     if args.fp64:
         import jax
+
         jax.config.update("jax_enable_x64", True)
     elif hasattr(args, "config") and args.config:
         # Check if YAML config has fp64: true (before full config load)
         import yaml
+
         with open(args.config) as _f:
             _raw = yaml.safe_load(_f) or {}
         if _raw.get("fp64", False):
             import jax
+
             jax.config.update("jax_enable_x64", True)
 
     from deqn_jax.config import load_config
@@ -373,7 +395,10 @@ def run_train(args):
     if args.overrides:
         for item in args.overrides:
             if "=" not in item:
-                print(f"Error: --set values must be KEY=VAL, got '{item}'", file=sys.stderr)
+                print(
+                    f"Error: --set values must be KEY=VAL, got '{item}'",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
             key, val = item.split("=", 1)
             overrides[key] = val
@@ -385,7 +410,9 @@ def run_train(args):
     if args.episodes is not None:
         cli_kwargs["episodes"] = args.episodes
     if args.hidden is not None:
-        cli_kwargs["network.hidden_sizes"] = tuple(int(x) for x in args.hidden.split(","))
+        cli_kwargs["network.hidden_sizes"] = tuple(
+            int(x) for x in args.hidden.split(",")
+        )
     if args.lr is not None:
         cli_kwargs["optimizer.learning_rate"] = args.lr
     if args.batch_size is not None:
@@ -453,7 +480,12 @@ def run_train(args):
         )
 
     # Validate model is set
-    if config.model is None or config.model == "brock_mirman" and args.model is None and args.config is None:
+    if (
+        config.model is None
+        or config.model == "brock_mirman"
+        and args.model is None
+        and args.config is None
+    ):
         pass  # default is fine
 
     train_from_config(config)
@@ -464,6 +496,7 @@ def _enable_fp64_from_config(args):
     from pathlib import Path
 
     import yaml
+
     config_path = getattr(args, "config", None)
     if config_path is None:
         ckpt_dir = Path(args.checkpoint).parent
@@ -473,6 +506,7 @@ def _enable_fp64_from_config(args):
             cfg = yaml.safe_load(f)
         if cfg.get("fp64", False):
             import jax
+
             jax.config.update("jax_enable_x64", True)
 
 
@@ -480,6 +514,7 @@ def run_irf_command(args):
     """Run impulse response functions."""
     _enable_fp64_from_config(args)
     from deqn_jax.irf import run_irf_cli
+
     run_irf_cli(args)
 
 
@@ -487,6 +522,7 @@ def run_evaluate_command(args):
     """Run model evaluation suite."""
     _enable_fp64_from_config(args)
     from deqn_jax.evaluate import run_evaluate_cli
+
     run_evaluate_cli(args)
 
 
@@ -520,21 +556,25 @@ def run_info(args):
     print("=" * w)
 
     print(f"\nStates ({model.n_states}):")
-    for name in (model.state_names or []):
+    for name in model.state_names or []:
         print(f"  {name}")
 
     print(f"\nPolicies ({model.n_policies}):")
-    if model.state_names and model.policy_lower is not None and model.policy_upper is not None:
+    if (
+        model.state_names
+        and model.policy_lower is not None
+        and model.policy_upper is not None
+    ):
         for i, name in enumerate(model.policy_names or []):
             lo = float(model.policy_lower[i])
             hi = float(model.policy_upper[i])
             print(f"  {name:20s} [{lo:.4g}, {hi:.4g}]")
     else:
-        for name in (model.policy_names or []):
+        for name in model.policy_names or []:
             print(f"  {name}")
 
     print(f"\nEquations ({len(model.equation_names or ())}):")
-    for name in (model.equation_names or []):
+    for name in model.equation_names or []:
         print(f"  {name}")
 
     print(f"\nShocks: {model.n_shocks}")
@@ -558,16 +598,20 @@ def run_check():
     print(f"Ops:     OK (sum={float(jax.numpy.sum(x))})")
 
     import equinox
+
     print(f"Equinox: {equinox.__version__}")
 
     import optax
+
     print(f"Optax:   {optax.__version__}")
 
     from deqn_jax.models import list_models
+
     names = [n for n, _ in list_models()]
     print(f"Models:  {names}")
 
     from deqn_jax.optimizers import list_optimizers
+
     print(f"Optims:  {list_optimizers()}")
 
     print("\nAll checks passed!")

@@ -46,7 +46,12 @@ def simulate_step(
         Tuple of (next_state, shock_used)
     """
     return simulation_step(
-        model, policy_fn, state, key, shock_scale=shock_scale, shock_mask=shock_mask,
+        model,
+        policy_fn,
+        state,
+        key,
+        shock_scale=shock_scale,
+        shock_mask=shock_mask,
     )
 
 
@@ -87,8 +92,12 @@ def run_episode(
         key, step_key = jax.random.split(key)
 
         next_state, _ = simulate_step(
-            model, policy_fn, state, step_key,
-            shock_scale=shock_scale, shock_mask=shock_mask,
+            model,
+            policy_fn,
+            state,
+            step_key,
+            shock_scale=shock_scale,
+            shock_mask=shock_mask,
         )
 
         new_carry = EpisodeState(state=next_state, key=key)
@@ -199,8 +208,12 @@ def run_episode_with_history(
             return policy_fn(history)
 
         next_state, _ = simulate_step(
-            model, _history_policy_fn, state, step_key,
-            shock_scale=shock_scale, shock_mask=shock_mask,
+            model,
+            _history_policy_fn,
+            state,
+            step_key,
+            shock_scale=shock_scale,
+            shock_mask=shock_mask,
         )
 
         # Shift history

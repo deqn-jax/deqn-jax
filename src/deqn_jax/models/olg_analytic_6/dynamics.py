@@ -49,5 +49,6 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     eta_next = eta_mid + eta_half * eps_eta
     delta_next = delta_mid + delta_half * eps_delta
 
-    return jnp.stack([k2_next, k3_next, k4_next, k5_next, k6_next,
-                      eta_next, delta_next], axis=1)
+    return jnp.stack(
+        [k2_next, k3_next, k4_next, k5_next, k6_next, eta_next, delta_next], axis=1
+    )

@@ -49,12 +49,12 @@ def period_return(
     psi = constants["psi"]
     theta = constants["theta"]
 
-    L = policy[1]                                  # labor is policy dim 1
+    L = policy[1]  # labor is policy dim 1
     Z = jnp.exp(z[0])
 
     y = Z * jnp.power(L, 1.0 - alpha) * jnp.power(k, alpha)
     invest = k_next - (1.0 - delta) * k
-    c = jnp.maximum(y - invest, 1e-6)              # small floor for stability
+    c = jnp.maximum(y - invest, 1e-6)  # small floor for stability
 
     if gamma == 1.0:
         u_c = jnp.log(c)

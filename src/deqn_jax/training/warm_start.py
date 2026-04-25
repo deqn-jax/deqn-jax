@@ -104,7 +104,7 @@ def _adam_minimize(
     for i in range(n_steps):
         params, opt_state, loss = step(params, opt_state)
         if verbose and (i + 1) % 500 == 0:
-            print(f"    Adam step {i+1}/{n_steps}: loss={float(loss):.2e}")
+            print(f"    Adam step {i + 1}/{n_steps}: loss={float(loss):.2e}")
 
     return params
 
@@ -142,7 +142,12 @@ def _lbfgs_minimize(
     def step(x, opt_state):
         val, g = jax.value_and_grad(flat_loss)(x)
         updates, new_opt_state = opt.update(
-            g, opt_state, x, value=val, grad=g, value_fn=flat_loss,
+            g,
+            opt_state,
+            x,
+            value=val,
+            grad=g,
+            value_fn=flat_loss,
         )
         new_x = optax.apply_updates(x, updates)
         return new_x, new_opt_state, val
@@ -242,7 +247,10 @@ def warm_start_network(
 
     # Run L-BFGS optimization
     final_params, n_iters, final_loss = _lbfgs_minimize(
-        loss_fn, policy_net, max_iter=max_iter, tol=tol,
+        loss_fn,
+        policy_net,
+        max_iter=max_iter,
+        tol=tol,
     )
 
     if verbose:
@@ -327,19 +335,18 @@ def warm_start_from_dynare(
     # Dynare ghx columns: R(-1), w_tilda(-1), L(-1), k(-1), eps(-1),
     #   mu_ups(-1), g(-1), c(-1), i_var(-1), pi(-1), q(-1), mu_z(-1)
     state_col_map = {
-        "pi_lag": "pi(-1)", "k_lag": "k(-1)", "c_lag": "c(-1)",
-        "q_lag": "q(-1)", "i_lag": "i_var(-1)", "R_lag": "R(-1)",
-        "w_tilda_lag": "w_tilda(-1)", "L_lag": "L(-1)",
-        "eps": "eps(-1)", "mu_ups": "mu_ups(-1)",
-        "g": "g(-1)", "mu_z": "mu_z(-1)",
-    }
-
-    # Shock persistence parameters (for exogenous state adjustment)
-    rho_map = {
-        "eps": constants["rho_eps"],       # 0.809
-        "mu_ups": constants["rho_mu_ups"], # 0.987
-        "g": constants["rho_g"],           # 0.94
-        "mu_z": constants["rho_mu_z"],     # 0.146
+        "pi_lag": "pi(-1)",
+        "k_lag": "k(-1)",
+        "c_lag": "c(-1)",
+        "q_lag": "q(-1)",
+        "i_lag": "i_var(-1)",
+        "R_lag": "R(-1)",
+        "w_tilda_lag": "w_tilda(-1)",
+        "L_lag": "L(-1)",
+        "eps": "eps(-1)",
+        "mu_ups": "mu_ups(-1)",
+        "g": "g(-1)",
+        "mu_z": "mu_z(-1)",
     }
 
     n_policies = model.n_policies
@@ -402,7 +409,10 @@ def warm_start_from_dynare(
 
     # --- Step 0: Set output bias to SS (prevents bound-collapse) ---
     policy_net = _init_output_bias_to_ss(
-        policy_net, ss_policy, model.policy_lower, model.policy_upper,
+        policy_net,
+        ss_policy,
+        model.policy_lower,
+        model.policy_upper,
     )
     if verbose:
         test_out = policy_net(ss_state)
@@ -412,7 +422,9 @@ def warm_start_from_dynare(
     # --- Generate sample states ---
     # +/-10% range — wider causes linear policy to hit bounds
     key, sample_key = jax.random.split(key)
-    noise = jax.random.uniform(sample_key, (n_points, n_states), minval=-0.1, maxval=0.1)
+    noise = jax.random.uniform(
+        sample_key, (n_points, n_states), minval=-0.1, maxval=0.1
+    )
     states = ss_state * (1 + noise)
 
     # --- Compute targets ---
@@ -424,8 +436,11 @@ def warm_start_from_dynare(
         return jnp.mean((pred - targets) ** 2)
 
     policy_net = _adam_minimize(
-        loss_fn, policy_net,
-        n_steps=max_iter, lr=3e-3, verbose=verbose,
+        loss_fn,
+        policy_net,
+        n_steps=max_iter,
+        lr=3e-3,
+        verbose=verbose,
     )
 
     final_loss = float(loss_fn(policy_net))
@@ -466,7 +481,10 @@ def warm_start_to_function(
         return jnp.mean((pred - targets) ** 2)
 
     final_params, n_iters, final_loss = _lbfgs_minimize(
-        loss_fn, policy_net, max_iter=max_iter, tol=tol,
+        loss_fn,
+        policy_net,
+        max_iter=max_iter,
+        tol=tol,
     )
 
     if verbose:

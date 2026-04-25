@@ -52,6 +52,7 @@ def _setup(model: ModelSpec, config) -> ModelSpec:
     use_risky = getattr(config, "use_risky_steady_state", True)
     if use_risky:
         from deqn_jax.models.disaster.steady_state import risky_steady_state
+
         if getattr(config, "verbose", False):
             print(f"  Anchor: risky steady state (p_disaster={p:.4f})")
         return model._replace(steady_state_fn=risky_steady_state)
@@ -79,7 +80,7 @@ MODEL = ModelSpec(
     definitions_fn=definitions,
     policy_lower=POLICY_LOWER,
     policy_upper=POLICY_UPPER,  # None → softplus bounding (no gradient death)
-    clip_state_fn=clip_state,          # Hard clip for eval/irf only
+    clip_state_fn=clip_state,  # Hard clip for eval/irf only
     state_barrier_fn=compute_state_barrier,  # Box penalty for loss
     # Order MUST match dynamics.step()'s shock[:, i] unpacking order.
     shock_names=("eps", "mu_ups", "mu_z", "g", "m_p"),

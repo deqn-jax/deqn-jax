@@ -43,13 +43,13 @@ def _eq4_diagnostics(
     zero_shock = jnp.zeros((batch_size, model.n_shocks))
     next_states = model.step_fn(states, policy_out, zero_shock, c)
     next_policies = jax.vmap(policy_fn)(next_states)
-    defs_n = jax.vmap(
-        lambda s, p: model.definitions_fn(s, p, c)
-    )(next_states, next_policies)
+    defs_n = jax.vmap(lambda s, p: model.definitions_fn(s, p, c))(
+        next_states, next_policies
+    )
 
     ratio_base = defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]
     exponent = c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
-    eq4_ratio = ratio_base ** exponent
+    eq4_ratio = ratio_base**exponent
 
     sigma_L = c["sigma_L"]
     h_idx = list(model.policy_names).index("h") if "h" in model.policy_names else None
@@ -66,7 +66,9 @@ def _eq4_diagnostics(
 
     xi_w = c["xi_w"]
     lambda_w = c["lambda_w"]
-    K_w_inner_ratio = (defs["pi_w_tilda"] / defs["pi_w"] * c["mu_z_ss"]) ** (1 / (1 - lambda_w))
+    K_w_inner_ratio = (defs["pi_w_tilda"] / defs["pi_w"] * c["mu_z_ss"]) ** (
+        1 / (1 - lambda_w)
+    )
     K_w_inner = (1 - xi_w * K_w_inner_ratio) / (1 - xi_w)
     floor_frac = float(np.mean(np.asarray(K_w_inner) < 0.02))
 
@@ -106,14 +108,14 @@ def _eq2_diagnostics(
     zero_shock = jnp.zeros((batch_size, model.n_shocks))
     next_states = model.step_fn(states, policy_out, zero_shock, c)
     next_policies = jax.vmap(policy_fn)(next_states)
-    defs_n = jax.vmap(
-        lambda s, p: model.definitions_fn(s, p, c)
-    )(next_states, next_policies)
+    defs_n = jax.vmap(lambda s, p: model.definitions_fn(s, p, c))(
+        next_states, next_policies
+    )
 
     pi_idx = list(model.policy_names).index("pi")
     ratio_base = defs_n["pi_tilda"] / next_policies[:, pi_idx]
     exponent = c["lambda_f"] / (1 - c["lambda_f"])
-    eq2_ratio = ratio_base ** exponent
+    eq2_ratio = ratio_base**exponent
 
     lambda_z_idx = list(model.policy_names).index("lambda_z")
     lambda_z = policy_out[:, lambda_z_idx]
@@ -165,11 +167,15 @@ def scalar_diagnostics(
     out: Dict[str, float] = {}
 
     if "K_p" in defs and "pi_tilda" in defs and "s" in defs:
-        for k, v in _eq2_diagnostics(model, policy_fn, states, policy_out, defs).items():
+        for k, v in _eq2_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
             out[f"eq2_diag/{k}"] = v
 
     if "K_w" in defs and "pi_w_tilda" in defs and "pi_w" in defs:
-        for k, v in _eq4_diagnostics(model, policy_fn, states, policy_out, defs).items():
+        for k, v in _eq4_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
             out[f"eq4_diag/{k}"] = v
 
     return out

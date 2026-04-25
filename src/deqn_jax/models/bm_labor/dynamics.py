@@ -12,8 +12,8 @@ from deqn_jax.models.bm_labor.variables import SPEC
 def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     """Next state.
 
-        k' = (1 - delta) k + s * Y
-        z' = rho_z * z + sigma_z * eps
+    k' = (1 - delta) k + s * Y
+    z' = rho_z * z + sigma_z * eps
     """
     s = SPEC.unpack_state(state)
     defs = definitions(state, policy, constants)

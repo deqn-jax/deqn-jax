@@ -33,6 +33,7 @@ from deqn_jax.types import ModelSpec
 # Shock sampling: Monte Carlo
 # ---------------------------------------------------------------------------
 
+
 def sample_antithetic_shocks(
     key: Array,
     n_samples: int,
@@ -77,6 +78,7 @@ def sample_antithetic_shocks(
 # Shock sampling: Gauss-Hermite quadrature
 # ---------------------------------------------------------------------------
 
+
 @lru_cache(maxsize=16)
 def _hermgauss_1d(n_points: int):
     """Cached 1D Gauss-Hermite nodes/weights for exp(-x²)."""
@@ -105,7 +107,7 @@ def gauss_hermite_nd(
     if dim <= 0 or n_points <= 0:
         return None
 
-    n_nodes = n_points ** dim
+    n_nodes = n_points**dim
     if n_nodes > max_points:
         return None
 
@@ -129,6 +131,7 @@ def gauss_hermite_nd(
 # ---------------------------------------------------------------------------
 # Residual computation
 # ---------------------------------------------------------------------------
+
 
 def compute_residuals(
     model: ModelSpec,
@@ -182,7 +185,11 @@ def compute_residuals(
             states_local = train_batch[:, -1, :]
             policy_local = policy_fn(train_batch)
             next_state_local = model.step_fn(
-                states_local, policy_local, shock, model.constants, **step_kwargs,
+                states_local,
+                policy_local,
+                shock,
+                model.constants,
+                **step_kwargs,
             )
             next_batch_local = jnp.concatenate(
                 [train_batch[:, 1:, :], next_state_local[:, None, :]], axis=1
@@ -192,13 +199,20 @@ def compute_residuals(
             states_local = train_batch
             policy_local = policy_fn(states_local)
             next_state_local = model.step_fn(
-                states_local, policy_local, shock, model.constants, **step_kwargs,
+                states_local,
+                policy_local,
+                shock,
+                model.constants,
+                **step_kwargs,
             )
             next_policy_local = next_fn(next_state_local)
         if target_policy_fn is not None:
             next_policy_local = jax.lax.stop_gradient(next_policy_local)
         return model.equations_fn(
-            states_local, policy_local, next_state_local, next_policy_local,
+            states_local,
+            policy_local,
+            next_state_local,
+            next_policy_local,
             model.constants,
         )
 
@@ -208,13 +222,16 @@ def compute_residuals(
 
     r_normal = _branch(jnp.array(0.0))
     r_disaster = _branch(jnp.array(1.0))
-    return {k: (1.0 - p_disaster) * r_normal[k] + p_disaster * r_disaster[k]
-            for k in r_normal}
+    return {
+        k: (1.0 - p_disaster) * r_normal[k] + p_disaster * r_disaster[k]
+        for k in r_normal
+    }
 
 
 # ---------------------------------------------------------------------------
 # Loss computation (unified MC + quadrature)
 # ---------------------------------------------------------------------------
+
 
 def huber(x: Array, delta: float) -> Array:
     """Huber function: quadratic near 0, linear beyond |x| = delta.
@@ -230,7 +247,7 @@ def huber(x: Array, delta: float) -> Array:
     abs_x = jnp.abs(x)
     return jnp.where(
         abs_x <= delta,
-        0.5 * x ** 2,
+        0.5 * x**2,
         delta * (abs_x - 0.5 * delta),
     )
 
@@ -283,22 +300,30 @@ def compute_loss(
     if use_quadrature:
         n_nodes = quad_nodes.shape[0]
         # Broadcast nodes to [n_nodes, batch_size, shock_dim] and apply curriculum
-        shocks = jnp.broadcast_to(
-            quad_nodes[:, None, :],
-            (n_nodes, batch_size, model.n_shocks),
-        ) * shock_scale
+        shocks = (
+            jnp.broadcast_to(
+                quad_nodes[:, None, :],
+                (n_nodes, batch_size, model.n_shocks),
+            )
+            * shock_scale
+        )
         sample_weights = quad_weights  # [n_nodes]
     else:
         shocks = sample_antithetic_shocks(
-            key, mc_samples, batch_size, model.n_shocks, shock_scale,
+            key,
+            mc_samples,
+            batch_size,
+            model.n_shocks,
+            shock_scale,
         )
         n_samples = shocks.shape[0]
         sample_weights = jnp.ones(n_samples) / n_samples  # uniform
 
     # Compute residuals for each shock/node
     def compute_sample_residuals(shock):
-        return compute_residuals(model, policy_fn, states, shock,
-                                 target_policy_fn=target_policy_fn)
+        return compute_residuals(
+            model, policy_fn, states, shock, target_policy_fn=target_policy_fn
+        )
 
     # vmap over samples/nodes: Dict[str, [n_samples, batch]]
     all_residuals = jax.vmap(compute_sample_residuals)(shocks)
@@ -310,7 +335,7 @@ def compute_loss(
     for i, (eq_name, residuals) in enumerate(all_residuals.items()):
         # residuals: [n_samples, batch]
         # Weighted mean over samples: E[r] for each batch element
-        mean_residual = jnp.einsum('s,sb->b', sample_weights, residuals)  # [batch]
+        mean_residual = jnp.einsum("s,sb->b", sample_weights, residuals)  # [batch]
         # Aggregate per-state mean residual over batch. Huber is safe HERE
         # (after the shock expectation) because it only reshapes the
         # batch-level contribution. Applying it per-shock would break the
@@ -320,7 +345,7 @@ def compute_loss(
         if loss_choice == "huber":
             eq_loss = jnp.mean(huber(mean_residual, huber_delta))
         else:
-            eq_loss = jnp.mean(mean_residual ** 2)
+            eq_loss = jnp.mean(mean_residual**2)
         eq_losses[eq_name] = eq_loss
         w = 1.0 if weights is None else weights[i]
         total_loss = total_loss + w * eq_loss
@@ -361,7 +386,9 @@ def compute_loss(
         defs_dict = None
         if model.definition_bounds and model.definitions_fn is not None:
             policy_out = policy_fn(states)
-            defs_dict = model.definitions_fn(current_states, policy_out, model.constants)
+            defs_dict = model.definitions_fn(
+                current_states, policy_out, model.constants
+            )
 
         if model.state_bounds:
             state_vals = {
@@ -406,18 +433,19 @@ def _compute_bound_penalty(
             lo = float(spec["lower"])
             p_lo = float(spec.get("penalty_lower", 1.0 / (lo * lo + 1e-30)))
             violation = jnp.maximum(0.0, lo - v)
-            penalty = penalty + p_lo * jnp.mean(violation ** 2)
+            penalty = penalty + p_lo * jnp.mean(violation**2)
         if "upper" in spec:
             hi = float(spec["upper"])
             p_hi = float(spec.get("penalty_upper", 1.0 / (hi * hi + 1e-30)))
             violation = jnp.maximum(0.0, v - hi)
-            penalty = penalty + p_hi * jnp.mean(violation ** 2)
+            penalty = penalty + p_hi * jnp.mean(violation**2)
     return penalty
 
 
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def eq_losses_to_array(eq_losses: Dict[str, Array]) -> Array:
     """Convert per-equation loss dict to stacked array [n_eq].
@@ -450,6 +478,7 @@ def make_loss_fn(
     Returns a function (params, states, key) -> (loss, eq_losses)
     suitable for use with jax.value_and_grad.
     """
+
     def loss_fn(params, states: Array, key: Array):
         return compute_loss(model, params, states, key, mc_samples)
 

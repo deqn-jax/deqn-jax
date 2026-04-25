@@ -141,17 +141,19 @@ import jax
 
 _DISTRIBUTION_SAMPLERS: Dict[str, callable] = {
     # sampler(key, shape, **kwargs) -> Array
-    "uniform":  lambda key, shape, minval=0.0, maxval=1.0:
-        jax.random.uniform(key, shape, minval=minval, maxval=maxval),
-    "normal":   lambda key, shape, mean=0.0, std=1.0, stddev=None:
-        mean + (std if stddev is None else stddev) * jax.random.normal(key, shape),
-    "lognormal": lambda key, shape, mean=0.0, std=1.0:
-        jnp.exp(mean + std * jax.random.normal(key, shape)),
-    "truncated_normal":
-        lambda key, shape, lower=-2.0, upper=2.0, mean=0.0, std=1.0:
-        mean + std * jax.random.truncated_normal(key, lower, upper, shape),
-    "constant": lambda key, shape, value=0.0:
-        jnp.full(shape, float(value)),
+    "uniform": lambda key, shape, minval=0.0, maxval=1.0: jax.random.uniform(
+        key, shape, minval=minval, maxval=maxval
+    ),
+    "normal": lambda key, shape, mean=0.0, std=1.0, stddev=None: (
+        mean + (std if stddev is None else stddev) * jax.random.normal(key, shape)
+    ),
+    "lognormal": lambda key, shape, mean=0.0, std=1.0: jnp.exp(
+        mean + std * jax.random.normal(key, shape)
+    ),
+    "truncated_normal": lambda key, shape, lower=-2.0, upper=2.0, mean=0.0, std=1.0: (
+        mean + std * jax.random.truncated_normal(key, lower, upper, shape)
+    ),
+    "constant": lambda key, shape, value=0.0: jnp.full(shape, float(value)),
 }
 
 

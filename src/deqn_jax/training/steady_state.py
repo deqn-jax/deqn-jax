@@ -78,7 +78,7 @@ def solve_steady_state(
         # Sum of squared residuals
         total = 0.0
         for name, r in residuals.items():
-            total = total + jnp.sum(r ** 2)
+            total = total + jnp.sum(r**2)
         return total
 
     # L-BFGS via optax
@@ -89,7 +89,12 @@ def solve_steady_state(
     def step(x, opt_state):
         val, g = jax.value_and_grad(residual_fn)(x)
         updates, new_opt_state = opt.update(
-            g, opt_state, x, value=val, grad=g, value_fn=residual_fn,
+            g,
+            opt_state,
+            x,
+            value=val,
+            grad=g,
+            value_fn=residual_fn,
         )
         new_x = optax.apply_updates(x, updates)
         return new_x, new_opt_state, val

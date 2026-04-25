@@ -65,7 +65,7 @@ def _solve_lambda_ss(constants: Dict) -> float:
         # agg_c is strictly decreasing in lambda (marginal utility falls
         # as lambda rises), so the update is stable.
         ratio = cur / target
-        lam_new = lam * (ratio ** 0.5)          # damped scaling
+        lam_new = lam * (ratio**0.5)  # damped scaling
         if abs(lam_new - lam) < 1e-14:
             lam = lam_new
             break
@@ -81,8 +81,8 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
     """
     lam_ss = _solve_lambda_ss(constants)
 
-    ss_state = jnp.array([1.0, 1.0, 0.0, 0.0])                 # k_0, k_1, z_0, z_1
-    ss_policy = jnp.array([1.0, 1.0, lam_ss, 0.0, 0.0])        # k_0', k_1', lam, mu_0, mu_1
+    ss_state = jnp.array([1.0, 1.0, 0.0, 0.0])  # k_0, k_1, z_0, z_1
+    ss_policy = jnp.array([1.0, 1.0, lam_ss, 0.0, 0.0])  # k_0', k_1', lam, mu_0, mu_1
     return ss_state, ss_policy
 
 

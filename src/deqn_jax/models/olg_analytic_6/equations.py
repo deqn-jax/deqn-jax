@@ -25,7 +25,7 @@ from jax import Array
 
 from deqn_jax.models.olg_analytic_6.variables import SPEC, A
 
-EQUATION_NAMES = tuple(f"euler_h{h+1}" for h in range(A - 1))
+EQUATION_NAMES = tuple(f"euler_h{h + 1}" for h in range(A - 1))
 
 
 def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array]:
@@ -42,7 +42,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
 
     eta = s.eta
     delta = s.delta
-    zero = jnp.zeros_like(s.k2)     # same shape as leaf fields
+    zero = jnp.zeros_like(s.k2)  # same shape as leaf fields
 
     # Per-agent arrays, stacked on the LAST axis. axis=-1 works for
     # both 0-D fields (gives shape [A]) and 1-D fields (gives [batch, A]).
@@ -51,7 +51,9 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     K = jnp.sum(k, axis=-1)
     L = jnp.full_like(K, labor_1)
 
-    r = alpha * eta * jnp.power(K, alpha - 1.0) * jnp.power(L, 1.0 - alpha) + (1.0 - delta)
+    r = alpha * eta * jnp.power(K, alpha - 1.0) * jnp.power(L, 1.0 - alpha) + (
+        1.0 - delta
+    )
     w = (1.0 - alpha) * eta * jnp.power(K, alpha) * jnp.power(L, -alpha)
     Y = eta * jnp.power(K, alpha) * jnp.power(L, 1.0 - alpha) + (1.0 - delta) * K
 
@@ -78,9 +80,9 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # the state directly where needed; k^1 is always 0 (newborn).
     defs = {"K": K, "L": L, "r": r, "w": w, "Y": Y}
     for h in range(A):
-        defs[f"inc{h+1}"] = inc[..., h]
-        defs[f"c{h+1}"] = c[..., h]
-        defs[f"u_c{h+1}"] = u_c[..., h]
+        defs[f"inc{h + 1}"] = inc[..., h]
+        defs[f"c{h + 1}"] = c[..., h]
+        defs[f"u_c{h + 1}"] = u_c[..., h]
 
     return defs
 
@@ -114,8 +116,8 @@ def equations(
 
     residuals = {}
     for h in range(A - 1):
-        u_c_now = defs[f"u_c{h+1}"]
-        u_c_next = next_defs[f"u_c{h+2}"]
-        residuals[f"euler_h{h+1}"] = 1.0 - beta * r_next * u_c_next / u_c_now
+        u_c_now = defs[f"u_c{h + 1}"]
+        u_c_next = next_defs[f"u_c{h + 2}"]
+        residuals[f"euler_h{h + 1}"] = 1.0 - beta * r_next * u_c_next / u_c_now
 
     return residuals

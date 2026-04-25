@@ -180,10 +180,10 @@ class ReweightState(NamedTuple):
         initialized: Whether init_losses has been set
     """
 
-    running_max: Array   # [n_eq]
-    prev_losses: Array   # [n_eq]
-    init_losses: Array   # [n_eq]
-    initialized: Array   # scalar bool
+    running_max: Array  # [n_eq]
+    prev_losses: Array  # [n_eq]
+    init_losses: Array  # [n_eq]
+    initialized: Array  # scalar bool
 
 
 def make_reweight_state(n_equations: int) -> "ReweightState":
@@ -235,9 +235,9 @@ class TrainState(NamedTuple):
     loss_weights: Array  # [n_eq] per-equation weights
     reweight_state: ReweightState  # adaptive reweighting state
     target_params: Any = None  # Frozen policy for target network (DQN-style)
-    aux_params: Any = None      # Auxiliary trainable module (value net, critic, ...)
-    aux_opt_state: Any = None   # Optimizer state for aux_params if separate
-    history_state: Any = None   # [batch, H, n_states] for sequence policies, else None
+    aux_params: Any = None  # Auxiliary trainable module (value net, critic, ...)
+    aux_opt_state: Any = None  # Optimizer state for aux_params if separate
+    history_state: Any = None  # [batch, H, n_states] for sequence policies, else None
 
 
 class EpisodeState(NamedTuple):

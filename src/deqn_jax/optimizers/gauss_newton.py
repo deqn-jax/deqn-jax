@@ -111,7 +111,7 @@ class GaussNewton:
 
         # Compute new loss (from updated params, not old residuals)
         new_r = flat_residual_fn(new_flat_params)
-        new_loss = jnp.sum(new_r ** 2)
+        new_loss = jnp.sum(new_r**2)
 
         new_state = GaussNewtonState(
             count=state.count + 1,
@@ -160,7 +160,9 @@ class LevenbergMarquardt:
         self.max_damping = max_damping
 
     def init(self, params) -> GaussNewtonState:
-        return GaussNewtonState(count=0, damping=self.initial_damping, last_loss=jnp.inf)
+        return GaussNewtonState(
+            count=0, damping=self.initial_damping, last_loss=jnp.inf
+        )
 
     def update(
         self,
@@ -181,7 +183,7 @@ class LevenbergMarquardt:
         # Compute residuals and Jacobian
         r = flat_residual_fn(flat_params)
         n_residuals = r.shape[0]
-        current_loss = jnp.sum(r ** 2)
+        current_loss = jnp.sum(r**2)
 
         if n_residuals <= n_params:
             J = jax.jacrev(flat_residual_fn)(flat_params)
@@ -204,7 +206,7 @@ class LevenbergMarquardt:
         step_size = self.learning_rate * lr_scale
         new_flat_params = flat_params + step_size * delta
         new_r = flat_residual_fn(new_flat_params)
-        new_loss = jnp.sum(new_r ** 2)
+        new_loss = jnp.sum(new_r**2)
 
         # Gain ratio for damping adaptation
         Jdelta = J @ delta
@@ -227,7 +229,9 @@ class LevenbergMarquardt:
         accept = actual > 0.0
         final_params = jnp.where(accept, new_flat_params, flat_params)
         final_loss = jnp.where(accept, new_loss, current_loss)
-        reject_damping = jnp.minimum(self.max_damping, state.damping * self.damping_increase)
+        reject_damping = jnp.minimum(
+            self.max_damping, state.damping * self.damping_increase
+        )
         final_damping = jnp.where(accept, new_damping, reject_damping)
 
         new_state = GaussNewtonState(
@@ -261,8 +265,12 @@ def levenberg_marquardt(
         LevenbergMarquardt optimizer instance
     """
     return LevenbergMarquardt(
-        learning_rate, initial_damping, damping_increase,
-        damping_decrease, min_damping, max_damping
+        learning_rate,
+        initial_damping,
+        damping_increase,
+        damping_decrease,
+        min_damping,
+        max_damping,
     )
 
 
@@ -307,32 +315,47 @@ def make_grad_step_gn(
         def residual_fn(params):
             if use_quadrature:
                 n_nodes = quad_nodes.shape[0]
-                shocks = jnp.broadcast_to(
-                    quad_nodes[:, None, :],
-                    (n_nodes, batch_size, model.n_shocks),
-                ) * shock_scale
+                shocks = (
+                    jnp.broadcast_to(
+                        quad_nodes[:, None, :],
+                        (n_nodes, batch_size, model.n_shocks),
+                    )
+                    * shock_scale
+                )
                 sample_weights = quad_weights
             else:
                 shocks = sample_antithetic_shocks(
-                    loss_key, mc_samples, batch_size, model.n_shocks, shock_scale,
+                    loss_key,
+                    mc_samples,
+                    batch_size,
+                    model.n_shocks,
+                    shock_scale,
                 )
                 n_samples = shocks.shape[0]
                 sample_weights = jnp.ones(n_samples) / n_samples
 
             def sample_residuals(shock):
-                return compute_residuals(model, params, batch, shock,
-                                         target_policy_fn=target_fn)
+                return compute_residuals(
+                    model, params, batch, shock, target_policy_fn=target_fn
+                )
+
             all_residuals = jax.vmap(sample_residuals)(shocks)
             per_eq = []
             for r in all_residuals.values():
-                mean_r = jnp.einsum('s,sb->b', sample_weights, r)
+                mean_r = jnp.einsum("s,sb->b", sample_weights, r)
                 per_eq.append(mean_r)
             return jnp.concatenate(per_eq)
 
         loss, eq_losses = _compute_loss_log(
-            model, state.params, batch, loss_key, mc_samples,
-            weights=state.loss_weights, shock_scale=shock_scale,
-            quad_nodes=quad_nodes, quad_weights=quad_weights,
+            model,
+            state.params,
+            batch,
+            loss_key,
+            mc_samples,
+            weights=state.loss_weights,
+            shock_scale=shock_scale,
+            quad_nodes=quad_nodes,
+            quad_weights=quad_weights,
             target_policy_fn=target_fn,
         )
 
@@ -342,18 +365,30 @@ def make_grad_step_gn(
 
         def scalar_loss(p):
             r = residual_fn(p)
-            return jnp.sum(r ** 2)
-        grad_norm = optax.global_norm(eqx.filter(jax.grad(scalar_loss)(state.params), eqx.is_array))
+            return jnp.sum(r**2)
+
+        grad_norm = optax.global_norm(
+            eqx.filter(jax.grad(scalar_loss)(state.params), eqx.is_array)
+        )
 
         new_weights, new_rw = update_reweighting(
-            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+            eq_losses,
+            state,
+            loss_reweight,
+            reweight_alpha,
+            n_eq,
         )
         new_state = TrainState(
-            params=new_params, opt_state=new_opt_state,
-            episode_state=state.episode_state, key=new_key,
-            step=state.step + 1, episode=state.episode,
-            loss_weights=new_weights, reweight_state=new_rw,
+            params=new_params,
+            opt_state=new_opt_state,
+            episode_state=state.episode_state,
+            key=new_key,
+            step=state.step + 1,
+            episode=state.episode,
+            loss_weights=new_weights,
+            reweight_state=new_rw,
             target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+
     return grad_step

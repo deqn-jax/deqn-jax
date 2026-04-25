@@ -32,10 +32,10 @@ def composite_aux(
     """
     h_prime = defs["newton_h_prime"]
     deficit = jnp.maximum(0.1 - h_prime, 0.0)
-    newton_cond = jnp.mean(deficit ** 2)
+    newton_cond = jnp.mean(deficit**2)
 
     newton_resid = defs["newton_residual"]
-    newton_resid_loss = jnp.mean(newton_resid ** 2)
+    newton_resid_loss = jnp.mean(newton_resid**2)
 
     entries = {
         "aux_newton_cond": newton_cond,

@@ -21,17 +21,23 @@ class TestDisasterSteadyState:
     def setup(self):
         jax.config.update("jax_enable_x64", True)
         from deqn_jax.models.disaster import MODEL, equations, steady_state
+
         self.MODEL = MODEL
         self.equations = equations
         self.ss_state, self.ss_policy = steady_state(MODEL.constants)
 
     def test_steady_state_shapes(self):
-        assert self.ss_state.shape == (13,), f"Expected 13 states, got {self.ss_state.shape}"
-        assert self.ss_policy.shape == (11,), f"Expected 11 policies, got {self.ss_policy.shape}"
+        assert self.ss_state.shape == (13,), (
+            f"Expected 13 states, got {self.ss_state.shape}"
+        )
+        assert self.ss_policy.shape == (11,), (
+            f"Expected 11 policies, got {self.ss_policy.shape}"
+        )
 
     def test_steady_state_positive(self):
         """Key economic variables should be positive at SS."""
         from deqn_jax.models.disaster.variables import SPEC
+
         st = SPEC.unpack_state(self.ss_state)
         # Capital, consumption, investment, net worth proxy
         assert float(st.k_lag) > 0, "Capital should be positive"
@@ -111,8 +117,12 @@ class TestAntitheticVariates:
         from deqn_jax.training.loss import sample_antithetic_shocks
 
         key = jax.random.PRNGKey(0)
-        full = sample_antithetic_shocks(key, n_samples=4, batch_size=2, shock_dim=1, shock_scale=1.0)
-        half = sample_antithetic_shocks(key, n_samples=4, batch_size=2, shock_dim=1, shock_scale=0.5)
+        full = sample_antithetic_shocks(
+            key, n_samples=4, batch_size=2, shock_dim=1, shock_scale=1.0
+        )
+        half = sample_antithetic_shocks(
+            key, n_samples=4, batch_size=2, shock_dim=1, shock_scale=0.5
+        )
 
         assert jnp.allclose(half, full * 0.5)
 
@@ -171,9 +181,7 @@ class TestGaussHermiteQuadrature:
         assert result is not None
         nodes, weights = result
         mean = np.sum(weights * nodes[:, 0])
-        assert np.isclose(mean, 0.0, atol=1e-12), (
-            f"Weighted mean = {mean}, expected 0"
-        )
+        assert np.isclose(mean, 0.0, atol=1e-12), f"Weighted mean = {mean}, expected 0"
 
     def test_second_moment_one(self):
         """Weighted variance should be ≈ 1 (standard normal variance)."""
@@ -258,9 +266,9 @@ class TestGaussNewtonLossTracking:
 
         new_params, new_state = opt.update(residual_fn, params, state)
 
-        old_loss = float(jnp.sum(params ** 2))
+        old_loss = float(jnp.sum(params**2))
         tracked_loss = float(new_state.last_loss)
-        actual_new_loss = float(jnp.sum(new_params ** 2))
+        actual_new_loss = float(jnp.sum(new_params**2))
 
         # Tracked loss should match actual post-update loss
         assert jnp.isclose(tracked_loss, actual_new_loss, rtol=1e-5), (

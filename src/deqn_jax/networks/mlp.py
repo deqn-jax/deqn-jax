@@ -85,7 +85,9 @@ class MLP(eqx.Module):
         """Forward pass for single input [in_features]."""
         # Input normalization (frozen)
         if self.input_shift is not None:
-            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(self.input_scale)
+            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(
+                self.input_scale
+            )
 
         # Forward through hidden layers with per-layer activation
         for i, layer in enumerate(self.layers[:-1]):
@@ -182,14 +184,18 @@ class ResMLP(eqx.Module):
                     self.skip_projs.append(None)  # identity
                 else:
                     self.skip_projs.append(
-                        eqx.nn.Linear(in_size, out_size, use_bias=False, key=skip_keys[i])
+                        eqx.nn.Linear(
+                            in_size, out_size, use_bias=False, key=skip_keys[i]
+                        )
                     )
             else:
                 self.skip_projs.append(None)  # no skip for output layer
 
     def _forward_single(self, x: Array) -> Array:
         if self.input_shift is not None:
-            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(self.input_scale)
+            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(
+                self.input_scale
+            )
 
         for i, layer in enumerate(self.layers[:-1]):
             residual = x
@@ -279,7 +285,9 @@ class MultiHeadMLP(eqx.Module):
 
     def _forward_single(self, x: Array) -> Array:
         if self.input_shift is not None:
-            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(self.input_scale)
+            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(
+                self.input_scale
+            )
 
         for i, layer in enumerate(self.trunk_layers):
             x = self.activations[i](layer(x))

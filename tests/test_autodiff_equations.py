@@ -19,6 +19,7 @@ import pytest
 def models():
     from deqn_jax.models.brock_mirman import MODEL as MODEL_HAND
     from deqn_jax.models.brock_mirman_autodiff import MODEL as MODEL_AD
+
     return MODEL_HAND, MODEL_AD
 
 
@@ -29,7 +30,9 @@ def test_ss_residuals_both_zero(models):
     state = ss_state[None, :]
     policy = ss_policy[None, :]
 
-    resid_hand = MODEL_HAND.equations_fn(state, policy, state, policy, MODEL_HAND.constants)
+    resid_hand = MODEL_HAND.equations_fn(
+        state, policy, state, policy, MODEL_HAND.constants
+    )
     resid_ad = MODEL_AD.equations_fn(state, policy, state, policy, MODEL_AD.constants)
 
     assert abs(float(resid_hand["euler"][0])) < 1e-5
@@ -63,10 +66,14 @@ def test_match_on_random_batch(models):
     next_policy = jax.random.uniform(sn_key, (64, 1), minval=0.1, maxval=0.6)
 
     resid_hand = np.asarray(
-        MODEL_HAND.equations_fn(state, policy, next_state, next_policy, constants)["euler"]
+        MODEL_HAND.equations_fn(state, policy, next_state, next_policy, constants)[
+            "euler"
+        ]
     )
     resid_ad = np.asarray(
-        MODEL_AD.equations_fn(state, policy, next_state, next_policy, constants)["euler"]
+        MODEL_AD.equations_fn(state, policy, next_state, next_policy, constants)[
+            "euler"
+        ]
     )
 
     np.testing.assert_allclose(resid_ad, resid_hand, rtol=1e-4, atol=1e-5)
@@ -84,10 +91,12 @@ def test_autodiff_model_registers_and_loads():
 # bm_labor_autodiff: multi-policy + intratemporal FOC via the extended helper
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def labor_models():
     from deqn_jax.models.bm_labor import MODEL as MODEL_HAND
     from deqn_jax.models.bm_labor_autodiff import MODEL as MODEL_AD
+
     return MODEL_HAND, MODEL_AD
 
 
@@ -99,7 +108,9 @@ def test_bm_labor_ss_residuals_both_zero(labor_models):
     state = ss_state[None, :]
     policy = ss_policy[None, :]
 
-    resid_hand = MODEL_HAND.equations_fn(state, policy, state, policy, MODEL_HAND.constants)
+    resid_hand = MODEL_HAND.equations_fn(
+        state, policy, state, policy, MODEL_HAND.constants
+    )
     resid_ad = MODEL_AD.equations_fn(state, policy, state, policy, MODEL_AD.constants)
 
     for name in ("euler", "labor_foc"):
@@ -130,14 +141,17 @@ def test_bm_labor_autodiff_matches_hand_on_random_batch(labor_models):
     L_n = jax.random.uniform(Ln_key, (64,), minval=0.6, maxval=1.4)
     next_policy = jnp.stack([sav_n, L_n], axis=1)
 
-    resid_hand = MODEL_HAND.equations_fn(state, policy, next_state, next_policy, constants)
+    resid_hand = MODEL_HAND.equations_fn(
+        state, policy, next_state, next_policy, constants
+    )
     resid_ad = MODEL_AD.equations_fn(state, policy, next_state, next_policy, constants)
 
     for name in ("euler", "labor_foc"):
         np.testing.assert_allclose(
             np.asarray(resid_ad[name]),
             np.asarray(resid_hand[name]),
-            rtol=1e-4, atol=1e-5,
+            rtol=1e-4,
+            atol=1e-5,
             err_msg=f"autodiff != hand-derived on {name}",
         )
 

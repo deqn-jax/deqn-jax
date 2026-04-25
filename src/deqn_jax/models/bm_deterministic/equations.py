@@ -28,9 +28,10 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     p = SPEC.unpack_policy(policy)
 
     alpha = constants["alpha"]
-    delta = constants["delta"]
 
-    y = jnp.power(s.k, alpha)               # gross output (delta=1 so no undepreciated stock in the resource constraint)
+    y = jnp.power(
+        s.k, alpha
+    )  # gross output (delta=1 so no undepreciated stock in the resource constraint)
     mpk = alpha * jnp.power(s.k, alpha - 1)
     c = (1.0 - p.sav_rate) * y
     sav = p.sav_rate * y

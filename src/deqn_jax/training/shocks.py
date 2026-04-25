@@ -122,7 +122,11 @@ def simulation_step(
     shock_key, disaster_key = jax.random.split(key)
 
     shock = draw_training_shocks(
-        shock_key, batch_size, model.n_shocks, shock_scale, shock_mask,
+        shock_key,
+        batch_size,
+        model.n_shocks,
+        shock_scale,
+        shock_mask,
     )
     policy = policy_fn(state)
 
@@ -131,6 +135,10 @@ def simulation_step(
         next_state = model.step_fn(state, policy, shock, model.constants)
     else:
         next_state = model.step_fn(
-            state, policy, shock, model.constants, d_disaster=d_disaster,
+            state,
+            policy,
+            shock,
+            model.constants,
+            d_disaster=d_disaster,
         )
     return next_state, shock

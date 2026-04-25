@@ -21,10 +21,17 @@ from jax.scipy.special import erf
 from deqn_jax.models.disaster.variables import SPEC
 
 EQUATION_NAMES = (
-    "eq1_price_phillips_F", "eq2a_Kp_definition", "eq2b_Kp_recursion",
-    "eq3_wage_phillips_F", "eq4a_Kw_definition", "eq4b_Kw_recursion",
-    "eq5_consumption_euler", "eq6_bond_euler",
-    "eq7_investment_euler", "eq8_entrepreneur_contract", "eq9_resource_constraint",
+    "eq1_price_phillips_F",
+    "eq2a_Kp_definition",
+    "eq2b_Kp_recursion",
+    "eq3_wage_phillips_F",
+    "eq4a_Kw_definition",
+    "eq4b_Kw_recursion",
+    "eq5_consumption_euler",
+    "eq6_bond_euler",
+    "eq7_investment_euler",
+    "eq8_entrepreneur_contract",
+    "eq9_resource_constraint",
 )
 
 
@@ -32,38 +39,47 @@ EQUATION_NAMES = (
 def normal_cdf(x: Array) -> Array:
     return 0.5 * (1.0 + erf(x / jnp.sqrt(2.0)))
 
+
 def normal_pdf(x: Array) -> Array:
-    return jnp.exp(-0.5 * x ** 2) / jnp.sqrt(2.0 * jnp.pi)
+    return jnp.exp(-0.5 * x**2) / jnp.sqrt(2.0 * jnp.pi)
+
 
 def F_omega(omega_bar: Array, sigma: float) -> Array:
     """Default probability."""
-    z = (jnp.log(omega_bar) + 0.5 * sigma ** 2) / sigma
+    z = (jnp.log(omega_bar) + 0.5 * sigma**2) / sigma
     return normal_cdf(z)
+
 
 def G_omega(omega_bar: Array, sigma: float) -> Array:
     """Expected value conditional on default."""
-    z = (jnp.log(omega_bar) - 0.5 * sigma ** 2) / sigma
+    z = (jnp.log(omega_bar) - 0.5 * sigma**2) / sigma
     return normal_cdf(z)
 
+
 def G_omega_prime(omega_bar: Array, sigma: float) -> Array:
-    z = (jnp.log(omega_bar) - 0.5 * sigma ** 2) / sigma
+    z = (jnp.log(omega_bar) - 0.5 * sigma**2) / sigma
     return normal_pdf(z) / (sigma * omega_bar)
+
 
 def Gamma(omega_bar: Array, sigma: float) -> Array:
     return omega_bar * (1.0 - F_omega(omega_bar, sigma)) + G_omega(omega_bar, sigma)
 
+
 def Gamma_prime(omega_bar: Array, sigma: float) -> Array:
     return 1.0 - F_omega(omega_bar, sigma)
 
+
 def S_adj(ratio: Array, mu_z_ss: float, kappa: float) -> Array:
     return 0.5 * kappa * (ratio - mu_z_ss) ** 2
+
 
 def S_adj_prime(ratio: Array, mu_z_ss: float, kappa: float) -> Array:
     return kappa * (ratio - mu_z_ss)
 
 
-def solve_omega_bar(target: Array, sigma: float, mu_mon: float,
-                    n_iter: int = 10, init: float = 0.488) -> Array:
+def solve_omega_bar(
+    target: Array, sigma: float, mu_mon: float, n_iter: int = 10, init: float = 0.488
+) -> Array:
     """Solve bank participation constraint for omega_bar via Newton's method.
 
     Eq8 rearranged: h(omega_bar) = target, where
@@ -151,9 +167,16 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Capital and returns (NO dependency on omega_bar)
     k = (1 - c["delta"]) * st.k_lag / st.mu_z + (1 - S_val) * p.i
     # Marginal cost — solved analytically from cost minimization (eliminates eq10)
-    s = (1.0 / st.eps) * (st.mu_z * p.h / st.k_lag) ** c["alpha"] * p.w_tilda / (1 - c["alpha"])
+    s = (
+        (1.0 / st.eps)
+        * (st.mu_z * p.h / st.k_lag) ** c["alpha"]
+        * p.w_tilda
+        / (1 - c["alpha"])
+    )
     r_k = st.eps * c["alpha"] * (st.mu_z * p.h / st.k_lag) ** (1 - c["alpha"]) * s
-    R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * p.q) / st.q_lag * p.pi + c["tau_k"] * c["delta"]
+    R_k = ((1 - c["tau_k"]) * r_k + (1 - c["delta"]) * p.q) / st.q_lag * p.pi + c[
+        "tau_k"
+    ] * c["delta"]
 
     # omega_bar — solved analytically from bank participation constraint (eliminates eq8)
     # h(omega) = target where h(omega) = omega*(1-F) + (1-mu_mon)*G = Gamma - mu_mon*G
@@ -172,13 +195,17 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     newton_residual = jnp.abs(newton_h_val - target)
 
     # Net worth: entrepreneur keeps (1-Gamma) share of gross return on capital
-    n = (c["gamma_e"] / (p.pi * st.mu_z)) * (1.0 - Gamma_val) * R_k * st.q_lag * st.k_lag + c["w_e"]
+    n = (c["gamma_e"] / (p.pi * st.mu_z)) * (
+        1.0 - Gamma_val
+    ) * R_k * st.q_lag * st.k_lag + c["w_e"]
 
     # Leverage — balance sheet identity (eliminates eq12)
     L = p.q * k / (n + 1e-8)
 
     # Output
-    y_z = st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
+    y_z = (
+        st.eps * (st.k_lag / st.mu_z) ** c["alpha"] * p.h ** (1 - c["alpha"]) - c["Phi"]
+    )
 
     y_gdp = st.g + p.c + p.i / st.mu_ups
 
@@ -191,9 +218,13 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # R_lb (configurable, default 1.0) so R stays ≥ R_lb in expectation.
     # Sharpness=500 keeps SS distortion ~1e-7 while still giving a tight
     # floor near R_lb.
-    R_taylor = c["R_ss"] * (st.R_lag / c["R_ss"]) ** c["rho_p"] * (
-        (p.pi / c["pi_ss"]) ** c["alpha_pi"] * (y_gdp / c["y_ss"]) ** c["alpha_y"]
-    ) ** (1 - c["rho_p"]) * jnp.exp(st.m_p)
+    R_taylor = (
+        c["R_ss"]
+        * (st.R_lag / c["R_ss"]) ** c["rho_p"]
+        * ((p.pi / c["pi_ss"]) ** c["alpha_pi"] * (y_gdp / c["y_ss"]) ** c["alpha_y"])
+        ** (1 - c["rho_p"])
+        * jnp.exp(st.m_p)
+    )
     R_lb = c.get("R_lb", 1.0)
     R_lb_sharpness = c.get("R_lb_sharpness", 100.0)
     R = _soft_floor(R_taylor, R_lb, sharpness=R_lb_sharpness)
@@ -202,10 +233,14 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # K_p_inner = (1 - xi*(pi_tilda/pi)^-5) / (1-xi). Passed through
     # _soft_floor because the subtraction can go negative past the
     # Calvo validity edge (pi > ~1.1*pi_tilda).
-    K_p_inner = (1 - c["xi_p"] * (pi_tilda / p.pi) ** (1 / (1 - c["lambda_f"]))) / (1 - c["xi_p"])
+    K_p_inner = (1 - c["xi_p"] * (pi_tilda / p.pi) ** (1 / (1 - c["lambda_f"]))) / (
+        1 - c["xi_p"]
+    )
     K_p_inner = _soft_floor(K_p_inner, 0.01)
 
-    K_w_inner = (1 - c["xi_w"] * (pi_w_tilda / pi_w * c["mu_z_ss"]) ** (1 / (1 - c["lambda_w"]))) / (1 - c["xi_w"])
+    K_w_inner = (
+        1 - c["xi_w"] * (pi_w_tilda / pi_w * c["mu_z_ss"]) ** (1 / (1 - c["lambda_w"]))
+    ) / (1 - c["xi_w"])
     K_w_inner = _soft_floor(K_w_inner, 0.01)
 
     # log-space versions — NOT used by equations (reformulation didn't
@@ -217,30 +252,50 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     log_K_p_inner = _log1mexp(log_z_p) - jnp.log(1.0 - c["xi_p"])
 
     log_r_w = (
-        jnp.log(pi_w_tilda + 1e-12) - jnp.log(pi_w + 1e-12)
-        + jnp.log(c["mu_z_ss"])
+        jnp.log(pi_w_tilda + 1e-12) - jnp.log(pi_w + 1e-12) + jnp.log(c["mu_z_ss"])
     )
     log_z_w = jnp.log(c["xi_w"]) + (1.0 / (1.0 - c["lambda_w"])) * log_r_w
     log_K_w_inner = _log1mexp(log_z_w) - jnp.log(1.0 - c["xi_w"])
 
     return {
-        "pi_tilda": pi_tilda, "pi_w_tilda": pi_w_tilda, "pi_w": pi_w,
-        "S_val": S_val, "S_prime_val": S_prime_val,
+        "pi_tilda": pi_tilda,
+        "pi_w_tilda": pi_w_tilda,
+        "pi_w": pi_w,
+        "S_val": S_val,
+        "S_prime_val": S_prime_val,
         "omega_bar": omega_bar,
-        "F_val": F_val, "G_val": G_val, "Gamma_val": Gamma_val,
-        "newton_h_prime": newton_h_prime, "newton_residual": newton_residual,
-        "s": s, "L": L, "c": p.c,
-        "k": k, "r_k": r_k, "R_k": R_k, "n": n, "y_z": y_z, "y_gdp": y_gdp,
-        "R": R, "R_taylor": R_taylor, "R_zlb_binding": (R - R_taylor),
-        "K_p": p.K_p, "K_w": p.K_w,
-        "K_p_inner": K_p_inner, "K_w_inner": K_w_inner, "i_ratio": i_ratio,
-        "log_K_p_inner": log_K_p_inner, "log_K_w_inner": log_K_w_inner,
+        "F_val": F_val,
+        "G_val": G_val,
+        "Gamma_val": Gamma_val,
+        "newton_h_prime": newton_h_prime,
+        "newton_residual": newton_residual,
+        "s": s,
+        "L": L,
+        "c": p.c,
+        "k": k,
+        "r_k": r_k,
+        "R_k": R_k,
+        "n": n,
+        "y_z": y_z,
+        "y_gdp": y_gdp,
+        "R": R,
+        "R_taylor": R_taylor,
+        "R_zlb_binding": (R - R_taylor),
+        "K_p": p.K_p,
+        "K_w": p.K_w,
+        "K_p_inner": K_p_inner,
+        "K_w_inner": K_w_inner,
+        "i_ratio": i_ratio,
+        "log_K_p_inner": log_K_p_inner,
+        "log_K_w_inner": log_K_w_inner,
     }
 
 
 def equations(
-    state: Array, policy: Array,
-    next_state: Array, next_policy: Array,
+    state: Array,
+    policy: Array,
+    next_state: Array,
+    next_policy: Array,
     constants: Dict,
 ) -> Dict[str, Array]:
     """Compute equilibrium equation residuals."""
@@ -270,7 +325,9 @@ def equations(
     # used here — see commit history for why pure log-space reformulation
     # was attempted and reverted.
     K_p_analytical = p.F_p * defs["K_p_inner"] ** (1 - c["lambda_f"])
-    residuals["eq2a_Kp_definition"] = jnp.log(p.K_p + 1e-8) - jnp.log(K_p_analytical + 1e-8)
+    residuals["eq2a_Kp_definition"] = jnp.log(p.K_p + 1e-8) - jnp.log(
+        K_p_analytical + 1e-8
+    )
 
     # Eq 2b: K_p recursion — ratio form K_p = E[RHS] → RHS/K_p - 1 = 0.
     # Ratio form is LINEAR in next-period terms (after dividing by K_p which
@@ -278,33 +335,58 @@ def equations(
     # across shock samples therefore correctly computes E[RHS]/K_p - 1.
     # The previous log-space form enforced E[log(RHS)] = log(K_p), which
     # by Jensen's inequality is a different (geometric-mean) fixed point.
-    eq2_ratio_next = (defs_n["pi_tilda"] / p_n.pi) ** (c["lambda_f"] / (1 - c["lambda_f"]))
-    eq2_rhs = p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"] + c["beta"] * c["xi_p"] * eq2_ratio_next * p_n.K_p
+    eq2_ratio_next = (defs_n["pi_tilda"] / p_n.pi) ** (
+        c["lambda_f"] / (1 - c["lambda_f"])
+    )
+    eq2_rhs = (
+        p.lambda_z * c["lambda_f"] * defs["y_z"] * defs["s"]
+        + c["beta"] * c["xi_p"] * eq2_ratio_next * p_n.K_p
+    )
     residuals["eq2b_Kp_recursion"] = eq2_rhs / (p.K_p + 1e-8) - 1.0
 
     # Eq 3: Wage Phillips (F_w recursion) — divide by F_w
-    eq3_coef = st_n.mu_z ** (c["iota_mu"] / (1 - c["lambda_w"]) - 1) * c["mu_z_ss"] ** ((1 - c["iota_mu"]) / (1 - c["lambda_w"]))
-    eq3_expect = eq3_coef * defs_n["pi_w_tilda"] ** (1 / (1 - c["lambda_w"])) * \
-                 (1 / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"])) * (1 / p_n.pi) * p_n.F_w
+    eq3_coef = st_n.mu_z ** (c["iota_mu"] / (1 - c["lambda_w"]) - 1) * c["mu_z_ss"] ** (
+        (1 - c["iota_mu"]) / (1 - c["lambda_w"])
+    )
+    eq3_expect = (
+        eq3_coef
+        * defs_n["pi_w_tilda"] ** (1 / (1 - c["lambda_w"]))
+        * (1 / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]))
+        * (1 / p_n.pi)
+        * p_n.F_w
+    )
     residuals["eq3_wage_phillips_F"] = (
-        p.h * (1 - c["tau_l"]) / c["lambda_w"] * p.lambda_z + c["beta"] * c["xi_w"] * eq3_expect
+        p.h * (1 - c["tau_l"]) / c["lambda_w"] * p.lambda_z
+        + c["beta"] * c["xi_w"] * eq3_expect
     ) / (p.F_w + 1e-8) - 1.0
 
     # Eq 4a: K_w definition — log-space (K_w = (1/psi_L) * K_w_inner^(...) * w_tilda * F_w)
-    K_w_analytical = (1.0 / c["psi_L"]) * defs["K_w_inner"] ** (1 - c["lambda_w"] * (1 + c["sigma_L"])) * p.w_tilda * p.F_w
-    residuals["eq4a_Kw_definition"] = jnp.log(p.K_w + 1e-8) - jnp.log(K_w_analytical + 1e-8)
+    K_w_analytical = (
+        (1.0 / c["psi_L"])
+        * defs["K_w_inner"] ** (1 - c["lambda_w"] * (1 + c["sigma_L"]))
+        * p.w_tilda
+        * p.F_w
+    )
+    residuals["eq4a_Kw_definition"] = jnp.log(p.K_w + 1e-8) - jnp.log(
+        K_w_analytical + 1e-8
+    )
 
     # Eq 4b: K_w recursion — ratio form K_w = E[RHS] → RHS/K_w - 1 = 0.
     # Same Jensen-correctness argument as Eq 2b.
-    eq4_ratio_next = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"]))
-    eq4_rhs = p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio_next * p_n.K_w
+    eq4_ratio_next = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (
+        c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
+    )
+    eq4_rhs = (
+        p.h ** (1 + c["sigma_L"]) + c["beta"] * c["xi_w"] * eq4_ratio_next * p_n.K_w
+    )
     residuals["eq4b_Kw_recursion"] = eq4_rhs / (p.K_w + 1e-8) - 1.0
 
     # Eq 5: Consumption Euler — multiply by habit_now, divide by mu_z
     habit_now = _soft_floor(p.c * st.mu_z - c["b"] * st.c_lag, 1e-2)
     habit_next = _soft_floor(p_n.c * st_n.mu_z - c["b"] * p.c, 1e-2)
     residuals["eq5_consumption_euler"] = (
-        (1 + c["tau_c"]) * p.lambda_z * habit_now + c["beta"] * c["b"] * habit_now / (habit_next + 1e-8)
+        (1 + c["tau_c"]) * p.lambda_z * habit_now
+        + c["beta"] * c["b"] * habit_now / (habit_next + 1e-8)
     ) / (st.mu_z + 1e-8) - 1.0
 
     # Eq 6: Bond Euler — divide by lambda_z
@@ -318,8 +400,7 @@ def equations(
     S_prime_next = S_adj_prime(i_ratio_next, c["mu_z_ss"], c["kappa"])
     eq7_expect = p_n.lambda_z * p_n.q * st_n.mu_z * (p_n.i / p.i) ** 2 * S_prime_next
     residuals["eq7_investment_euler"] = (
-        st.mu_ups * eq7_term1
-        + c["beta"] * st.mu_ups * eq7_expect / (p.lambda_z + 1e-8)
+        st.mu_ups * eq7_term1 + c["beta"] * st.mu_ups * eq7_expect / (p.lambda_z + 1e-8)
     ) - 1.0
 
     # Eq 8: Entrepreneur contract — LHS/RHS - 1
@@ -329,15 +410,26 @@ def equations(
     G_prime_next = G_omega_prime(omega_bar_next, c["sigma_omega"])
     G_next = G_omega(omega_bar_next, c["sigma_omega"])
     Rk_over_R = defs_n["R_k"] / defs["R"]
-    ratio_term = Gamma_prime_next / (Gamma_prime_next - c["mu_mon"] * G_prime_next + 1e-8)
+    ratio_term = Gamma_prime_next / (
+        Gamma_prime_next - c["mu_mon"] * G_prime_next + 1e-8
+    )
     bracket_term = 1 - Rk_over_R * (Gamma_next - c["mu_mon"] * G_next)
-    residuals["eq8_entrepreneur_contract"] = Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
+    residuals["eq8_entrepreneur_contract"] = (
+        Rk_over_R * (1 - Gamma_next) - ratio_term * bracket_term
+    )
 
     # Eq 9: Resource constraint — divide by y_z
     residuals["eq9_resource_constraint"] = (
-        st.g + p.c + p.i / st.mu_ups
+        st.g
+        + p.c
+        + p.i / st.mu_ups
         + c["Theta"] * (1 - c["gamma_e"]) / c["gamma_e"] * (defs["n"] - c["w_e"])
-        + c["mu_mon"] * defs["G_val"] * defs["R_k"] * st.q_lag * st.k_lag / (st.mu_z * p.pi)
+        + c["mu_mon"]
+        * defs["G_val"]
+        * defs["R_k"]
+        * st.q_lag
+        * st.k_lag
+        / (st.mu_z * p.pi)
     ) / (defs["y_z"] + 1e-8) - 1.0
 
     return residuals

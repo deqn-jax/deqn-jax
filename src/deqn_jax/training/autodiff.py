@@ -96,7 +96,9 @@ def euler_from_period_return(
     exog_idx = tuple(exog_idx)
     intratemporal_policy_idx = tuple(intratemporal_policy_idx)
     intratemporal_equation_names = tuple(intratemporal_equation_names)
-    if intratemporal_equation_names and len(intratemporal_equation_names) != len(intratemporal_policy_idx):
+    if intratemporal_equation_names and len(intratemporal_equation_names) != len(
+        intratemporal_policy_idx
+    ):
         raise ValueError(
             f"intratemporal_equation_names length ({len(intratemporal_equation_names)}) "
             f"must equal intratemporal_policy_idx length "
@@ -150,7 +152,9 @@ def euler_from_period_return(
         # so the generated residual matches hand-derived forms like
         # `psi * L^theta - w * u_c` rather than their negation.
         if intratemporal_policy_idx:
-            dPi_dp = _dPi_dpolicy_v(K_t, K_tp1, z_t, policy, constants)  # [batch, n_policies]
+            dPi_dp = _dPi_dpolicy_v(
+                K_t, K_tp1, z_t, policy, constants
+            )  # [batch, n_policies]
             for j, name in zip(intratemporal_policy_idx, intratemporal_equation_names):
                 out[name] = -dPi_dp[:, j]
 

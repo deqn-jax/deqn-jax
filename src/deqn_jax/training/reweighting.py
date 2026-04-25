@@ -44,8 +44,12 @@ def _update_weights_relobralo(
     n_eq: int,
 ) -> Tuple[Array, ReweightState]:
     """ReLoBRaLo: relative balancing with softmax of loss ratios."""
-    init = jnp.where(reweight_state.initialized, reweight_state.init_losses, eq_loss_arr)
-    prev = jnp.where(reweight_state.initialized, reweight_state.prev_losses, eq_loss_arr)
+    init = jnp.where(
+        reweight_state.initialized, reweight_state.init_losses, eq_loss_arr
+    )
+    prev = jnp.where(
+        reweight_state.initialized, reweight_state.prev_losses, eq_loss_arr
+    )
 
     eps = 1e-8
     w_t = jax.nn.softmax(eq_loss_arr / (prev + eps)) * n_eq
@@ -66,11 +70,17 @@ def update_reweighting(eq_losses, state, loss_reweight, reweight_alpha, n_eq):
 
     if loss_reweight == "lr_annealing":
         new_weights, new_rw = _update_weights_lr_annealing(
-            eq_loss_arr, state.reweight_state, reweight_alpha, n_eq,
+            eq_loss_arr,
+            state.reweight_state,
+            reweight_alpha,
+            n_eq,
         )
     elif loss_reweight == "relobralo":
         new_weights, new_rw = _update_weights_relobralo(
-            eq_loss_arr, state.reweight_state, reweight_alpha, n_eq,
+            eq_loss_arr,
+            state.reweight_state,
+            reweight_alpha,
+            n_eq,
         )
     else:
         new_weights = state.loss_weights

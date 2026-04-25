@@ -25,10 +25,10 @@ SPEC = VariableSpec(
 CONSTANTS = {
     "alpha": 0.36,
     "beta": 0.99,
-    "gamma": 1.0,        # CRRA exponent on consumption; gamma=1 => log utility
+    "gamma": 1.0,  # CRRA exponent on consumption; gamma=1 => log utility
     "delta": 0.1,
-    "psi": 1.0,          # labor disutility weight
-    "theta": 1.0,        # inverse Frisch elasticity (1 = quadratic effort cost)
+    "psi": 1.0,  # labor disutility weight
+    "theta": 1.0,  # inverse Frisch elasticity (1 = quadratic effort cost)
     "rho_z": 0.9,
     "sigma_z": 0.04,
 }

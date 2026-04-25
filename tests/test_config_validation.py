@@ -214,8 +214,10 @@ class TestCompositeLossConfigValidation:
 
     def test_zero_weights_ok(self):
         CompositeLossConfig(
-            anchor_weight=0.0, jac_weight=0.0,
-            barrier_weight=0.0, newton_weight=0.0,
+            anchor_weight=0.0,
+            jac_weight=0.0,
+            barrier_weight=0.0,
+            newton_weight=0.0,
         )
 
     def test_n_anchor_points_zero_raises(self):
@@ -376,7 +378,9 @@ class TestTrainConfigValidation:
 
 class TestNetworkConfigTransformerValidation:
     def test_transformer_hidden_dim_not_divisible_by_num_heads_raises(self):
-        with pytest.raises(ValueError, match="hidden_dim.*must be divisible by num_heads"):
+        with pytest.raises(
+            ValueError, match="hidden_dim.*must be divisible by num_heads"
+        ):
             NetworkConfig(type="transformer", hidden_sizes=(65,), num_heads=4)
 
     def test_transformer_hidden_dim_divisible_ok(self):
@@ -426,7 +430,8 @@ class TestTypeCoercion:
 
     def test_switch_episode_string_coercion(self):
         cfg = TrainConfig(
-            switch_episode="500", switch_optimizer="adam",
+            switch_episode="500",
+            switch_optimizer="adam",
         )
         assert cfg.switch_episode == 500
         assert isinstance(cfg.switch_episode, int)
@@ -458,29 +463,41 @@ class TestEdgeCases:
         assert _infer_type(None) is None
 
     def test_from_dict_unknown_top_level_key_raises(self):
-        with pytest.raises(ValueError, match="(?s)Unknown keys in config.*totally_unknown_key"):
-            TrainConfig.from_dict({
-                "model": "brock_mirman",
-                "totally_unknown_key": 999,
-            })
+        with pytest.raises(
+            ValueError, match="(?s)Unknown keys in config.*totally_unknown_key"
+        ):
+            TrainConfig.from_dict(
+                {
+                    "model": "brock_mirman",
+                    "totally_unknown_key": 999,
+                }
+            )
 
     def test_from_dict_unknown_optimizer_key_raises(self):
         with pytest.raises(ValueError, match="(?s)Unknown keys in optimizer.*momentum"):
-            TrainConfig.from_dict({
-                "optimizer": {"name": "adam", "momentum": 0.9},
-            })
+            TrainConfig.from_dict(
+                {
+                    "optimizer": {"name": "adam", "momentum": 0.9},
+                }
+            )
 
     def test_from_dict_unknown_network_key_raises(self):
         with pytest.raises(ValueError, match="(?s)Unknown keys in network.*dropout"):
-            TrainConfig.from_dict({
-                "network": {"type": "mlp", "dropout": 0.1},
-            })
+            TrainConfig.from_dict(
+                {
+                    "network": {"type": "mlp", "dropout": 0.1},
+                }
+            )
 
     def test_from_dict_unknown_composite_loss_key_raises(self):
-        with pytest.raises(ValueError, match="(?s)Unknown keys in composite_loss.*temperature"):
-            TrainConfig.from_dict({
-                "composite_loss": {"anchor_weight": 0.1, "temperature": 1.0},
-            })
+        with pytest.raises(
+            ValueError, match="(?s)Unknown keys in composite_loss.*temperature"
+        ):
+            TrainConfig.from_dict(
+                {
+                    "composite_loss": {"anchor_weight": 0.1, "temperature": 1.0},
+                }
+            )
 
     def test_from_dict_typo_suggests_correction(self):
         with pytest.raises(ValueError, match="did you mean.*'episodes'"):
@@ -488,22 +505,28 @@ class TestEdgeCases:
 
     def test_from_dict_optimizer_typo_suggests_correction(self):
         with pytest.raises(ValueError, match="did you mean.*'learning_rate'"):
-            TrainConfig.from_dict({
-                "optimizer": {"leaning_rate": 0.01},
-            })
+            TrainConfig.from_dict(
+                {
+                    "optimizer": {"leaning_rate": 0.01},
+                }
+            )
 
     def test_from_dict_empty_sub_dicts(self):
-        cfg = TrainConfig.from_dict({
-            "optimizer": {},
-            "network": {},
-            "composite_loss": {},
-        })
+        cfg = TrainConfig.from_dict(
+            {
+                "optimizer": {},
+                "network": {},
+                "composite_loss": {},
+            }
+        )
         assert cfg.optimizer.name == "adam"
         assert cfg.network.hidden_sizes == (64, 64)
 
     def test_from_yaml_empty_file(self):
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write("")
             f.flush()
@@ -534,7 +557,9 @@ class TestEdgeCases:
             network=NetworkConfig(hidden_sizes=(32, 32, 16)),
         )
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             path = f.name
         original.to_yaml(path)
@@ -553,7 +578,9 @@ optimizer:
   learning_rate: 0.002
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
@@ -584,7 +611,9 @@ optimizer:
   learning_rate: 0.001
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
@@ -612,7 +641,9 @@ optimizer:
 episodes: -5
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
@@ -630,11 +661,15 @@ model: brock_mirman
 precision: fp64
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
-            with pytest.raises(ValueError, match="(?s)Unknown keys in config.*precision"):
+            with pytest.raises(
+                ValueError, match="(?s)Unknown keys in config.*precision"
+            ):
                 load_config(config_path=f.name)
         os.unlink(f.name)
 
@@ -650,16 +685,20 @@ class TestStrictKeyValidation:
 
     def test_with_overrides_unknown_dot_key_raises(self):
         cfg = TrainConfig()
-        with pytest.raises(ValueError, match="(?s)Unknown keys in config overrides.*optimizer.momentum"):
+        with pytest.raises(
+            ValueError, match="(?s)Unknown keys in config overrides.*optimizer.momentum"
+        ):
             cfg.with_overrides({"optimizer.momentum": 0.9})
 
     def test_with_overrides_valid_keys_pass(self):
         cfg = TrainConfig()
-        new = cfg.with_overrides({
-            "episodes": "500",
-            "optimizer.learning_rate": "0.01",
-            "network.activation": "relu",
-        })
+        new = cfg.with_overrides(
+            {
+                "episodes": "500",
+                "optimizer.learning_rate": "0.01",
+                "network.activation": "relu",
+            }
+        )
         assert new.episodes == 500
         assert new.optimizer.learning_rate == 0.01
         assert new.network.activation == "relu"
@@ -671,11 +710,15 @@ optimizer:
   schedule: cosine
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
-            with pytest.raises(ValueError, match="(?s)Unknown keys in optimizer.*schedule"):
+            with pytest.raises(
+                ValueError, match="(?s)Unknown keys in optimizer.*schedule"
+            ):
                 TrainConfig.from_yaml(f.name)
         os.unlink(f.name)
 
@@ -686,11 +729,15 @@ network:
   batch_norm: true
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
-            with pytest.raises(ValueError, match="(?s)Unknown keys in network.*batch_norm"):
+            with pytest.raises(
+                ValueError, match="(?s)Unknown keys in network.*batch_norm"
+            ):
                 TrainConfig.from_yaml(f.name)
         os.unlink(f.name)
 
@@ -699,13 +746,15 @@ network:
             TrainConfig.from_dict({"foo": 1, "bar": 2})
 
     def test_valid_config_dict_passes(self):
-        cfg = TrainConfig.from_dict({
-            "model": "disaster",
-            "episodes": 500,
-            "optimizer": {"name": "ngd", "learning_rate": 0.01},
-            "network": {"hidden_sizes": [128, 64]},
-            "composite_loss": {"anchor_weight": 0.1},
-        })
+        cfg = TrainConfig.from_dict(
+            {
+                "model": "disaster",
+                "episodes": 500,
+                "optimizer": {"name": "ngd", "learning_rate": 0.01},
+                "network": {"hidden_sizes": [128, 64]},
+                "composite_loss": {"anchor_weight": 0.1},
+            }
+        )
         assert cfg.model == "disaster"
         assert cfg.optimizer.name == "ngd"
         assert cfg.network.hidden_sizes == (128, 64)
@@ -739,11 +788,15 @@ class TestTypeValidation:
             TrainConfig(model=42)
 
     def test_verbose_int_raises(self):
-        with pytest.raises(TypeError, match="TrainConfig.verbose.*expected bool.*got int"):
+        with pytest.raises(
+            TypeError, match="TrainConfig.verbose.*expected bool.*got int"
+        ):
             TrainConfig(verbose=1)
 
     def test_verbose_string_raises(self):
-        with pytest.raises(TypeError, match="TrainConfig.verbose.*expected bool.*got str"):
+        with pytest.raises(
+            TypeError, match="TrainConfig.verbose.*expected bool.*got str"
+        ):
             TrainConfig(verbose="yes")
 
     def test_batch_size_float_coerced(self):
@@ -753,12 +806,16 @@ class TestTypeValidation:
         assert isinstance(cfg.batch_size, int)
 
     def test_loss_weights_string_raises(self):
-        with pytest.raises(TypeError, match="TrainConfig.loss_weights.*expected Optional"):
+        with pytest.raises(
+            TypeError, match="TrainConfig.loss_weights.*expected Optional"
+        ):
             TrainConfig(loss_weights="1.0,0.5")
 
     # -- OptimizerConfig --
     def test_learning_rate_string_non_numeric_raises(self):
-        with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float.*got str"):
+        with pytest.raises(
+            TypeError, match="optimizer.learning_rate.*expected float.*got str"
+        ):
             OptimizerConfig(learning_rate="fast")
 
     def test_learning_rate_list_raises(self):
@@ -766,11 +823,15 @@ class TestTypeValidation:
             OptimizerConfig(learning_rate=[0.01])
 
     def test_learning_rate_bool_raises(self):
-        with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float.*got bool"):
+        with pytest.raises(
+            TypeError, match="optimizer.learning_rate.*expected float.*got bool"
+        ):
             OptimizerConfig(learning_rate=True)
 
     def test_name_int_raises(self):
-        with pytest.raises(TypeError, match="OptimizerConfig.name.*expected str.*got int"):
+        with pytest.raises(
+            TypeError, match="OptimizerConfig.name.*expected str.*got int"
+        ):
             OptimizerConfig(name=42)
 
     def test_block_size_string_coerced(self):
@@ -779,28 +840,40 @@ class TestTypeValidation:
 
     # -- NetworkConfig --
     def test_hidden_sizes_string_raises(self):
-        with pytest.raises(TypeError, match="NetworkConfig.hidden_sizes.*expected Tuple"):
+        with pytest.raises(
+            TypeError, match="NetworkConfig.hidden_sizes.*expected Tuple"
+        ):
             NetworkConfig(hidden_sizes="64,64")
 
     def test_hidden_sizes_int_raises(self):
-        with pytest.raises(TypeError, match="NetworkConfig.hidden_sizes.*expected Tuple"):
+        with pytest.raises(
+            TypeError, match="NetworkConfig.hidden_sizes.*expected Tuple"
+        ):
             NetworkConfig(hidden_sizes=64)
 
     def test_activation_int_raises(self):
-        with pytest.raises(TypeError, match="NetworkConfig.activation.*expected str.*got int"):
+        with pytest.raises(
+            TypeError, match="NetworkConfig.activation.*expected str.*got int"
+        ):
             NetworkConfig(activation=0)
 
     def test_multi_head_int_raises(self):
-        with pytest.raises(TypeError, match="NetworkConfig.multi_head.*expected bool.*got int"):
+        with pytest.raises(
+            TypeError, match="NetworkConfig.multi_head.*expected bool.*got int"
+        ):
             NetworkConfig(multi_head=1)
 
     # -- CompositeLossConfig --
     def test_anchor_weight_list_raises(self):
-        with pytest.raises(TypeError, match="composite_loss.anchor_weight.*expected float"):
+        with pytest.raises(
+            TypeError, match="composite_loss.anchor_weight.*expected float"
+        ):
             CompositeLossConfig(anchor_weight=[0.1])
 
     def test_anchor_weight_bool_raises(self):
-        with pytest.raises(TypeError, match="composite_loss.anchor_weight.*expected float.*got bool"):
+        with pytest.raises(
+            TypeError, match="composite_loss.anchor_weight.*expected float.*got bool"
+        ):
             CompositeLossConfig(anchor_weight=True)
 
     def test_n_anchor_points_float_coerced(self):
@@ -814,7 +887,9 @@ class TestTypeValidation:
 episodes: [1, 2, 3]
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
@@ -828,10 +903,14 @@ optimizer:
   learning_rate: [0.01, 0.001]
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
             f.flush()
-            with pytest.raises(TypeError, match="optimizer.learning_rate.*expected float"):
+            with pytest.raises(
+                TypeError, match="optimizer.learning_rate.*expected float"
+            ):
                 TrainConfig.from_yaml(f.name)
         os.unlink(f.name)

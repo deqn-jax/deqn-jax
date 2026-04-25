@@ -40,8 +40,7 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     zs = [s.z_0, s.z_1]
     ks_next = [p.k_0_next, p.k_1_next]
     zs_next = [
-        rho_z * zs[j] + sigma_eps * (eps[j] + eps_agg)
-        for j in range(N_COUNTRIES)
+        rho_z * zs[j] + sigma_eps * (eps[j] + eps_agg) for j in range(N_COUNTRIES)
     ]
 
     # Pack in SPEC order: k_0, k_1, z_0, z_1

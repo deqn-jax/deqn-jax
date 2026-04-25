@@ -16,7 +16,9 @@ from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
 from deqn_jax.training.trainer import train_from_config
 
 
-def _tiny_config(optimizer_name: str, episodes: int, checkpoint_dir: str) -> TrainConfig:
+def _tiny_config(
+    optimizer_name: str, episodes: int, checkpoint_dir: str
+) -> TrainConfig:
     """Configs small enough to train in seconds but exercise the full pipeline."""
     return TrainConfig(
         model="brock_mirman",
@@ -38,14 +40,15 @@ def _tiny_config(optimizer_name: str, episodes: int, checkpoint_dir: str) -> Tra
             learning_rate=1e-3,
         ),
         checkpoint_dir=checkpoint_dir,
-        checkpoint_every=episodes,   # save once, at the end
+        checkpoint_every=episodes,  # save once, at the end
         max_checkpoints=1,
     )
 
 
 def _latest_checkpoint(checkpoint_dir: str) -> str:
     files = sorted(
-        f for f in os.listdir(checkpoint_dir)
+        f
+        for f in os.listdir(checkpoint_dir)
         if f.startswith("checkpoint_") and f.endswith(".eqx")
     )
     assert files, f"No checkpoints saved in {checkpoint_dir}"

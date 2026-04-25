@@ -26,6 +26,7 @@ class _StubHistoryPolicy(eqx.Module):
     or ``[batch, H, n_states]`` for grid evaluation, and returns
     zero-policy with a parameter so Equinox doesn't drop it.
     """
+
     w: jnp.ndarray
 
     def __call__(self, history):
@@ -128,20 +129,31 @@ def test_history_persists_across_two_rollouts():
 
     # Rollout 1: rebuild initial window from s0 (the None-init path).
     _, fs1, fh1 = run_episode_with_history(
-        model, policy, s0, jax.random.PRNGKey(0),
-        episode_length=3, history_len=H, init_history=None,
+        model,
+        policy,
+        s0,
+        jax.random.PRNGKey(0),
+        episode_length=3,
+        history_len=H,
+        init_history=None,
     )
 
     # Rollout 2: seed from fs1 + fh1 (the persisted path).
     _, _fs2, fh2 = run_episode_with_history(
-        model, policy, fs1, jax.random.PRNGKey(1),
-        episode_length=3, history_len=H, init_history=fh1,
+        model,
+        policy,
+        fs1,
+        jax.random.PRNGKey(1),
+        episode_length=3,
+        history_len=H,
+        init_history=fh1,
     )
 
     # fh2 must reflect rollout-1's final window continuing forward --
     # in particular, fh2 cannot equal what a fresh make_constant_history
     # from fs1 would produce (that's the bug this test prevents).
     from deqn_jax.training.history import make_constant_history
+
     cold_start_fh2 = make_constant_history(fs1, H)
     assert not jnp.array_equal(fh2, cold_start_fh2), (
         "history_state did not persist across rollouts; the second rollout "

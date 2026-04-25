@@ -92,5 +92,7 @@ def _normalize_input(
 ) -> Array:
     """Apply frozen input normalization."""
     if input_shift is not None:
-        x = (x - jax.lax.stop_gradient(input_shift)) / jax.lax.stop_gradient(input_scale)
+        x = (x - jax.lax.stop_gradient(input_shift)) / jax.lax.stop_gradient(
+            input_scale
+        )
     return x
