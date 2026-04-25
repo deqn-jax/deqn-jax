@@ -160,3 +160,31 @@ def test_eq5_consumption_euler_diagnostics():
     missing = expected - set(out.keys())
     assert not missing, f"missing eq5_diag keys: {sorted(missing)}"
     _assert_all_float_finite(out, "eq5_diag/")
+
+
+def test_eq7_investment_euler_diagnostics():
+    """eq7 (investment Euler) helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq7_diag/now_term_mean",
+        "eq7_diag/expect_term_mean",
+        "eq7_diag/i_ratio_next_mean",
+        "eq7_diag/i_ratio_next_std",
+        "eq7_diag/i_ratio_next_min",
+        "eq7_diag/i_ratio_next_max",
+        "eq7_diag/i_ratio_next_sq_mean",
+        "eq7_diag/S_val_mean",
+        "eq7_diag/S_prime_val_mean",
+        "eq7_diag/S_prime_next_mean",
+        "eq7_diag/q_mean",
+        "eq7_diag/q_n_mean",
+        "eq7_diag/rhs_mean",
+        "eq7_diag/residual_mean",
+        "eq7_diag/residual_std",
+        "eq7_diag/log_abs_rhs_mean",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq7_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq7_diag/")

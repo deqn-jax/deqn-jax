@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from deqn_jax.models.disaster.equations import _soft_floor
+from deqn_jax.models.disaster.equations import S_adj_prime, _soft_floor
 from deqn_jax.types import ModelSpec
 
 
@@ -432,6 +432,84 @@ def _eq5_diagnostics(
     }
 
 
+def _eq7_diagnostics(
+    model: ModelSpec,
+    policy_fn: Callable,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq7 (investment_euler) decomposition at training states.
+
+    Residual structure:
+        now_term  = mu_ups * q * (1 - S_val - i_ratio*S_prime_val)
+        i_ratio_n = mu_z_n * i_n / i
+        S_prime_n = S_adj_prime(i_ratio_n, mu_z_ss, kappa)
+        expect    = lambda_z_n * q_n * mu_z_n * (i_n/i)^2 * S_prime_n
+        eq7       = (now_term + beta*mu_ups*expect/lambda_z) - 1
+
+    The (i_n/i)^2 factor is the dominant nonlinearity. Logs both
+    summands, the i_ratio_next mean/std/min/max + its square, and the
+    S_val / S_prime_val / S_prime_next means.
+    """
+    c = model.constants
+    batch_size = states.shape[0]
+
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c)
+    next_policies = jax.vmap(policy_fn)(next_states)
+
+    i_idx = list(model.policy_names).index("i")
+    q_idx = list(model.policy_names).index("q")
+    lambda_z_idx = list(model.policy_names).index("lambda_z")
+    mu_z_state_idx = list(model.state_names).index("mu_z")
+    mu_ups_state_idx = list(model.state_names).index("mu_ups")
+
+    i_now = policy_out[:, i_idx]
+    i_n = next_policies[:, i_idx]
+    q = policy_out[:, q_idx]
+    q_n = next_policies[:, q_idx]
+    lambda_z = policy_out[:, lambda_z_idx]
+    lambda_z_n = next_policies[:, lambda_z_idx]
+    mu_z_n = next_states[:, mu_z_state_idx]
+    mu_ups = states[:, mu_ups_state_idx]
+
+    S_val = defs["S_val"]
+    S_prime_val = defs["S_prime_val"]
+    i_ratio = defs["i_ratio"]
+
+    i_ratio_next = mu_z_n * i_n / (i_now + 1e-8)
+    S_prime_next = S_adj_prime(i_ratio_next, c["mu_z_ss"], c["kappa"])
+
+    now_term = mu_ups * q * (1.0 - S_val - i_ratio * S_prime_val)
+    expect = lambda_z_n * q_n * mu_z_n * (i_n / (i_now + 1e-8)) ** 2 * S_prime_next
+    expect_term = c["beta"] * mu_ups * expect / (lambda_z + 1e-8)
+    rhs = now_term + expect_term
+    residual = rhs - 1.0
+    log_rhs_residual = jnp.log(jnp.maximum(jnp.abs(rhs), 1e-8))
+
+    irn = np.asarray(i_ratio_next)
+    res = np.asarray(residual)
+    return {
+        "now_term_mean": float(np.mean(np.asarray(now_term))),
+        "expect_term_mean": float(np.mean(np.asarray(expect_term))),
+        "i_ratio_next_mean": float(np.mean(irn)),
+        "i_ratio_next_std": float(np.std(irn)),
+        "i_ratio_next_min": float(np.min(irn)),
+        "i_ratio_next_max": float(np.max(irn)),
+        "i_ratio_next_sq_mean": float(np.mean(irn**2)),
+        "S_val_mean": float(np.mean(np.asarray(S_val))),
+        "S_prime_val_mean": float(np.mean(np.asarray(S_prime_val))),
+        "S_prime_next_mean": float(np.mean(np.asarray(S_prime_next))),
+        "q_mean": float(np.mean(np.asarray(q))),
+        "q_n_mean": float(np.mean(np.asarray(q_n))),
+        "rhs_mean": float(np.mean(np.asarray(rhs))),
+        "residual_mean": float(np.mean(res)),
+        "residual_std": float(np.std(res)),
+        "log_abs_rhs_mean": float(np.mean(np.asarray(log_rhs_residual))),
+    }
+
+
 def scalar_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -485,5 +563,11 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq5_diag/{k}"] = v
+
+    if "S_val" in defs and "S_prime_val" in defs and "i_ratio" in defs:
+        for k, v in _eq7_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
+            out[f"eq7_diag/{k}"] = v
 
     return out
