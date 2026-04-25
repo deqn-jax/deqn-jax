@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **81** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=2, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
+- Total: **78** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=5, ANNOTATION_LIE=2, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -81,7 +81,7 @@ That's a test edit, which the loop's prompt forbids beyond import-path updates. 
 **Plan:** Loosen the parameter annotation in `compute_loss` and any helper that flows from it: `shock_scale: float | Array = 1.0`. (Same for `barrier_weight`, `huber_delta` if those also flow from JIT-traced state — check.)
 **Cost:** S.
 
-### 5. ``benchmark.py`` is broken at runtime  [REAL_BUG]  [STATUS: TODO]
+### 5. ``benchmark.py`` is broken at runtime  [REAL_BUG]  [STATUS: DONE]
 
 Three real bugs — the script will crash if anyone runs it:
 - `benchmark.py:67, 85` — `train_step(...)` called without `lr_scale` (signature requires it).

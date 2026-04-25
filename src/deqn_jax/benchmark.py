@@ -2,9 +2,10 @@
 
 import argparse
 import time
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import jax
+import jax.numpy as jnp
 
 
 def benchmark_model(
@@ -14,7 +15,7 @@ def benchmark_model(
     warmup_episodes: int = 10,
     batch_size: int = 64,
     verbose: bool = True,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Benchmark training performance for a model.
 
     Args:
@@ -28,8 +29,6 @@ def benchmark_model(
     Returns:
         Dict with timing statistics
     """
-    import optax
-
     # Load model
     from deqn_jax.models import load_model
     from deqn_jax.training.trainer import create_train_state, make_train_step
@@ -43,11 +42,13 @@ def benchmark_model(
         print(f"  Batch size: {batch_size}")
         print()
 
-    # Initialize
+    # Initialize. ``create_train_state`` returns ``(state, opt, kind)`` --
+    # use the same optimizer instance when building the train step so the
+    # opt_state on ``state`` matches what ``make_train_step`` will call.
     key = jax.random.PRNGKey(42)
     learning_rate = 1e-3
 
-    state = create_train_state(
+    state, opt, _kind = create_train_state(
         MODEL,
         key,
         hidden_sizes=hidden_sizes,
@@ -55,8 +56,10 @@ def benchmark_model(
         batch_size=batch_size,
     )
 
-    opt = optax.adam(learning_rate)
     train_step = make_train_step(MODEL, opt, 100, 5, batch_size)
+
+    # Constant LR scale; benchmark doesn't exercise scheduled LR.
+    lr_scale = jnp.array(1.0)
 
     # Warmup (JIT compilation)
     if verbose:
@@ -64,7 +67,7 @@ def benchmark_model(
 
     warmup_start = time.perf_counter()
     for _ in range(warmup_episodes):
-        state, _ = train_step(state)
+        state, _ = train_step(state, lr_scale)
     jax.block_until_ready(state.params)
     warmup_time = time.perf_counter() - warmup_start
 
@@ -82,7 +85,7 @@ def benchmark_model(
     start_time = time.perf_counter()
 
     for ep in range(episodes):
-        state, metrics = train_step(state)
+        state, metrics = train_step(state, lr_scale)
         losses.append(float(metrics.loss))
 
         if verbose and (ep + 1) % 100 == 0:

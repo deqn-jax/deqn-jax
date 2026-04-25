@@ -78,6 +78,7 @@ nav:
       - Quickstart: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
   - Guides:
+      - Reading guide (contributors): reading_guide.md
       - Implementing a model: models/implementing.md
       - Running experiments: running_experiments.md
       - Architecture: architecture.md

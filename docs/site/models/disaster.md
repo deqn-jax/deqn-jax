@@ -62,3 +62,43 @@ is **pinned** at the Calvo validity edge — widening it triggers
 gradient explosions through the soft floor at 0.01.
 
 See `models/disaster/variables.py` for the bound spec and rationale.
+
+## `xi_p = 0.6` is pinned by determinacy
+
+The price-stickiness parameter `xi_p = 0.6` cannot be lowered without
+recalibrating the rest of the Phillips block at the same time.
+Attempting `xi_p = 0.5` produced 14 stable eigenvalues where determinacy
+expects 13 — so the linearised system loses uniqueness of equilibrium
+and the Blanchard-Kahn solve in `linearize.py` silently picks a
+non-fundamental root.
+
+This couples to the validity edge above: the `pi` upper bound is
+calibrated against `xi_p = 0.6`, so any change to `xi_p` must
+re-derive the bound.
+
+## Aggregator residuals: ratio form, not log form
+
+Residuals on the Calvo aggregator equations (`eq2b` and friends in
+`models/disaster/equations.py`) are written in **ratio** form:
+
+```python
+residuals["eq2b"] = eq2_rhs / (p.K_p + eps) - 1.0
+```
+
+…rather than the log form:
+
+```python
+# DON'T DO THIS on aggregator equations
+residuals["eq2b"] = log(eq2_rhs) - log(p.K_p)
+```
+
+Under stochastic averaging, the log form enforces the **geometric**
+mean of the aggregator (Jensen's inequality), not the arithmetic mean
+the equations actually call for. For small Gaussian shocks, the bias is
+tiny and you'd never notice. For disaster jumps it's huge and silently
+biases the solution.
+
+**Don't switch back to log-form residuals on aggregator equations
+without thinking through the Jensen implications.** The general principle
+of "ratio residuals on aggregators under non-Gaussian shocks" applies to
+any future model that mixes large jumps with multiplicative aggregation.
