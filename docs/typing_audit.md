@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **104** diagnostics on `uvx ty check src/` (Pyright reports 117; same picture).
-- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=12, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=27, DECISION_NEEDED=2.
+- Total: **96** diagnostics on `uvx ty check src/` (was 104 before iteration 3).
+- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=12, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=19, DECISION_NEEDED=2.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -38,7 +38,7 @@ Sample sites:
 **Plan:** In `types.py`, drop the `Optional` from `definitions_fn`, `state_names`, `policy_names`; require all model packages to provide them (a quick `git grep` confirms they already do). Keep `steady_state_fn` and `init_state_fn` Optional — those legitimately don't apply to every model. This kills ~25 errors with one annotation change.
 **Cost:** S.
 
-### 1a. ModelSpec name fields default to ``()`` instead of None  [ANNOTATION_LIE]  [STATUS: TODO]
+### 1a. ModelSpec name fields default to ``()`` instead of None  [ANNOTATION_LIE]  [STATUS: DONE]
 
 Subset of #1 that doesn't break tests: change `state_names`, `policy_names`, `equation_names` from `Optional[Tuple[str, ...]] = None` to `Tuple[str, ...] = ()`. Tests' toy models construct without these fields, which then default to empty tuple instead of None. Truthy-check call sites (`if model.state_names: ...`) keep working; `list(model.state_names)` returns `[]` instead of raising. Eliminates ~10 narrowing errors at the call sites.
 

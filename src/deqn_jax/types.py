@@ -50,10 +50,14 @@ class ModelSpec(NamedTuple):
     # Model constants (calibration parameters)
     constants: Dict[str, float]
 
-    # Optional metadata
-    state_names: Optional[Tuple[str, ...]] = None
-    policy_names: Optional[Tuple[str, ...]] = None
-    equation_names: Optional[Tuple[str, ...]] = None
+    # Variable name metadata. Defaults to empty tuple so the framework
+    # can iterate / index / list() unconditionally without None-checks.
+    # Every shipped model populates them; toy ModelSpecs in tests fall
+    # back to () with no behaviour change (truthy checks treat () like
+    # the legacy None and ``list(()) == []``).
+    state_names: Tuple[str, ...] = ()
+    policy_names: Tuple[str, ...] = ()
+    equation_names: Tuple[str, ...] = ()
 
     # Optional: compute steady state for warm-starting
     # steady_state_fn(constants) -> (ss_state, ss_policy)
