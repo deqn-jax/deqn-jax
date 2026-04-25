@@ -299,6 +299,9 @@ def warm_start_from_dynare(
     if key is None:
         key = jax.random.PRNGKey(42)
 
+    assert model.steady_state_fn is not None, (
+        "warm_start_network requires a model with steady_state_fn defined"
+    )
     ss_state, ss_policy = model.steady_state_fn(model.constants)
     constants = model.constants
 

@@ -57,6 +57,9 @@ def make_rollout_fn(
             batch_n = ep_states.shape[0]
             n_reset = int(ss_reset_frac * batch_n)
             if n_reset > 0:
+                assert model.steady_state_fn is not None, (
+                    "ss_reset_frac>0 requires a model with steady_state_fn"
+                )
                 ss_state, _ = model.steady_state_fn(model.constants)
                 noise = jax.random.uniform(
                     reset_key,

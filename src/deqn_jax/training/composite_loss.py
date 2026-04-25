@@ -69,6 +69,10 @@ def prepare_composite_data(
     """
     from deqn_jax.training.linearize import compute_ergodic_covariance
 
+    assert model.steady_state_fn is not None, (
+        "composite loss requires a model with steady_state_fn defined "
+        "(needed for linearization + ergodic covariance)"
+    )
     ss_state, ss_policy = model.steady_state_fn(model.constants)
     ergodic_cov = compute_ergodic_covariance(Q, model, verbose=verbose)
 

@@ -44,6 +44,9 @@ def linearize_model(
             Q: Transition matrix [n_states, n_states]
     """
     constants = model.constants
+    assert model.steady_state_fn is not None, (
+        "linearize_model requires a model with steady_state_fn defined"
+    )
     ss_state, ss_policy = model.steady_state_fn(constants)
 
     n_s = model.n_states
@@ -202,6 +205,9 @@ def compute_ergodic_covariance(
         Sigma: Ergodic covariance matrix [n_states, n_states]
     """
     constants = model.constants
+    assert model.steady_state_fn is not None, (
+        "compute_ergodic_covariance requires a model with steady_state_fn"
+    )
     ss_state, ss_policy = model.steady_state_fn(constants)
 
     # Compute B = d(step)/d(shock) at SS with zero shock.

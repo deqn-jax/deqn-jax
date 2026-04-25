@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **96** diagnostics on `uvx ty check src/` (was 104 before iteration 3).
-- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=12, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=19, DECISION_NEEDED=2.
+- Total: **91** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=12, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -54,7 +54,7 @@ That's a test edit, which the loop's prompt forbids beyond import-path updates. 
 **Plan:** Either (a) human-driven test updates, or (b) accept Optional + add `assert model.definitions_fn is not None, "..."` at the use sites (mechanical but pollutes hot paths).
 **Cost:** M (because it crosses the test boundary).
 
-### 2. ``Optional[steady_state_fn]`` legitimately optional but called everywhere  [OPTIONAL_NARROWING]  [STATUS: TODO]
+### 2. ``Optional[steady_state_fn]`` legitimately optional but called everywhere  [OPTIONAL_NARROWING]  [STATUS: DONE]
 
 `steady_state_fn` is genuinely optional (models like `aiyagari` skip it) but warm_start / linearize / composite_loss / cycle assume it exists. Five errors:
 - `warm_start.py:302`
