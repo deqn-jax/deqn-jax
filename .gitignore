@@ -64,6 +64,7 @@ irf_results/
 !.claude/hooks/
 !.claude/hooks/**
 !.claude/ralph_refactor_prompt.md
+!.claude/ralph_typing_prompt.md
 
 # Docs (PDFs are binary, keep .tex in version control)
 docs/*.pdf
