@@ -67,6 +67,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - What is DEQN?: what_is_deqn.md
   - Overview: why.md
   - Getting started:
       - Installation: getting-started/installation.md
