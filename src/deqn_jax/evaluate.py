@@ -15,13 +15,12 @@ Usage:
 import csv
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import yaml
-from jax import Array
 
 from deqn_jax.irf import load_policy_from_checkpoint
 
@@ -36,7 +35,7 @@ def euler_equation_errors(
     n_periods: int = 10_000,
     seed: int = 123,
     burn_in: Optional[int] = None,
-) -> Dict[str, Array]:
+) -> Dict[str, Any]:
     """Simulate a long stochastic path and compute Euler residuals everywhere.
 
     This is the gold standard for DEQN accuracy (Azinovic et al. 2022).
@@ -239,7 +238,7 @@ def market_clearing_errors(
     n_periods: int = 10_000,
     seed: int = 123,
     burn_in: int = 500,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Check resource constraint satisfaction along simulated path.
 
     For the disaster model: Y = C + I + G + monitoring_costs
