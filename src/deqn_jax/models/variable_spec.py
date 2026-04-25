@@ -9,7 +9,7 @@ Instead of fragile index slicing like `state[:, 0]`, use:
 JAX traces through NamedTuples efficiently.
 """
 
-from typing import Any, Dict, NamedTuple, Tuple, Type
+from typing import Any, Callable, Dict, List, NamedTuple, Tuple, Type
 
 import jax.numpy as jnp
 from jax import Array
@@ -17,12 +17,15 @@ from jax import Array
 
 def make_state_type(names: Tuple[str, ...]) -> Type[NamedTuple]:
     """Dynamically create a NamedTuple type for state variables."""
-    return NamedTuple("State", [(name, Array) for name in names])
+    # Functional-form NamedTuple call with a runtime-built fields list.
+    # Both ty and pyright reject the non-literal fields argument; the
+    # construction is only used to give attribute access at trace time.
+    return NamedTuple("State", [(name, Array) for name in names])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-named-tuple]
 
 
 def make_policy_type(names: Tuple[str, ...]) -> Type[NamedTuple]:
     """Dynamically create a NamedTuple type for policy variables."""
-    return NamedTuple("Policy", [(name, Array) for name in names])
+    return NamedTuple("Policy", [(name, Array) for name in names])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-named-tuple]
 
 
 def unpack_array(arr: Array, names: Tuple[str, ...], nt_type: Type) -> NamedTuple:
@@ -50,7 +53,10 @@ def pack_array(nt: NamedTuple) -> Array:
     Returns:
         Array of shape [batch, n_vars] or [n_vars]
     """
-    values = list(nt)
+    # ``list(nt)`` is typed ``list[object]`` because ``NamedTuple`` (the
+    # abstract base) isn't generic over its element type; the fields are
+    # all Arrays at runtime.
+    values: List[Array] = list(nt)
     if values[0].ndim == 0:
         return jnp.stack(values)
     return jnp.stack(values, axis=1)
@@ -147,7 +153,7 @@ class VariableSpec:
 
 import jax
 
-_DISTRIBUTION_SAMPLERS: Dict[str, callable] = {
+_DISTRIBUTION_SAMPLERS: Dict[str, Callable[..., Array]] = {
     # sampler(key, shape, **kwargs) -> Array
     "uniform": lambda key, shape, minval=0.0, maxval=1.0: jax.random.uniform(
         key, shape, minval=minval, maxval=maxval
@@ -168,7 +174,7 @@ _DISTRIBUTION_SAMPLERS: Dict[str, callable] = {
 def make_init_state_fn(
     state_names: Tuple[str, ...],
     init_specs: Dict[str, Dict[str, Any]],
-) -> callable:
+) -> Callable[..., Array]:
     """Build an init_state_fn from per-variable distributional specs.
 
     Args:
