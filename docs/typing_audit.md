@@ -6,7 +6,7 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 ## Summary
 
 - Total: **75** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -101,7 +101,7 @@ Two functions promise `Dict[str, float]` but return `Dict[str, str | int | float
 **Plan:** Widen the return signatures (`Dict[str, float | str]` for the error-tolerant ones, `Dict[str, Array | list]` for the other) OR raise on the error path. Quick read of callers to decide.
 **Cost:** M.
 
-### 7. ``evaluate.py:437`` operator issue  [DECISION_NEEDED]  [STATUS: TODO]
+### 7. ``evaluate.py:437`` operator issue  [DECISION_NEEDED]  [STATUS: DONE: resolved transitively by earlier iterations (Metrics widening, compute_loss param widening). Both ty and pyright now clean on this line; no code change needed.]
 
 `evaluate.py:437` — `0.01 * span` where `span` is `Array | tuple[Array, ...]`. Likely a `jnp.where` returning a tuple in some branch the typer can see but the runtime never hits.
 
