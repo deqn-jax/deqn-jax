@@ -458,7 +458,7 @@ def make_grad_step_gn(
         sample_antithetic_shocks,
     )
     from deqn_jax.training.reweighting import update_reweighting
-    from deqn_jax.types import Metrics, TrainState
+    from deqn_jax.types import Metrics
 
     n_eq = len(model.equation_names) if model.equation_names else 1
     _compute_loss_log = compute_loss_fn or compute_loss
@@ -540,16 +540,13 @@ def make_grad_step_gn(
             reweight_alpha,
             n_eq,
         )
-        new_state = TrainState(
+        new_state = state._replace(
             params=new_params,
             opt_state=new_opt_state,
-            episode_state=state.episode_state,
             key=new_key,
             step=state.step + 1,
-            episode=state.episode,
             loss_weights=new_weights,
             reweight_state=new_rw,
-            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 

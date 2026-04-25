@@ -99,6 +99,7 @@ def create_train_state(
     optimizer_config=None,
     network_config=None,
     sim_batch: Optional[int] = None,
+    replay_config=None,
 ) -> Tuple[TrainState, Any, OptimizerKind]:
     """Initialize training state and optimizer.
 
@@ -270,6 +271,13 @@ def create_train_state(
     else:
         init_history = None
 
+    if replay_config is not None and getattr(replay_config, "enabled", False):
+        from deqn_jax.types import make_replay_state
+
+        replay_state = make_replay_state(replay_config.capacity, model.n_states)
+    else:
+        replay_state = None
+
     state = TrainState(
         params=policy_net,
         opt_state=opt_state,
@@ -280,6 +288,7 @@ def create_train_state(
         loss_weights=weights,
         reweight_state=make_reweight_state(n_equations),
         history_state=init_history,
+        replay_state=replay_state,
     )
 
     return state, opt, kind
@@ -311,6 +320,7 @@ def make_train_step(
     n_minibatches_per_epoch: Optional[int] = None,
     initialize_each_episode: bool = False,
     sorted_within_batch: bool = False,
+    replay_cfg: Any = None,
 ):
     """Create a JIT-compiled training step function.
 
@@ -420,6 +430,7 @@ def make_train_step(
         n_minibatches_per_epoch=n_minibatches_per_epoch,
         history_len=history_len,
         sorted_within_batch=sorted_within_batch,
+        replay_cfg=replay_cfg,
     )
 
 
@@ -466,6 +477,22 @@ def _validate_train_config(config) -> None:
             "initialize_each_episode: true. If you want rollout-based "
             "training, use episode_length > 1."
         )
+
+    if config.replay_buffer.enabled:
+        # Sequence networks deferred to v2 (see replay.py module docstring).
+        if config.network.history_len > 1:
+            raise NotImplementedError(
+                "replay_buffer.enabled=true is v1-only-MLP. Sequence networks "
+                "(network.history_len > 1) need a [capacity, H, n_states] "
+                "buffer shape — follow-up. Disable replay or use an MLP."
+            )
+        if config.sorted_within_batch:
+            raise ValueError(
+                "replay_buffer.enabled=true is incompatible with "
+                "sorted_within_batch=true: buffer rows break the trajectory-"
+                "contiguous-chunk semantics that sorted_within_batch relies "
+                "on. Disable one."
+            )
 
 
 def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
@@ -557,6 +584,7 @@ def _build_initial_state(
             optimizer_config=orig_config.optimizer,
             network_config=orig_config.network,
             sim_batch=orig_config.sim_batch,
+            replay_config=orig_config.replay_buffer,
         )
 
         state = _resume_from_checkpoint(template_state, config.resume)
@@ -594,6 +622,7 @@ def _build_initial_state(
         optimizer_config=effective_opt_cfg,
         network_config=config.network,
         sim_batch=config.sim_batch,
+        replay_config=config.replay_buffer,
     )
 
     is_linear_plus_mlp = config.network.type == "linear_plus_mlp"
@@ -864,6 +893,7 @@ def _run_training_loop(
                 n_minibatches_per_epoch=config.n_minibatches_per_epoch,
                 initialize_each_episode=config.initialize_each_episode,
                 sorted_within_batch=config.sorted_within_batch,
+                replay_cfg=config.replay_buffer,
             )
             switched = True
             # Reset early stopping after optimizer switch
@@ -1328,6 +1358,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         n_minibatches_per_epoch=config.n_minibatches_per_epoch,
         initialize_each_episode=config.initialize_each_episode,
         sorted_within_batch=config.sorted_within_batch,
+        replay_cfg=config.replay_buffer,
     )
 
     if (

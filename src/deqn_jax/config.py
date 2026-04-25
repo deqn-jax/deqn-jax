@@ -457,6 +457,95 @@ class CompositeLossConfig(_ConfigBase):
 
 
 # ---------------------------------------------------------------------------
+# ReplayBufferConfig
+# ---------------------------------------------------------------------------
+
+
+class ReplayBufferConfig(_ConfigBase):
+    """Prioritized state-replay buffer configuration.
+
+    Off by default. When enabled, each cycle's just-rolled-out trajectory
+    states are written to a fixed-shape ring buffer with per-state priorities
+    (= sum-of-squared equilibrium residuals at write time). Each gradient
+    minibatch then mixes ``mix_ratio`` fraction of priority-weighted
+    buffered samples in with the current trajectory.
+
+    Anti-forgetting (states from older policies stay in the gradient signal)
+    + spectral-bias mitigation (high-residual states get oversampled).
+
+    Sequence networks (``network.history_len > 1``) are not supported in v1
+    and raise ``NotImplementedError`` if enabled together.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch. When False, the cycle path is byte-identical to no-replay training.",
+    )
+    capacity: int = Field(
+        default=65536,
+        description="Number of past states retained in the ring buffer. Memory: capacity × n_states × 4B.",
+    )
+    mix_ratio: float = Field(
+        default=0.5,
+        description="Fraction of each minibatch dataset drawn from the buffer (0=none, 1=all-buffer). 0.5 is the natural default.",
+    )
+    min_fill_frac: float = Field(
+        default=0.25,
+        description="Buffer must reach this fraction of capacity before sampling activates. Until then, training uses current trajectory only.",
+    )
+    priority_alpha: float = Field(
+        default=0.6,
+        description="PER's α: sampling probability ∝ (priority + eps)^α. α=0 is uniform, α=1 is fully proportional. 0.6 is the original PER default.",
+    )
+    priority_eps: float = Field(
+        default=1.0e-6,
+        description="Floor added to priorities before exponentiation. Prevents zero-priority states from being completely starved.",
+    )
+    eviction: str = Field(
+        default="fifo",
+        description="Eviction policy. v1 only supports `fifo` (ring overwrite). Reservoir sampling is a v2 follow-up.",
+    )
+
+    @field_validator(
+        "mix_ratio",
+        "min_fill_frac",
+        "priority_alpha",
+        "priority_eps",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_float_reject_bool(cls, v, info):
+        return _coerce_float(v, f"replay_buffer.{info.field_name}")
+
+    @field_validator("capacity", mode="before")
+    @classmethod
+    def _coerce_int_reject_bool(cls, v, info):
+        return _coerce_int(v, f"replay_buffer.{info.field_name}")
+
+    @model_validator(mode="after")
+    def _validate_ranges(self):
+        if self.capacity <= 0:
+            raise ValueError(f"capacity must be > 0, got {self.capacity}")
+        if not (0 <= self.mix_ratio <= 1):
+            raise ValueError(f"mix_ratio must be in [0, 1], got {self.mix_ratio}")
+        if not (0 <= self.min_fill_frac <= 1):
+            raise ValueError(
+                f"min_fill_frac must be in [0, 1], got {self.min_fill_frac}"
+            )
+        if self.priority_alpha < 0:
+            raise ValueError(f"priority_alpha must be >= 0, got {self.priority_alpha}")
+        if self.priority_eps <= 0:
+            raise ValueError(f"priority_eps must be > 0, got {self.priority_eps}")
+        if self.eviction not in {"fifo"}:
+            raise ValueError(
+                f"eviction must be 'fifo' (v1 only), got {self.eviction!r}"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
 # NetworkConfig
 # ---------------------------------------------------------------------------
 
@@ -677,6 +766,10 @@ class TrainConfig(_ConfigBase):
     composite_loss: CompositeLossConfig = Field(
         default_factory=CompositeLossConfig,
         description="Composite-loss weights; only active when `loss_type='composite'`.",
+    )
+    replay_buffer: ReplayBufferConfig = Field(
+        default_factory=ReplayBufferConfig,
+        description="Prioritized state-replay buffer; only active when `replay_buffer.enabled=true`.",
     )
 
     loss_choice: str = Field(
@@ -1154,6 +1247,7 @@ class TrainConfig(_ConfigBase):
         opt_dict = d.pop("optimizer", {})
         net_dict = d.pop("network", {})
         comp_dict = d.pop("composite_loss", {})
+        replay_dict = d.pop("replay_buffer", {})
 
         # If optimizer is a plain string, treat as name
         if isinstance(opt_dict, str):
@@ -1182,17 +1276,20 @@ class TrainConfig(_ConfigBase):
         opt_fields = set(OptimizerConfig.model_fields.keys())
         net_fields = set(NetworkConfig.model_fields.keys())
         comp_fields = set(CompositeLossConfig.model_fields.keys())
+        replay_fields = set(ReplayBufferConfig.model_fields.keys())
         train_fields = set(TrainConfig.model_fields.keys())
 
         _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
         _check_unknown_keys(set(net_dict.keys()), net_fields, "network")
         _check_unknown_keys(set(comp_dict.keys()), comp_fields, "composite_loss")
+        _check_unknown_keys(set(replay_dict.keys()), replay_fields, "replay_buffer")
         _check_unknown_keys(set(d.keys()), train_fields, "config")
 
         return cls(
             optimizer=OptimizerConfig(**opt_dict),
             network=NetworkConfig(**net_dict),
             composite_loss=CompositeLossConfig(**comp_dict),
+            replay_buffer=ReplayBufferConfig(**replay_dict),
             **{k: v for k, v in d.items() if k in train_fields},
         )
 
@@ -1283,6 +1380,9 @@ def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
         elif name == "composite_loss":
             for cf in CompositeLossConfig.model_fields:
                 flat[f"composite_loss.{cf}"] = getattr(val, cf)
+        elif name == "replay_buffer":
+            for rf in ReplayBufferConfig.model_fields:
+                flat[f"replay_buffer.{rf}"] = getattr(val, rf)
         else:
             flat[name] = val
     return flat
@@ -1293,15 +1393,18 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     opt_kw: Dict[str, Any] = {}
     net_kw: Dict[str, Any] = {}
     comp_kw: Dict[str, Any] = {}
+    replay_kw: Dict[str, Any] = {}
     train_kw: Dict[str, Any] = {}
 
     opt_fields = set(OptimizerConfig.model_fields.keys())
     net_fields = set(NetworkConfig.model_fields.keys())
     comp_fields = set(CompositeLossConfig.model_fields.keys())
+    replay_fields = set(ReplayBufferConfig.model_fields.keys())
     train_fields = set(TrainConfig.model_fields.keys()) - {
         "optimizer",
         "network",
         "composite_loss",
+        "replay_buffer",
     }
 
     # Build set of all valid flat keys for validation
@@ -1309,6 +1412,7 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     valid_flat_keys |= {f"optimizer.{n}" for n in opt_fields}
     valid_flat_keys |= {f"network.{n}" for n in net_fields}
     valid_flat_keys |= {f"composite_loss.{n}" for n in comp_fields}
+    valid_flat_keys |= {f"replay_buffer.{n}" for n in replay_fields}
 
     _check_unknown_keys(set(flat.keys()), valid_flat_keys, "config overrides")
 
@@ -1319,6 +1423,8 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
             net_kw[key[len("network.") :]] = val
         elif key.startswith("composite_loss."):
             comp_kw[key[len("composite_loss.") :]] = val
+        elif key.startswith("replay_buffer."):
+            replay_kw[key[len("replay_buffer.") :]] = val
         else:
             train_kw[key] = val
 
@@ -1326,6 +1432,7 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
         optimizer=OptimizerConfig(**opt_kw),
         network=NetworkConfig(**net_kw),
         composite_loss=CompositeLossConfig(**comp_kw),
+        replay_buffer=ReplayBufferConfig(**replay_kw),
         **train_kw,
     )
 

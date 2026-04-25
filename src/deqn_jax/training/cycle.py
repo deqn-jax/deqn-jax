@@ -13,7 +13,7 @@ Two builders:
   ``train_from_config`` consumes.
 """
 
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -104,6 +104,7 @@ def make_cycle_step(
     n_minibatches_per_epoch: Optional[int],
     history_len: int = 1,
     sorted_within_batch: bool = False,
+    replay_cfg: Optional[Any] = None,
 ):
     """Generic DEQN-style cycle: 1 rollout + n_epochs × minibatch sweep.
 
@@ -115,7 +116,25 @@ def make_cycle_step(
     minibatches are contiguous slices of single trajectories (RL-style)
     rather than IID-shuffled samples. Batch order is shuffled; intra-batch
     order is preserved. See TrainConfig docstring.
+
+    ``replay_cfg`` (default None): when provided AND ``replay_cfg.enabled``,
+    a prioritized state-replay buffer (held on ``state.replay_state``) is
+    written to after each rollout and sampled into the minibatch dataset.
+    Incompatible with ``sorted_within_batch`` (buffer rows break trajectory
+    contiguity) — raises at builder time.
     """
+    use_replay = replay_cfg is not None and getattr(replay_cfg, "enabled", False)
+    if use_replay and sorted_within_batch:
+        raise ValueError(
+            "replay_buffer.enabled and sorted_within_batch are incompatible: "
+            "buffer rows break the trajectory-contiguous-chunk semantics that "
+            "sorted_within_batch relies on. Disable one."
+        )
+    if use_replay and history_len > 1:
+        raise NotImplementedError(
+            "Replay buffer for sequence networks (history_len > 1) is a v2 "
+            "follow-up. v1 supports MLP only."
+        )
 
     def cycle_step(
         state: TrainState,
@@ -144,6 +163,22 @@ def make_cycle_step(
             history_state=final_history,
         )
 
+        # 1b. Replay buffer write — once per cycle, after rollout.
+        # Computes residual-based priorities at the trajectory states under
+        # the *current* policy and stores both into a fixed-shape ring on
+        # state.replay_state. Enabled only when replay_cfg.enabled is True.
+        if use_replay:
+            from deqn_jax.training import replay as _replay
+
+            traj_flat = trajectory.reshape(-1, model.n_states)
+            prio_key, state_key = jax.random.split(state.key)
+            state = state._replace(key=state_key)
+            prios = _replay.compute_priorities(
+                model, state.params, traj_flat, prio_key, shock_scale=shock_scale
+            )
+            new_replay = _replay.write(state.replay_state, traj_flat, prios)
+            state = state._replace(replay_state=new_replay)
+
         # 2. Build the minibatch dataset from the full trajectory.
         # Two layouts (chosen at trace time via sorted_within_batch):
         # - time-major [T*B, D]: reshape trajectory [T, B, D] directly.
@@ -160,6 +195,29 @@ def make_cycle_step(
             dataset = jnp.transpose(trajectory, (1, 0, 2)).reshape(-1, model.n_states)
         else:
             dataset = trajectory.reshape(-1, model.n_states)
+
+        # 2b. Replay buffer sample — concat priority-weighted past states into
+        # the dataset. Python-side warmup gate: until n_filled crosses the
+        # min_fill_frac threshold the dataset is current-trajectory only.
+        if use_replay:
+            from deqn_jax.training import replay as _replay
+
+            assert replay_cfg is not None  # narrowing for type-checkers
+            if _replay.is_warm(
+                state.replay_state, replay_cfg.capacity, replay_cfg.min_fill_frac
+            ):
+                n_buffered = int(replay_cfg.mix_ratio * dataset.shape[0])
+                if n_buffered > 0:
+                    sample_key, state_key = jax.random.split(state.key)
+                    state = state._replace(key=state_key)
+                    buffered, _ = _replay.sample(
+                        state.replay_state,
+                        sample_key,
+                        n_buffered,
+                        alpha=replay_cfg.priority_alpha,
+                        eps=replay_cfg.priority_eps,
+                    )
+                    dataset = jnp.concatenate([dataset, buffered], axis=0)
 
         n_samples = dataset.shape[0]
         n_mbs_available = max(1, n_samples // batch_size)

@@ -91,16 +91,13 @@ def make_grad_step_standard(
             reweight_alpha,
             n_eq,
         )
-        new_state = TrainState(
+        new_state = state._replace(
             params=new_params,
             opt_state=new_opt_state,
-            episode_state=state.episode_state,
             key=new_key,
             step=state.step + 1,
-            episode=state.episode,
             loss_weights=new_weights,
             reweight_state=new_rw,
-            target_params=state.target_params,
         )
         return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 

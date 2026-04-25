@@ -200,6 +200,41 @@ def make_reweight_state(n_equations: int) -> "ReweightState":
     )
 
 
+class ReplayState(NamedTuple):
+    """Fixed-shape ring buffer of past states + per-state priorities.
+
+    Used by the prioritized state-replay mechanism (RL-style anti-forgetting +
+    spectral-bias mitigation). Lives on ``TrainState`` so it survives
+    checkpoint resume and is variant-agnostic across the 5 train-step kinds.
+
+    Attributes:
+        buffer: Past states ``[capacity, n_states]``, fp32. Newest writes
+            land at ``write_idx``; the slot is overwritten on wrap-around.
+        priorities: Per-row scalar priorities (``[capacity]``, fp32).
+            Computed at write time as the per-element sum of squared
+            equilibrium residuals; sampling probability is proportional
+            to ``(priority + eps) ** alpha``.
+        write_idx: Scalar int32 ring cursor. Modulo ``capacity`` after writes.
+        n_filled: Scalar int32, capped at ``capacity``. Used as the slice
+            upper bound for sampling so unfilled tail rows are never drawn.
+    """
+
+    buffer: Array  # [capacity, n_states]
+    priorities: Array  # [capacity]
+    write_idx: Array  # scalar int32
+    n_filled: Array  # scalar int32
+
+
+def make_replay_state(capacity: int, n_states: int) -> "ReplayState":
+    """Create an empty replay buffer with room for ``capacity`` states."""
+    return ReplayState(
+        buffer=jnp.zeros((capacity, n_states), dtype=jnp.float32),
+        priorities=jnp.zeros((capacity,), dtype=jnp.float32),
+        write_idx=jnp.array(0, dtype=jnp.int32),
+        n_filled=jnp.array(0, dtype=jnp.int32),
+    )
+
+
 class TrainState(NamedTuple):
     """Immutable training state for JAX-compatible training loops.
 
@@ -228,6 +263,12 @@ class TrainState(NamedTuple):
             Persists across rollouts so recurrent training sees continuous
             ergodic trajectories rather than rebuilding a constant window
             at every cycle. ``None`` for MLP models (``history_len == 1``).
+        replay_state: Prioritized state-replay buffer (``ReplayState``).
+            Off by default (``None``). When enabled via
+            ``TrainConfig.replay_buffer.enabled``, holds a fixed-shape
+            ring buffer of past trajectory states + their write-time
+            residual priorities; the cycle hooks read/write it once per
+            cycle to mix buffered samples into each minibatch dataset.
     """
 
     params: Any  # Equinox model
@@ -242,6 +283,7 @@ class TrainState(NamedTuple):
     aux_params: Any = None  # Auxiliary trainable module (value net, critic, ...)
     aux_opt_state: Any = None  # Optimizer state for aux_params if separate
     history_state: Any = None  # [batch, H, n_states] for sequence policies, else None
+    replay_state: Any = None  # ReplayState (prioritized state buffer); None when off
 
 
 class EpisodeState(NamedTuple):
