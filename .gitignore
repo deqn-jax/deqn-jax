@@ -56,8 +56,14 @@ docs/session_log.md
 docs/design_notes.md
 irf_results/
 
-# Claude Code
-.claude/
+# Claude Code: ignore everything except shared project tooling
+# (hooks, settings, prompt artifacts). Per-user settings stay local
+# via .claude/settings.local.json.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/ralph_refactor_prompt.md
 
 # Docs (PDFs are binary, keep .tex in version control)
 docs/*.pdf
