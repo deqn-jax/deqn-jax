@@ -1,121 +1,194 @@
-# Training-step diagram — structural spec
+# Training-cycle diagram — structural spec
 
 Hand this to Claude.ai (Figma / tldraw / pure-JS-canvas) alongside the
 original hand-drawn diagram so the digital recreation reflects the
-**current** code, not the historical one. The original is the visual
-language; this file is the ground truth.
+**current** code, not the historical one. The original drawing is the
+visual language; this file is the ground truth for content.
+
+We want **two artefacts**:
+
+- **High-level SVG** — replaces the existing
+  `docs/site/figures/deqn_solver_loop.svg`. One screenful: setup → loop
+  → JIT box, no fine-grain optimisation guts.
+- **Detailed SVG** — new
+  `docs/site/figures/deqn_solver_loop_detailed.svg`, embedded in
+  `architecture.md` as a zoom-in companion. Includes mixture branch,
+  composite aux losses, all five gradient-path variants, history
+  threading.
+
+Both share the same visual language. Annotations should reference
+**concrete file paths and function names** (e.g.
+`training/cycle.py:cycle_step`) so a contributor can ctrl-click from
+diagram label to source.
+
+---
 
 The diagram has two regions: **setup** (one-time, top half, no JIT) and
-**training loop** (per-episode, bottom half, with the JIT boundary).
+the **cycle loop** (per-cycle, bottom half, with the JIT boundary).
+A "cycle" = one rollout + N minibatch gradient steps. Cycles are the
+outer iteration; episodes / rollouts happen inside them.
 
 ## Region 1 — Setup (one-time, eager)
 
-Linear top-down chain. No branching except where noted.
+Linear top-down chain. No branching except where noted. All file
+references are to `src/deqn_jax/`.
 
-```
-  ┌─────────────────────────┐
-  │ TrainConfig (YAML/CLI)  │
-  └────────────┬────────────┘
-               │
-  ┌────────────▼────────────┐
-  │ load_model(config.model)│      models/__init__.py
-  └────────────┬────────────┘
-               │   ModelSpec (NamedTuple)
-               │
-  ┌────────────▼────────────────────┐
-  │ Apply config.constants override │  trainer.py:1197
-  └────────────┬────────────────────┘
-               │
-  ┌────────────▼─────────────────────┐
-  │ disaster + p_disaster>0 ?        │
-  │   yes → swap steady_state_fn to  │  trainer.py:1213
-  │         risky_steady_state       │
-  └────────────┬─────────────────────┘
-               │
-  ┌────────────▼────────────────────┐
-  │ create_train_state              │  trainer.py:create_train_state
-  │   • build network (MLP/LSTM/    │
-  │     Transformer/LinearPlusMLP)  │
-  │   • build optimizer (Adam/...)  │
-  │   • init opt_state              │
-  │   • sample initial states       │
-  └────────────┬────────────────────┘
-               │
-  ┌────────────▼─────────────────────────┐
-  │ if loss_type == composite:           │  composite_loss.py
-  │   • linearize_model (Blanchard-Kahn  │  linearize.py
-  │     QZ → P, Q matrices)              │
-  │   • compute ergodic covariance       │
-  │   • prepare_composite_data           │
-  │     (anchor pts, ss_state, ss_policy)│
-  └────────────┬─────────────────────────┘
-               │
-  ┌────────────▼────────────────────┐
-  │ make_train_step                 │  trainer.py:make_train_step
-  │   dispatch on OptimizerKind:    │
-  │   STANDARD | PCGRAD | MAO |     │
-  │   LBFGS | GN                    │
-  │   — wrap in jax.jit             │
-  └─────────────────────────────────┘
-```
-
-## Region 2 — Per-episode loop (with JIT boundary)
-
-The **JIT boundary** (dashed box) wraps everything from "compute loss"
-through "apply updates". Anything outside it is Python-side and runs
-once per episode.
-
-```
-  ┌──────────────────────────────────────┐
-  │ for episode in 0..N:                 │
-  │                                      │
-  │   ┌──────────────────────────────┐   │
-  │   │ run_episode (lax.scan)       │   │  episode.py
-  │   │   trajectory = simulate      │   │
-  │   │   under current policy       │   │
-  │   └──────────────┬───────────────┘   │
-  │                  │ trajectory        │
-  │   ┌──────────────▼───────────────┐   │
-  │   │ sample batch from trajectory │   │
-  │   └──────────────┬───────────────┘   │
-  │                  │                   │
-  │   ┌──────────────▼─────────────────┐ │
-  │   │ if step % target_update == 0:  │ │
-  │   │   target_params = polyak(...)  │ │
-  │   └──────────────┬─────────────────┘ │
-  │                  │                   │
-  │   ┌──────────────▼─────────────────┐ │
-  │   │ lr_scale = schedule(step)      │ │
-  │   └──────────────┬─────────────────┘ │
-  │                  │                   │
-  │ ╔════════════════▼═════════════════╗ │  ╔═══════════════════════════╗
-  │ ║      JIT BOUNDARY (dashed)       ║ │  ║  This whole box is one     ║
-  │ ║   train_step(state, batch, lr)   ║─┼──║  jax.jit — XLA fuses       ║
-  │ ║                                  ║ │  ║  loss, grad, opt-step      ║
-  │ ║   [variant-specific path]        ║ │  ╚═══════════════════════════╝
-  │ ║   → returns new TrainState       ║ │
-  │ ╚════════════════╤═════════════════╝ │
-  │                  │                   │
-  │   ┌──────────────▼─────────────────┐ │
-  │   │ log metrics, checkpoint, etc.  │ │
-  │   └────────────────────────────────┘ │
-  └──────────────────────────────────────┘
+```text
+  ┌──────────────────────────────┐
+  │ TrainConfig (YAML/CLI)       │   config.py — Pydantic v2
+  └─────────────┬────────────────┘
+                │
+  ┌─────────────▼────────────────────┐
+  │ train_from_config(config)        │   training/trainer.py
+  │   • validate fp64 toggle         │
+  │   • validate composite ↔ opt     │
+  │   • validate ep_len/sim_batch/   │
+  │     shock_mask combinations      │
+  └─────────────┬────────────────────┘
+                │
+  ┌─────────────▼────────────────────┐
+  │ load_model(config.model)         │   models/__init__.py
+  │   → ModelSpec (NamedTuple)       │
+  └─────────────┬────────────────────┘
+                │
+  ┌─────────────▼────────────────────┐
+  │ Apply config.constants override  │   model._replace(constants=...)
+  └─────────────┬────────────────────┘
+                │
+  ┌─────────────▼─────────────────────┐
+  │ model wants risky steady state?   │
+  │   yes → swap steady_state_fn for  │
+  │         model.risky_steady_state  │
+  │   (e.g. disaster + p_disaster>0)  │
+  └─────────────┬─────────────────────┘
+                │
+  ┌─────────────▼────────────────────┐
+  │ create_train_state               │   training/trainer.py
+  │   • build network                │   networks/{mlp,lstm,transformer,
+  │     (MLP / LSTM / Transformer    │     linear_plus_mlp}.py
+  │      / LinearPlusMLP)            │
+  │   • build optimizer              │   optimizers/registry.py
+  │     (Adam / SGD / NGD / Shampoo  │   → optimizers/{standard,ngd,
+  │      / MAO / PCGrad / LBFGS / GN)│       shampoo,mao,mao_kfac,
+  │   • init opt_state               │       pcgrad,lbfgs,
+  │   • sample initial states        │       gauss_newton}.py
+  │     (init_state_fn or near SS)   │
+  │   • seed history_state           │
+  │     (for sequence policies)      │
+  │   → TrainState NamedTuple        │
+  └─────────────┬────────────────────┘
+                │
+  ┌─────────────▼─────────────────────┐
+  │ if loss_type == composite:        │   training/composite_loss.py
+  │   • linearize_model               │   training/linearize.py
+  │     (Blanchard-Kahn QZ → P, Q)    │
+  │   • compute ergodic covariance    │
+  │   • prepare_composite_data        │
+  │     (anchor pts, ss_state,        │
+  │      ss_policy)                   │
+  └─────────────┬─────────────────────┘
+                │
+  ┌─────────────▼────────────────────┐
+  │ make_train_step                  │   training/trainer.py
+  │   dispatch on OptimizerKind:     │
+  │   STANDARD | PCGRAD | MAO |      │
+  │   LBFGS | GN                     │
+  │   composes:                      │
+  │   make_rollout_fn (cycle.py)     │   training/cycle.py
+  │   + make_grad_step_<name>        │   optimizers/<name>.py
+  │   → make_cycle_step (cycle.py)   │
+  │   → wrap in jax.jit              │
+  └──────────────────────────────────┘
 ```
 
-## Region 3 — Inside the JIT boundary (the heart)
+## Region 2 — The cycle loop (with JIT boundary)
 
-Show this as a zoomed-in inset OR a separate sub-figure. This is the
-reader's "what does one gradient step actually do?" view.
+The **JIT boundary** (dashed box) wraps the entire `cycle_step` —
+rollout, minibatch sweep, gradient updates, all of it. The outer Python
+loop only does dispatch, logging, and checkpointing.
 
+```text
+  ┌──────────────────────────────────────────┐
+  │ for ep in 0..total_episodes:             │   training/trainer.py
+  │                                          │
+  │   ┌────────────────────────────────┐     │
+  │   │ shock_scale = curriculum(ep)   │     │
+  │   └────────────────┬───────────────┘     │
+  │                    │                     │
+  │ ╔══════════════════▼═══════════════════╗ │  ╔══════════════════════════╗
+  │ ║   JIT BOUNDARY (dashed)              ║ │  ║  This whole box is one    ║
+  │ ║   cycle_step(state, lr_scale,        ║─┼──║  jax.jit. XLA fuses       ║
+  │ ║              shock_scale)            ║ │  ║  rollout, loss, grad,     ║
+  │ ║                                      ║ │  ║  opt-step.                ║
+  │ ║   1. rollout_fn (one rollout)        ║ │  ║  training/cycle.py        ║
+  │ ║      → trajectory, final_history     ║ │  ╚══════════════════════════╝
+  │ ║                                      ║ │
+  │ ║   2. build minibatch dataset         ║ │
+  │ ║      (IID shuffle OR sorted-within-  ║ │
+  │ ║       batch slice)                   ║ │
+  │ ║                                      ║ │
+  │ ║   3. for epoch in n_epochs:          ║ │
+  │ ║        for mb in n_minibatches:      ║ │
+  │ ║          state = grad_step(state,    ║ │   optimizers/<name>.py
+  │ ║                  batch, lr_scale,    ║ │
+  │ ║                  shock_scale)        ║ │
+  │ ║                                      ║ │
+  │ ║   → returns (TrainState, Metrics)    ║ │
+  │ ╚══════════════════╤═══════════════════╝ │
+  │                    │                     │
+  │   ┌────────────────▼───────────────┐     │
+  │   │ log metrics, checkpoint, hook  │     │   training/reporting.py
+  │   │   • cycle_hook(model, state,   │     │   training/checkpointing.py
+  │   │     ep) — model-specific       │     │
+  │   └────────────────────────────────┘     │
+  └──────────────────────────────────────────┘
 ```
+
+Two annotations to highlight on the SVG:
+
+- **`shock_scale` flows everywhere** — into `rollout_fn` (so curriculum
+  and `shock_mask` apply to state simulation) AND into `compute_loss`
+  (so the expectation matches). Show as a labelled wire.
+- **`history_state` threads through the loop** — for sequence policies
+  it's persisted in `TrainState` across cycles (`None` for MLP). Show
+  as a side-rail wire when distinguishing sequence vs feed-forward
+  paths is useful.
+
+## Region 3 — Inside `cycle_step` (the heart)
+
+Show this as a zoomed-in inset (high-level SVG) AND as the central
+panel of the detailed SVG. This is the reader's "what does one
+gradient step actually do?" view.
+
+```text
             ┌──────────────────────────────────────┐
-            │ compute_loss(state, batch, key, ...) │   loss.py / composite_loss.py
+            │ rollout_fn(state, shock_scale)       │   training/cycle.py
+            │   • optional fresh init or ss_reset  │
+            │   • run_episode (or                  │   training/episode.py
+            │     run_episode_with_history)        │
+            │     = lax.scan over episode_length   │
+            └────────────────┬─────────────────────┘
+                             │ trajectory [T, B, n_states]
+                             │
+            ┌────────────────▼─────────────────────┐
+            │ slice into minibatches               │
+            │   IID-shuffled OR sorted within batch│
+            └────────────────┬─────────────────────┘
+                             │
+            ┌────────────────▼─────────────────────┐
+            │ FOR EACH MINIBATCH:                  │
+            │   grad_step(state, batch, lr_scale,  │   optimizers/<name>.py
+            │             shock_scale)             │   (makes its own loss call)
+            └────────────────┬─────────────────────┘
+                             │
+            ┌────────────────▼─────────────────────┐
+            │ compute_loss(state, batch, key, ...) │   training/loss.py
             └────────────────┬─────────────────────┘
                              │
        ┌─────────────────────┴────────────────────┐
        │                                          │
   ┌────▼─────────┐                       ┌────────▼──────────┐
-  │ sample shocks│                       │ if quadrature:    │
+  │ sample shocks│                       │ if quadrature:    │   training/shocks.py
   │ (antithetic  │       ──or──          │ tensor-product GH │
   │  MC pairs)   │                       │ nodes + weights   │
   └────┬─────────┘                       └────────┬──────────┘
@@ -125,7 +198,7 @@ reader's "what does one gradient step actually do?" view.
                           │
             ┌─────────────▼──────────────┐
             │ vmap over shocks:          │
-            │   compute_residuals(state, │
+            │   compute_residuals(state, │   training/loss.py
             │     policy_fn, batch,      │
             │     shock, target_fn?)     │
             └─────────────┬──────────────┘
@@ -133,14 +206,15 @@ reader's "what does one gradient step actually do?" view.
             ┌─────────────▼─────────────────────────┐
             │ INSIDE compute_residuals:             │
             │   policy = policy_fn(state)           │
-            │   next_state = step_fn(state, policy, │
+            │   next_state = step_fn(state, policy, │   models/<name>/dynamics.py
             │                  shock, constants)    │
-            │   next_policy = target_fn(next_state) │
+            │   next_policy = next_fn(next_state)   │
             │     ← stop_gradient if target net     │
-            │   residuals = equations_fn(state,     │
+            │   residuals = equations_fn(state,     │   models/<name>/equations.py
             │     policy, next_state, next_policy)  │
             │                                       │
-            │   if p_disaster > 0:                  │
+            │   if model has mixture branch         │
+            │     (e.g. p_disaster > 0):            │
             │     branch d=0 + branch d=1           │
             │     → mixture (1-p)·r₀ + p·r₁         │
             └─────────────┬─────────────────────────┘
@@ -153,10 +227,11 @@ reader's "what does one gradient step actually do?" view.
             │   )                            │
             │   total_loss = Σ_k weight[k]·  │
             │                  eq_loss[k]    │
+            │   weights from reweighting.py  │   training/reweighting.py
             └─────────────┬──────────────────┘
                           │
             ┌─────────────▼─────────────────────┐
-            │ if loss_type == composite, add:   │
+            │ if loss_type == composite, add:   │   training/composite_loss.py
             │   + anchor (||π_net - π_lin||²)   │
             │   + jac    (||∂π_net - P||²)      │
             │   + barrier (state/policy bounds) │
@@ -164,64 +239,110 @@ reader's "what does one gradient step actually do?" view.
             │ — keys prefixed "aux_" so PCGrad/ │
             │   MAO/reweighting ignore them     │
             └─────────────┬─────────────────────┘
-                          │ scalar loss
+                          │ scalar loss + per-eq dict
                           │
             ┌─────────────▼──────────────────┐
             │ VARIANT-SPECIFIC GRADIENT PATH │
-            │ (dispatched at construction):  │
+            │ (lives in optimizer file):     │
             │                                │
-            │ STANDARD: value_and_grad → opt │
-            │ PCGRAD:   per-eq grads → proj  │
-            │ MAO:      jacrev → per-eq Jac  │
-            │ LBFGS:    value+grad+value_fn  │
-            │ GN:       residual Jacobian J  │
+            │ STANDARD: value_and_grad → opt │   optimizers/standard.py
+            │ PCGRAD:   per-eq grads → proj  │   optimizers/pcgrad.py
+            │ MAO:      jacrev → per-eq Jac  │   optimizers/mao.py
+            │ MAO-KFAC: as MAO + K-FAC prec. │   optimizers/mao_kfac.py
+            │ LBFGS:    value+grad+value_fn  │   optimizers/lbfgs.py
+            │ GN/LM:    residual Jacobian J  │   optimizers/gauss_newton.py
             │           → -(JᵀJ)⁻¹ Jᵀr      │
             └─────────────┬──────────────────┘
                           │ updates
             ┌─────────────▼──────────────────┐
             │ params = apply_updates(params, │
             │                        updates)│
-            │ update opt_state, reweight     │
+            │ update opt_state               │
+            │ adaptive reweight loss_weights │   training/reweighting.py
             └─────────────┬──────────────────┘
                           │
                   new TrainState
 ```
 
-## Visual conventions to suggest to the artist
+## What to put in each diagram
 
-- **Solid box** = function call / module
-- **Dashed box** = JIT compilation boundary (highlight the perimeter, ideally
-  with a "jax.jit" label on the corner)
-- **Diamond** = conditional branch (e.g. p_disaster > 0?)
-- **Cylinder/pytree** = TrainState (params, opt_state, episode_state, key,
-  step, episode, loss_weights, reweight_state, target_params, aux_params,
-  aux_opt_state) — shown threading through the loop
-- **Color hint**: keep the original drawing's color palette; use one accent
-  colour for the JIT boundary so the reader's eye locks onto it
+### High-level SVG (`deqn_solver_loop.svg`)
 
-## Things the original drawing probably did NOT have
+Keep it readable at a glance. One screen of content. Show:
 
-These are post-original additions that are worth a callout (annotation,
-sub-box, footnote):
+- Setup chain collapsed: `TrainConfig → ModelSpec → TrainState →
+  cycle_step` (single labelled arrow, not the detailed Region 1).
+- The cycle loop with the JIT boundary clearly marked.
+- A small inset (or call-out) for "inside cycle_step": rollout →
+  minibatch sweep → grad_step. No mixture branch, no composite aux,
+  no five-variant fanout — those go in the detailed SVG.
+- File-path annotations for the four headline modules (`config.py`,
+  `training/trainer.py`, `training/cycle.py`, `training/loss.py`).
 
-1. **Composite-loss aux terms** — the "anchor + jac + barrier + newton" cluster.
-   In the original, only the residual MSE existed.
-2. **Mixture branch** — the `p_disaster > 0` fork inside `compute_residuals`.
-3. **Target network** — the `stop_gradient` on `next_policy` when target
+### Detailed SVG (`deqn_solver_loop_detailed.svg`)
+
+Show all of Region 3. Show the mixture branch, the composite aux
+losses, and the five gradient-path variants as a fan-out. Annotate
+every box with `file:function`. Embed in `architecture.md` next to the
+existing mermaid `cycle_step` sequence diagram, so the user can flip
+between "what calls what" (mermaid) and "what data flows through what"
+(SVG).
+
+## Visual conventions
+
+- **Solid box** = function call / module.
+- **Dashed box** = JIT compilation boundary (highlight the perimeter,
+  ideally with a `jax.jit` label on the corner).
+- **Diamond** = conditional branch (e.g. `model has mixture branch?`).
+- **Cylinder/pytree** = `TrainState` (params, opt_state, episode_state,
+  history_state, key, step, episode, loss_weights, reweight_state,
+  target_params, aux_params, aux_opt_state) — shown threading through
+  the loop.
+- **File-path annotation** = monospace label below or beside each box,
+  e.g. `training/cycle.py`. Optional `:function` suffix.
+- **Color hint**: keep the original drawing's palette; use one accent
+  colour for the JIT boundary so the reader's eye locks onto it.
+
+## What's true now that wasn't in the original drawing
+
+These post-original additions need explicit callouts:
+
+1. **`cycle_step` is the JIT entry**, not `train_step`. The single
+   JIT boundary now wraps rollout + minibatch sweep + grad updates
+   together (extracted into `training/cycle.py` from the old
+   monolithic `trainer.py`).
+2. **Per-optimizer `grad_step` files** — variant code lives in
+   `optimizers/<name>.py`, not in `trainer.py`. `make_train_step`
+   composes them.
+3. **Composite-loss aux terms** — anchor + jac + barrier + newton
+   cluster (`training/composite_loss.py`). Original showed only
+   residual MSE.
+4. **Mixture branch** — the model-driven fork inside `compute_residuals`
+   (e.g. `p_disaster > 0`). Driven by the model spec, not hard-coded.
+5. **Target network** — `stop_gradient` on `next_policy` when target
    network mode is on. Show as an optional sub-box.
-4. **5 variants of the gradient step** — original probably showed only
-   STANDARD (Adam-style). PCGRAD/MAO/LBFGS/GN are all new.
-5. **Constants override + risky-SS swap** in setup region — added in the
-   disaster-experiment branch.
-6. **LinearPlusMLP** as a network choice — the original was MLP-only.
-   Worth showing in setup as one of {MLP, LSTM, Transformer, LinearPlusMLP}.
+6. **5 variants of the gradient step** (STANDARD, PCGRAD, MAO+MAO-KFAC,
+   LBFGS, GN/LM). Original probably showed only STANDARD (Adam-style).
+7. **Constants override + risky-SS swap** in setup region — added
+   for parameter-sweep and disaster-style experiments.
+8. **`LinearPlusMLP`** as a network choice — original was MLP-only.
+   Worth showing in setup as one of {MLP, LSTM, Transformer,
+   LinearPlusMLP}.
+9. **`history_state` threading** — sequence policies (LSTM,
+   Transformer) carry a history window across cycles via
+   `TrainState.history_state`. MLP is `None`.
+10. **`shock_scale` curriculum wiring** — flows into the rollout
+    *and* the loss expectation, not just the loss.
+11. **Adaptive reweighting** (`lr_annealing`, `relobralo` in
+    `training/reweighting.py`) modifies per-equation loss weights
+    each step — show as a side-input to the loss-aggregation box.
 
 ## What to keep faithful to the original
 
-- The overall **left-to-right or top-to-bottom flow** of one training step.
-- The **separation of "model code" (equations, step) from "framework code"
-  (loss, optimizer)** — DEQN's main pedagogical claim is that researchers
-  only have to write the model side.
+- The overall **left-to-right or top-to-bottom flow** of one cycle.
+- The **separation of "model code" (equations, step) from "framework
+  code" (loss, optimizer)** — DEQN's main pedagogical claim is that
+  researchers only have to write the model side.
 - Any **personal stylistic touches** (handwriting, sketchy boxes,
-  margin notes) — those are part of the project's character. The digital
-  version should aim to preserve the feel, not sterilize it.
+  margin notes) — those are part of the project's character. The
+  digital version should aim to preserve the feel, not sterilize it.

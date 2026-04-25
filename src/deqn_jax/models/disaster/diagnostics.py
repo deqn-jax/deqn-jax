@@ -43,9 +43,9 @@ def _eq4_diagnostics(
     zero_shock = jnp.zeros((batch_size, model.n_shocks))
     next_states = model.step_fn(states, policy_out, zero_shock, c)
     next_policies = jax.vmap(policy_fn)(next_states)
-    defs_n = jax.vmap(lambda s, p: model.definitions_fn(s, p, c))(
-        next_states, next_policies
-    )
+    assert model.definitions_fn is not None, "disaster diagnostics needs definitions_fn"
+    defs_fn = model.definitions_fn
+    defs_n = jax.vmap(lambda s, p: defs_fn(s, p, c))(next_states, next_policies)
 
     ratio_base = defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]
     exponent = c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
@@ -108,9 +108,9 @@ def _eq2_diagnostics(
     zero_shock = jnp.zeros((batch_size, model.n_shocks))
     next_states = model.step_fn(states, policy_out, zero_shock, c)
     next_policies = jax.vmap(policy_fn)(next_states)
-    defs_n = jax.vmap(lambda s, p: model.definitions_fn(s, p, c))(
-        next_states, next_policies
-    )
+    assert model.definitions_fn is not None, "disaster diagnostics needs definitions_fn"
+    defs_fn = model.definitions_fn
+    defs_n = jax.vmap(lambda s, p: defs_fn(s, p, c))(next_states, next_policies)
 
     pi_idx = list(model.policy_names).index("pi")
     ratio_base = defs_n["pi_tilda"] / next_policies[:, pi_idx]

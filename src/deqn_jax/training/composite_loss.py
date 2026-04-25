@@ -88,6 +88,9 @@ def prepare_composite_data(
     anchor_lin_policy = ss_policy + deviations @ P.T
 
     # Compute SS leverage
+    assert model.definitions_fn is not None, (
+        "composite loss requires a model with definitions_fn defined"
+    )
     ss_defs = model.definitions_fn(ss_state, ss_policy, model.constants)
     ss_leverage = float(ss_defs["L"])
 
@@ -309,8 +312,13 @@ def make_composite_loss(
         # Fixing this requires changing compute_loss to return intermediate defs.
         # Extract current states from history window for definitions()
         current_states = states[:, -1, :] if states.ndim == 3 else states
+        # Bind definitions_fn locally so the lambda body keeps narrowing.
+        assert model_.definitions_fn is not None, (
+            "composite loss requires a model with definitions_fn"
+        )
+        defs_fn_ = model_.definitions_fn
         defs = jax.vmap(
-            lambda s: model_.definitions_fn(
+            lambda s: defs_fn_(
                 s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants
             )
         )(current_states)

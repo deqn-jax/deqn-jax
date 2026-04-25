@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **35** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=11, JAX_NOISE=4, PYDANTIC_DICT=0, OPTIONAL_NARROWING=14, DECISION_NEEDED=0.
+- Total: **30** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2; **stop target reached**).
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=11, JAX_NOISE=4, PYDANTIC_DICT=0, OPTIONAL_NARROWING=9, DECISION_NEEDED=0.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -45,7 +45,7 @@ Subset of #1 that doesn't break tests: change `state_names`, `policy_names`, `eq
 **Plan:** Three lines in `types.py`. Verify tests still pass; verify no code path actually relies on the difference between `None` and `()`.
 **Cost:** S.
 
-### 1b. ``definitions_fn`` should be required  [ANNOTATION_LIE]  [STATUS: BLOCKED: requires updating ~7 toy `ModelSpec(...)` constructions in `tests/` to add `definitions_fn=...`; test edits beyond import-path updates are out of this loop's prompt scope. Punt to a human iteration.]
+### 1b. ``definitions_fn`` should be required  [ANNOTATION_LIE]  [STATUS: DONE: took the audit's option (b) -- assert at use sites instead of changing the type. Five sites (composite_loss.py, disaster/diagnostics.py x2, trainer.py, composite_loss.py inner lambda) now bind ``defs_fn = model.definitions_fn`` after asserting non-None so lambdas keep the narrowing.]
 
 The harder half of #1. Every shipped model defines `definitions_fn` and the framework calls it unconditionally on every cycle log path. Dropping the `Optional` requires updating ~7 toy `ModelSpec(...)` constructions in `tests/test_basic.py`, `tests/test_history_persistence.py`, `tests/test_training_contracts.py` to add a `definitions_fn=lambda s, p, c: {}`.
 
@@ -156,7 +156,7 @@ Plus two `invalid-type-form` at 150, 171 — `callable` used as a type form (pro
 **Plan:** Two `# pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment]  # YAML-loaded dict; Pydantic validators check the actual types at construction time` directives.
 **Cost:** S.
 
-### 14. ``benchmark.py:67`` second `train_step` argument  [REAL_BUG]  [STATUS: TODO]
+### 14. ``benchmark.py:67`` second `train_step` argument  [REAL_BUG]  [STATUS: DONE: rolled into item 5; benchmark.py is now clean.]
 
 (Subset of item 5; tracked separately if item 5's edit doesn't catch all callsites.)
 

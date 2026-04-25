@@ -1030,9 +1030,11 @@ def _run_training_loop(
 
             # Definition histograms (derived economic quantities)
             if model.definitions_fn is not None:
-                defs = jax.vmap(
-                    lambda s, p: model.definitions_fn(s, p, model.constants)
-                )(ep_states, policy_out)
+                # Bind to local to keep narrowing inside the lambda body.
+                defs_fn = model.definitions_fn
+                defs = jax.vmap(lambda s, p: defs_fn(s, p, model.constants))(
+                    ep_states, policy_out
+                )
                 for name, vals in defs.items():
                     hist_dict[f"derived/{name}"] = np.asarray(vals)
 
