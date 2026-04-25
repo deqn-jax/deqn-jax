@@ -26,39 +26,45 @@ if [ ! -d "$REPO_DIR" ]; then
     exit 1
 fi
 
-# Forward all CLI args verbatim to the launcher.
-EXTRA_ARGS=("$@")
-PY_ARGS_QUOTED=$(printf '"%s" ' "${EXTRA_ARGS[@]}")
-
 echo "[wrapper] image=$IMAGE"
 echo "[wrapper] repo=$REPO_DIR"
-echo "[wrapper] launcher args: ${EXTRA_ARGS[*]:-(none)}"
+echo "[wrapper] launcher args: ${*:-(none)}"
+
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
 
 docker run --rm --gpus all \
     --ipc=host \
     --ulimit memlock=-1 \
     --ulimit stack=67108864 \
+    --user "$HOST_UID:$HOST_GID" \
     -v "$REPO_DIR:/workspace" \
     -w /workspace \
+    -e HOME=/workspace/.docker_home \
     -e WANDB_API_KEY="${WANDB_API_KEY:-}" \
     -e WANDB_DIR=/workspace/runs/sweep_so/.wandb \
     -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
     "$IMAGE" \
-    bash -c "
+    bash -c '
         set -euo pipefail
-        echo '[setup] installing project deps in container...'
-        pip install --quiet --no-deps \
-            equinox tensorboardX wandb tqdm pydantic-settings rich
-        # protobuf / sentry-sdk / etc. are wandb/tensorboardX deps; bring those in.
-        pip install --quiet \
-            'protobuf>=3.20' 'sentry-sdk>=2' 'gitpython>=3' 'platformdirs'
-        pip install --quiet --no-deps -e .
-        echo '[setup] python:' && python --version
-        echo '[setup] jax devices:' && python -c 'import jax; print(jax.devices())'
-        if [ -z \"\${WANDB_API_KEY:-}\" ]; then
-            echo '[setup] WANDB_API_KEY unset — disabling W&B for this sweep'
+        echo "[setup] installing project deps in container..."
+        # When running with --user (non-root), pip --user installs to
+        # $HOME=/workspace/.docker_home which is host-mounted and persists.
+        mkdir -p "$HOME"
+        pip install --quiet --user --no-deps \
+            equinox tensorboardX wandb tqdm pydantic-settings rich \
+            treescope orbax-checkpoint matplotlib
+        pip install --quiet --user \
+            "protobuf>=3.20" "sentry-sdk>=2" "gitpython>=3" "platformdirs" \
+            "contourpy>=1.0" "cycler>=0.10" "fonttools>=4.0" \
+            "kiwisolver>=1.3" "pyparsing>=2.4" "pillow>=8"
+        pip install --quiet --user --no-deps -e .
+        echo "[setup] python:" && python --version
+        echo "[setup] jax devices:" && python -c "import jax; print(jax.devices())"
+        if [ -z "${WANDB_API_KEY:-}" ]; then
+            echo "[setup] WANDB_API_KEY unset — disabling W&B for this sweep"
             export DEQN_DISABLE_WANDB=1
         fi
-        echo '[run] starting launcher...'
-        python scripts/sweep_disaster_second_order.py $PY_ARGS_QUOTED
-    "
+        echo "[run] starting launcher..."
+        python scripts/sweep_disaster_second_order.py "$@"
+    ' bash "$@"
