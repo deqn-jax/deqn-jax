@@ -22,7 +22,7 @@ foo()  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
 
 ## Workplan (ordered by leverage)
 
-### 1. ModelSpec optional fields that are practically required  [ANNOTATION_LIE]  [STATUS: TODO]
+### 1. ModelSpec optional fields that are practically required  [ANNOTATION_LIE]  [STATUS: BLOCKED: dropping `Optional` makes the fields positionally required, which breaks 7 toy-model constructions in `tests/`. Test edits beyond import-path updates are out of this loop's scope. Split into 1a (names → default to `()`, no test impact) and 1b (`definitions_fn` → requires test updates, do separately).]
 
 `types.py` declares `definitions_fn`, `state_names`, `policy_names` as `Optional[...]`, but every live model sets them and the framework calls them unconditionally. Producing 27 `OPTIONAL_NARROWING` errors downstream (`model.definitions_fn(...)`, `list(model.state_names)`, etc.).
 
@@ -37,6 +37,22 @@ Sample sites:
 
 **Plan:** In `types.py`, drop the `Optional` from `definitions_fn`, `state_names`, `policy_names`; require all model packages to provide them (a quick `git grep` confirms they already do). Keep `steady_state_fn` and `init_state_fn` Optional — those legitimately don't apply to every model. This kills ~25 errors with one annotation change.
 **Cost:** S.
+
+### 1a. ModelSpec name fields default to ``()`` instead of None  [ANNOTATION_LIE]  [STATUS: TODO]
+
+Subset of #1 that doesn't break tests: change `state_names`, `policy_names`, `equation_names` from `Optional[Tuple[str, ...]] = None` to `Tuple[str, ...] = ()`. Tests' toy models construct without these fields, which then default to empty tuple instead of None. Truthy-check call sites (`if model.state_names: ...`) keep working; `list(model.state_names)` returns `[]` instead of raising. Eliminates ~10 narrowing errors at the call sites.
+
+**Plan:** Three lines in `types.py`. Verify tests still pass; verify no code path actually relies on the difference between `None` and `()`.
+**Cost:** S.
+
+### 1b. ``definitions_fn`` should be required  [ANNOTATION_LIE]  [STATUS: TODO]
+
+The harder half of #1. Every shipped model defines `definitions_fn` and the framework calls it unconditionally on every cycle log path. Dropping the `Optional` requires updating ~7 toy `ModelSpec(...)` constructions in `tests/test_basic.py`, `tests/test_history_persistence.py`, `tests/test_training_contracts.py` to add a `definitions_fn=lambda s, p, c: {}`.
+
+That's a test edit, which the loop's prompt forbids beyond import-path updates. Punting to a human iteration. Saves ~15 errors at use sites.
+
+**Plan:** Either (a) human-driven test updates, or (b) accept Optional + add `assert model.definitions_fn is not None, "..."` at the use sites (mechanical but pollutes hot paths).
+**Cost:** M (because it crosses the test boundary).
 
 ### 2. ``Optional[steady_state_fn]`` legitimately optional but called everywhere  [OPTIONAL_NARROWING]  [STATUS: TODO]
 
