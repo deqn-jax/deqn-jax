@@ -35,7 +35,11 @@ theme:
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.arithmatex:
@@ -76,6 +80,7 @@ nav:
   - Guides:
       - Implementing a model: models/implementing.md
       - Running experiments: running_experiments.md
+      - Architecture: architecture.md
       - Autodiff-synthesized equations: autodiff.md
       - Config reference: config_reference.md
   - Examples:

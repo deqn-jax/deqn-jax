@@ -127,6 +127,7 @@ ignore = [
 [dependency-groups]
 dev = [
     "penzai>=0.2.5",
+    "pydeps>=3.0.6",
     "pytest>=9.0.2",
     "ruff>=0.15.11",
 ]
