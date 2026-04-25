@@ -16,7 +16,7 @@ def _run_cycle_capture(sorted_flag: bool, seed: int = 0):
     """Run one cycle of _make_cycle_step with a no-op grad_step that
     captures each minibatch, and return the list of minibatches observed."""
     from deqn_jax.models.brock_mirman import MODEL
-    from deqn_jax.training.trainer import _make_cycle_step
+    from deqn_jax.training.cycle import make_cycle_step as _make_cycle_step
     from deqn_jax.types import Metrics, TrainState, make_reweight_state
 
     episode_length = 8
