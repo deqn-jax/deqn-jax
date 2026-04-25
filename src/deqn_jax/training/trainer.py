@@ -10,10 +10,6 @@ Three step variants dispatched at construction time (before JIT):
 
 import math
 import os
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -33,6 +29,21 @@ from deqn_jax.optimizers.mao import make_grad_step_mao as _make_grad_step_mao
 from deqn_jax.optimizers.pcgrad import make_grad_step_pcgrad as _make_grad_step_pcgrad
 from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
 from deqn_jax.optimizers.standard import make_grad_step_standard as _make_grad_step_standard
+from deqn_jax.training.checkpointing import (
+    best_checkpoint_path as _best_checkpoint_path,
+)
+from deqn_jax.training.checkpointing import (
+    prune_checkpoints as _prune_checkpoints,
+)
+from deqn_jax.training.checkpointing import (
+    resume_from as _resume_from_checkpoint,
+)
+from deqn_jax.training.checkpointing import (
+    save_best_checkpoint as _save_best_checkpoint,
+)
+from deqn_jax.training.checkpointing import (
+    save_checkpoint as _save_checkpoint,
+)
 from deqn_jax.training.episode import run_episode, run_episode_with_history, sample_initial_states
 from deqn_jax.training.history import build_history_windows, get_history_len, make_constant_history
 from deqn_jax.training.loss import (
@@ -180,45 +191,8 @@ def _print_final(
     print("=" * w)
 
 
-def _save_best_checkpoint(state: TrainState, checkpoint_dir: str, episode: int, loss: float, config=None):
-    """Overwrite checkpoint_best.eqx + record the episode and loss.
-
-    Called whenever loss improves past the running minimum. The resulting
-    file is the "best achievable" artifact across the whole run — useful
-    when training finds a good solution mid-run and then gets destabilised.
-    """
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    path = os.path.join(checkpoint_dir, "checkpoint_best.eqx")
-    eqx.tree_serialise_leaves(path, state)
-    # Write a tiny metadata file so it's obvious which episode this was.
-    meta_path = os.path.join(checkpoint_dir, "checkpoint_best.meta")
-    with open(meta_path, "w") as f:
-        f.write(f"episode {episode}\nloss {loss:.6e}\n")
-    if config is not None and getattr(config, "checkpoint_dir", None):
-        cfg_path = os.path.join(checkpoint_dir, "config.yaml")
-        if not os.path.exists(cfg_path):
-            config.to_yaml(cfg_path)
-
-
-def _save_checkpoint(state: TrainState, checkpoint_dir: str, episode: int, config=None):
-    """Save training state checkpoint and optionally config snapshot."""
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    path = os.path.join(checkpoint_dir, f"checkpoint_{episode:06d}.eqx")
-    eqx.tree_serialise_leaves(path, state)
-    # Save config once (first checkpoint only)
-    if config is not None:
-        cfg_path = os.path.join(checkpoint_dir, "config.yaml")
-        if not os.path.exists(cfg_path):
-            config.to_yaml(cfg_path)
-
-
-def _prune_checkpoints(checkpoint_dir: str, max_keep: int):
-    """Delete oldest checkpoints, keeping only the most recent max_keep."""
-    import glob as glob_mod
-    pattern = os.path.join(checkpoint_dir, "checkpoint_*.eqx")
-    existing = sorted(glob_mod.glob(pattern))
-    while len(existing) > max_keep:
-        os.remove(existing.pop(0))
+# Periodic / best-snapshot checkpointing now lives in
+# training/checkpointing.py; see imports above.
 
 
 # ---------------------------------------------------------------------------
@@ -1384,7 +1358,7 @@ def _build_initial_state(
             sim_batch=orig_config.sim_batch,
         )
 
-        state = eqx.tree_deserialise_leaves(config.resume, template_state)
+        state = _resume_from_checkpoint(template_state, config.resume)
         start_episode = int(state.episode)
         total_for_schedule = config.episodes
 
@@ -1898,8 +1872,10 @@ def _run_training_loop(
             last_good_episode = ep_num
 
         # ---- Save-best tracking ----
-        # Always writes checkpoint_best.eqx on improvement (after grace
-        # period). Independent of early_stop and of checkpoint_every.
+        # Always writes the best-so-far checkpoint on improvement (after
+        # grace period). Independent of early_stop and of
+        # checkpoint_every. The on-disk path is owned by
+        # ``training.checkpointing``.
         if (
             config.save_best_checkpoint
             and config.checkpoint_dir is not None
@@ -1925,7 +1901,7 @@ def _run_training_loop(
         if best_save_loss < float("inf"):
             print(
                 f"Best checkpoint: {best_save_loss:.2e} at episode "
-                f"{best_save_episode} → {config.checkpoint_dir}/checkpoint_best.eqx"
+                f"{best_save_episode} → {_best_checkpoint_path(config.checkpoint_dir)}"
             )
 
     logger.close()
