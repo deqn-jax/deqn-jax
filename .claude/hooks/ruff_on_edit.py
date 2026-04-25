@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: run ruff on .py files just edited by Claude.
+"""PostToolUse hook: format + lint .py files just edited by Claude.
 
-Runs on Edit / Write / NotebookEdit tool calls. If the edited file is a
-.py file that fails ruff lint, the hook exits with code 2 so Claude Code
-feeds the ruff output back to the agent as tool feedback. For non-.py
-files, missing files, or clean files, exits 0 silently.
+Runs on Edit / Write / NotebookEdit tool calls. Pipeline:
+
+  1. ``ruff format`` -- reformats in place. Style drift is fixed
+     silently, never blocks.
+  2. ``ruff check --fix`` -- applies safe auto-fixes (import order,
+     redundant ``as`` aliases, etc.) in place.
+  3. ``ruff check`` -- reports anything still broken (real bugs:
+     F401 unused, F821 undefined name, etc.). On non-zero exit, the
+     hook exits with code 2 so Claude Code feeds the output back as
+     tool feedback.
+
+Non-.py files, missing files, or fully-clean files exit 0 silently.
 
 Configured via .claude/settings.json.
 """
@@ -15,6 +23,12 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _run(*args: str) -> subprocess.CompletedProcess:
+    """Run a `uv run -- ruff …` command, capturing output."""
+    cmd = ["uv", "run", "--", "ruff", *args]
+    return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def main() -> int:
@@ -37,14 +51,22 @@ def main() -> int:
         # File was just deleted, or path points outside the project; skip.
         return 0
 
-    # Use the project's pinned ruff via `uv run` -- avoids uvx cold-start
-    # cost and guarantees the same version CI / contributors would see.
-    cmd = ["uv", "run", "--", "ruff", "check", "--no-cache", str(path)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Step 1: reformat in place. Stays silent on drift; only surfaces
+    # parse errors (which would also fail the next steps anyway).
+    _run("format", str(path))
+
+    # Step 2: auto-fix safe lint issues in place (I001 import order,
+    # redundant aliases, trailing commas, etc.). Unsafe fixes (e.g.
+    # deleting bindings ruff thinks are unused but might be re-exports)
+    # are NOT applied -- those still surface in step 3.
+    _run("check", "--fix", "--no-cache", str(path))
+
+    # Step 3: report anything still broken. These are real bugs the
+    # autofixer couldn't safely handle.
+    result = _run("check", "--no-cache", str(path))
     if result.returncode == 0:
         return 0
 
-    # Feed ruff output back to Claude as tool feedback (exit code 2).
     output = (result.stdout or "") + (result.stderr or "")
     print(
         f"ruff flagged issues in {path}:\n\n{output.strip()}\n",
