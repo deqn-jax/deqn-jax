@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **89** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=10, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
+- Total: **81** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=2, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -72,7 +72,7 @@ That's a test edit, which the loop's prompt forbids beyond import-path updates. 
 **Plan:** Change `GaussNewtonState.last_loss: float` to `Array` in `gauss_newton.py`. Verify nothing in the optimiser actually consumes it as a Python `float`.
 **Cost:** S.
 
-### 4. ``compute_loss(shock_scale: float)`` is called with ``Array``  [ANNOTATION_LIE]  [STATUS: TODO]
+### 4. ``compute_loss(shock_scale: float)`` is called with ``Array``  [ANNOTATION_LIE]  [STATUS: DONE]
 
 `training/loss.py:262` declares `shock_scale: float = 1.0`, but every grad-step factory passes `shock_scale: Array` (see `optimizers/standard.py:65`, `optimizers/lbfgs.py:65, 87`, `optimizers/mao.py:185, 202`, `optimizers/pcgrad.py:55, 70`). 7 `invalid-argument-type` errors.
 

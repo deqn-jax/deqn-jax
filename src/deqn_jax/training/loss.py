@@ -39,7 +39,7 @@ def sample_antithetic_shocks(
     n_samples: int,
     batch_size: int,
     shock_dim: int,
-    shock_scale: float = 1.0,
+    shock_scale: float | Array = 1.0,
 ) -> Array:
     """Generate Monte Carlo shocks with antithetic variates.
 
@@ -259,13 +259,13 @@ def compute_loss(
     key: Array,
     mc_samples: int = 5,
     weights: Optional[Array] = None,
-    shock_scale: float = 1.0,
+    shock_scale: float | Array = 1.0,
     quad_nodes: Optional[Array] = None,
     quad_weights: Optional[Array] = None,
-    barrier_weight: float = 0.0,
+    barrier_weight: float | Array = 0.0,
     target_policy_fn: Optional[Callable[[Array], Array]] = None,
     loss_choice: str = "mse",
-    huber_delta: float = 1.0,
+    huber_delta: float | Array = 1.0,
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with MC or quadrature expectations.
 
