@@ -50,6 +50,9 @@ scripts/*
 !scripts/make_plots.py
 !scripts/gen_config_reference.py
 !scripts/check_module_graph.py
+!scripts/sweep_disaster_second_order.py
+!scripts/run_sweep_in_container.sh
+!scripts/fetch_sweep_results.sh
 dynare/
 PLAN.md
 docs/session_log.md
@@ -65,6 +68,8 @@ irf_results/
 !.claude/hooks/**
 !.claude/ralph_refactor_prompt.md
 !.claude/ralph_typing_prompt.md
+!.claude/ralph_disaster_diag_prompt.md
+!.claude/ralph_disaster_so_sweep_prompt.md
 
 # Docs (PDFs are binary, keep .tex in version control)
 docs/*.pdf

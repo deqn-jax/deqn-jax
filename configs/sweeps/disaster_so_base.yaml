@@ -1,0 +1,67 @@
+# Base config for the disaster second-order optimizer sweep.
+#
+# Sweep dimensions (overridden per run via --set):
+#   - optimizer.name        in {ngd, mao, shampoo, muon, lbfgs, gn, ign, lm}
+#   - optimizer.learning_rate
+#   - tensorboard_dir       (per-run subdir)
+#   - checkpoint_dir        (per-run subdir)
+#
+# Held fixed for clean signal:
+#   - bare MLP (NOT linear+mlp) — testing the optimizer, not the architecture
+#   - mse loss (NOT composite)  — composite is incompatible with gn/ign/lm/lbfgs/mao anyway
+#   - seed=0                    — single seed for stage 1; stage 2 (TBD) adds variance
+#   - 5000 episodes
+#   - lenient early stop        — kill only on prolonged no-improvement, not divergence
+#
+# Wall-clock target: <2 min/run on GB10 post-JIT (≈3k eps/min per the disaster.yaml note).
+# 22 configs × ~2 min = ~45 min total wall-clock for stage 1.
+
+model: disaster
+episodes: 5000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 0
+fp64: true
+log_every: 100
+
+# Warm start fits the network to the steady-state policy via L-BFGS in
+# ~50 steps. Gives every optimizer the same starting point so we're
+# comparing dynamics around SS, not random-init recovery.
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+  init: xavier_normal
+
+optimizer:
+  # Overridden per run. Defaults here are placeholders only.
+  name: adam
+  learning_rate: 1e-3
+  grad_clip: 0.5
+  damping: 1e-4
+  cg_iters: 20
+  cg_tol: 1.0e-6
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: mse
+
+# Lenient early stop: only triggers if no >1e-6 improvement in 1000 eps.
+# We want to keep slow learners alive for the full 5k to see if they catch up.
+early_stop_patience: 1000
+early_stop_min_delta: 1.0e-6
+
+# Per-run dirs are filled in by the launcher.
+checkpoint_dir: null
+checkpoint_every: 500
+max_checkpoints: 3
+tensorboard_dir: null
+wandb_project: deqn-disaster-second-order
