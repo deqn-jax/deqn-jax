@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="0 0 820 1095"
+     viewBox="0 0 900 1370"
      width="100%"
      role="img"
      aria-labelledby="svg-title svg-desc">
@@ -75,6 +75,9 @@
                      fill: var(--text-muted); text-anchor: middle; }
     .node-pathref  { font-family: var(--font-mono); font-size: 10px;
                      fill: var(--text-pathref); text-anchor: middle; }
+    .config-knob   { font-family: var(--font-mono); font-size: 10px;
+                     fill: var(--text-pathref); text-anchor: middle;
+                     font-style: italic; }
 
     .arrow         { fill: none; stroke: var(--arrow);
                      stroke-width: var(--arrow-w); }
@@ -131,11 +134,11 @@
   </defs>
 
   <!-- background -->
-  <rect class="bg" x="0" y="0" width="820" height="1095"/>
+  <rect class="bg" x="0" y="0" width="900" height="1370"/>
 
   <!-- ===== title ===== -->
-  <text class="title-text"    x="410" y="34">DEQN-JAX training cycle</text>
-  <text class="subtitle-text" x="410" y="52">high-level · detailed companion: deqn_solver_loop_detailed.svg</text>
+  <text class="title-text"    x="450" y="34">DEQN-JAX training cycle</text>
+  <text class="subtitle-text" x="450" y="52">code-level view · pedagogical companion: figures/deqn_conceptual.svg (rendered in what_is_deqn.md)</text>
 
   <!--
     ============================================================
@@ -146,43 +149,44 @@
     ============================================================
   -->
 
-  <rect class="setup-box" x="40" y="74" width="740" height="262" rx="10" ry="10"/>
+  <rect class="setup-box" x="40" y="74" width="820" height="306" rx="10" ry="10"/>
   <text class="setup-label" x="56" y="93">ONE-TIME SETUP (eager)</text>
 
-  <!-- top row: TrainConfig → load_model (centred) -->
-  <rect class="node" x="220"  y="108" width="150" height="62" rx="6" ry="6"/>
-  <text class="node-label"   x="295" y="132">TrainConfig</text>
-  <text class="node-sub"     x="295" y="148">YAML / CLI / overrides</text>
-  <text class="node-pathref" x="295" y="164">config.py</text>
+  <!-- top row: TrainConfig → load_model (centred at canvas x=450) -->
+  <rect class="node" x="260"  y="108" width="150" height="62" rx="6" ry="6"/>
+  <text class="node-label"   x="335" y="132">TrainConfig</text>
+  <text class="node-sub"     x="335" y="148">YAML / CLI / overrides</text>
+  <text class="node-pathref" x="335" y="164">config.py</text>
 
-  <path class="arrow" d="M 375 139 L 405 139" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 415 139 L 445 139" marker-end="url(#arrow)"/>
 
-  <rect class="node" x="410"  y="108" width="150" height="62" rx="6" ry="6"/>
-  <text class="node-label"   x="485" y="132">load_model</text>
-  <text class="node-sub"     x="485" y="148">→ ModelSpec</text>
-  <text class="node-pathref" x="485" y="164">models/__init__.py</text>
+  <rect class="node" x="450"  y="108" width="150" height="62" rx="6" ry="6"/>
+  <text class="node-label"   x="525" y="132">load_model</text>
+  <text class="node-sub"     x="525" y="148">→ ModelSpec</text>
+  <text class="node-pathref" x="525" y="164">models/__init__.py</text>
 
   <!-- handoff: ModelSpec wire ↓ to fork -->
-  <path class="arrow" d="M 485 174 L 485 188" marker-end="url(#arrow)"/>
-  <text class="wire-label" x="485" y="201">ModelSpec</text>
+  <path class="arrow" d="M 525 174 L 525 188" marker-end="url(#arrow)"/>
+  <text class="wire-label" x="525" y="201">ModelSpec</text>
 
-  <!-- fork: ModelSpec splits to create_train_state (left) and make_train_step (right) -->
-  <path class="arrow" d="M 485 206 C 485 218, 220 218, 220 230" marker-end="url(#arrow)"/>
-  <path class="arrow" d="M 485 206 C 485 218, 620 218, 620 230" marker-end="url(#arrow)"/>
+  <!-- fork: ModelSpec splits to create_train_state (left) and make_train_step (right).
+       Function-box row pushed to y=252 so the curves have ~46px of vertical to bulge. -->
+  <path class="arrow" d="M 525 206 C 525 248, 220 220, 220 252" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 525 206 C 525 248, 680 220, 680 252" marker-end="url(#arrow)"/>
 
   <!-- left branch: create_train_state -->
-  <rect class="node" x="80"  y="232" width="280" height="78" rx="6" ry="6"/>
-  <text class="node-label"   x="220" y="254">create_train_state</text>
-  <text class="node-sub"     x="220" y="272">network, optimizer, init states,</text>
-  <text class="node-sub"     x="220" y="288">history seed, opt_state init</text>
-  <text class="node-pathref" x="220" y="304">training/trainer.py</text>
+  <rect class="node" x="80"  y="252" width="280" height="78" rx="6" ry="6"/>
+  <text class="node-label"   x="220" y="274">create_train_state</text>
+  <text class="node-sub"     x="220" y="292">network, optimizer, init states,</text>
+  <text class="node-sub"     x="220" y="308">history seed, opt_state init</text>
+  <text class="node-pathref" x="220" y="324">training/trainer.py</text>
 
   <!-- right branch: make_train_step -->
-  <rect class="node" x="480" y="232" width="280" height="78" rx="6" ry="6"/>
-  <text class="node-label"   x="620" y="254">make_train_step</text>
-  <text class="node-sub"     x="620" y="272">dispatch on OptimizerKind,</text>
-  <text class="node-sub"     x="620" y="288">compose rollout + grad_step, jit</text>
-  <text class="node-pathref" x="620" y="304">training/trainer.py · training/cycle.py</text>
+  <rect class="node" x="540" y="252" width="280" height="78" rx="6" ry="6"/>
+  <text class="node-label"   x="680" y="274">make_train_step</text>
+  <text class="node-sub"     x="680" y="292">dispatch on OptimizerKind,</text>
+  <text class="node-sub"     x="680" y="308">compose rollout + grad_step, jit</text>
+  <text class="node-pathref" x="680" y="324">training/trainer.py · training/cycle.py</text>
 
   <!--
     ============================================================
@@ -192,20 +196,20 @@
   -->
 
   <!-- pills directly below each branch -->
-  <path class="arrow" d="M 220 314 L 220 342" marker-end="url(#arrow)"/>
-  <rect class="state-box" x="160" y="344" width="120" height="26" rx="13" ry="13"/>
-  <text class="state-label" x="220" y="362">TrainState</text>
+  <path class="arrow" d="M 220 334 L 220 362" marker-end="url(#arrow)"/>
+  <rect class="state-box" x="160" y="364" width="120" height="26" rx="13" ry="13"/>
+  <text class="state-label" x="220" y="382">TrainState</text>
 
-  <path class="arrow" d="M 620 314 L 620 342" marker-end="url(#arrow)"/>
-  <rect class="state-box" x="560" y="344" width="120" height="26" rx="13" ry="13"/>
-  <text class="state-label" x="620" y="362">cycle_step</text>
+  <path class="arrow" d="M 680 334 L 680 362" marker-end="url(#arrow)"/>
+  <rect class="state-box" x="620" y="364" width="120" height="26" rx="13" ry="13"/>
+  <text class="state-label" x="680" y="382">cycle_step</text>
 
-  <!-- merge to loop entry -->
-  <path class="arrow" d="M 220 372 C 220 386, 410 386, 410 396" marker-end="url(#arrow)"/>
-  <path class="arrow" d="M 620 372 C 620 386, 410 386, 410 396" marker-end="url(#arrow)"/>
-
-  <text class="wire-label" x="320" y="392">data ↓</text>
-  <text class="wire-label" x="500" y="392">callable ↓</text>
+  <!-- Y-merge: two arms flow into junction (450, 414) with no arrowhead;
+       both arms arrive with downward tangent (cp2 directly above endpoint)
+       so they feed naturally into the single stem arrow below. -->
+  <path class="arrow" d="M 220 392 C 220 414, 450 410, 450 414"/>
+  <path class="arrow" d="M 680 392 C 680 414, 450 410, 450 414"/>
+  <path class="arrow" d="M 450 414 L 450 423" marker-end="url(#arrow)"/>
 
   <!--
     ============================================================
@@ -213,17 +217,17 @@
     ============================================================
   -->
 
-  <rect class="pyloop-box" x="40" y="400" width="740" height="650" rx="10" ry="10"/>
-  <text class="pyloop-label" x="56" y="424">for ep in 0..total_episodes:</text>
-  <text class="legend-text"  x="56" y="440">training/trainer.py — eager dispatch, logging, checkpointing</text>
+  <rect class="pyloop-box" x="40" y="425" width="820" height="807" rx="10" ry="10"/>
+  <text class="pyloop-label" x="56" y="444">for ep in 0..total_episodes:</text>
+  <text class="legend-text"  x="56" y="460">training/trainer.py — eager dispatch, logging, checkpointing</text>
 
   <!-- args row: shock_scale and lr_scale -->
-  <rect class="node" x="60" y="454" width="700" height="50" rx="6" ry="6"/>
-  <text class="node-label"   x="200" y="476">shock_scale = curriculum(ep)</text>
-  <text class="node-label"   x="600" y="476">lr_scale = lr_schedule(ep)</text>
-  <text class="node-sub"     x="410" y="494">passed as cycle_step args — feed both SIMULATION and TRAINING phases below</text>
+  <rect class="node" x="60" y="474" width="780" height="50" rx="6" ry="6"/>
+  <text class="node-label"   x="220" y="496">shock_scale = curriculum(ep)</text>
+  <text class="node-label"   x="680" y="496">lr_scale = lr_schedule(ep)</text>
+  <text class="node-sub"     x="450" y="514">passed as cycle_step args — feed both SIMULATION and TRAINING phases below</text>
 
-  <path class="arrow" d="M 410 510 L 410 532" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 450 530 L 450 552" marker-end="url(#arrow)"/>
 
   <!--
     ============================================================
@@ -232,65 +236,74 @@
   -->
 
   <!-- jit box -->
-  <rect class="jit-box" x="60" y="536" width="700" height="468" rx="10" ry="10"/>
+  <rect class="jit-box" x="60" y="556" width="780" height="560" rx="10" ry="10"/>
 
   <!-- jit corner badge: rect + text together, both stay readable -->
-  <rect class="jit-badge" x="60" y="536" width="200" height="22" rx="0" ry="0"/>
-  <text class="jit-badge-text" x="72" y="552">@jax.jit cycle_step</text>
-  <text class="jit-pathref"    x="270" y="552">training/cycle.py</text>
+  <rect class="jit-badge" x="60" y="556" width="200" height="22" rx="0" ry="0"/>
+  <text class="jit-badge-text" x="72" y="572">@jax.jit cycle_step</text>
+  <text class="jit-pathref"    x="270" y="572">training/cycle.py</text>
 
   <!-- =========== SIMULATION subregion =========== -->
-  <line class="phase-divider" x1="190" y1="578" x2="745" y2="578"/>
-  <text class="phase-label"   x="80" y="582">SIMULATION</text>
+  <line class="phase-divider" x1="190" y1="598" x2="825" y2="598"/>
+  <text class="phase-label"   x="80" y="602">SIMULATION</text>
 
-  <rect class="node" x="100" y="596" width="620" height="78" rx="6" ry="6"/>
-  <text class="node-label"   x="410" y="618">rollout_fn  (uses shock_scale)</text>
-  <text class="node-sub"     x="410" y="636">lax.scan over episode_length:</text>
-  <text class="node-sub"     x="410" y="652">policy(state) → step(state, policy, shock) → next_state</text>
-  <text class="node-pathref" x="410" y="668">training/cycle.py · training/episode.py · models/&lt;name&gt;/dynamics.py</text>
+  <rect class="node" x="100" y="616" width="720" height="128" rx="6" ry="6"/>
+  <text class="node-label"   x="460" y="636">rollout_fn  (uses shock_scale)</text>
+  <text class="node-sub"     x="460" y="652">input: episode_state [sim_batch, n_states]</text>
+  <text class="node-sub"     x="460" y="668">lax.scan over T = episode_length:  policy(state) → step(state, policy, shock) → next_state</text>
+  <text class="node-sub"     x="460" y="686">ep_states ← init_state_fn() if initialize_each_episode</text>
+  <text class="node-sub"     x="460" y="702">          partial reset if ss_reset_frac &gt; 0   else: carry from last cycle</text>
+  <text class="config-knob"  x="460" y="720">config: episode_length · sim_batch · initialize_each_episode · ss_reset_frac · shock_mask · history_len</text>
+  <text class="node-pathref" x="460" y="736">training/cycle.py · training/episode.py · models/&lt;name&gt;/dynamics.py</text>
 
-  <path class="arrow" d="M 410 680 L 410 700" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 460 748 L 460 766" marker-end="url(#arrow)"/>
 
-  <rect class="state-box" x="265" y="700" width="290" height="34" rx="6" ry="6"/>
-  <text class="state-label" x="410" y="716">trajectory</text>
-  <text class="node-sub"    x="410" y="730">[T, B, n_states]   (data for training)</text>
+  <rect class="state-box" x="260" y="766" width="400" height="34" rx="6" ry="6"/>
+  <text class="state-label" x="460" y="782">state_episode  (local var: trajectory)</text>
+  <text class="node-sub"    x="460" y="796">shape [T, B, n_states] · float32   (data for training)</text>
 
-  <!-- explicit data-flow: trajectory → minibatch sweep -->
-  <path class="arrow" d="M 410 736 L 410 776" marker-end="url(#arrow)"/>
-  <text class="wire-label" x="420" y="754" text-anchor="start">shuffle + slice → batch [B, n_states]</text>
+  <!-- explicit data-flow: state_episode → minibatch sweep -->
+  <path class="arrow" d="M 460 802 L 460 844" marker-end="url(#arrow)"/>
+  <text class="wire-label"  x="470" y="820" text-anchor="start">shuffle + slice → batch [batch_size, n_states]</text>
+  <text class="config-knob" x="470" y="834" text-anchor="start">config: batch_size · sorted_within_batch</text>
 
   <!-- =========== TRAINING subregion =========== -->
-  <line class="phase-divider" x1="170" y1="762" x2="745" y2="762"/>
-  <text class="phase-label"   x="80" y="766">TRAINING</text>
+  <line class="phase-divider" x1="170" y1="852" x2="825" y2="852"/>
+  <text class="phase-label"   x="80" y="856">TRAINING</text>
 
-  <rect class="node" x="100" y="778" width="620" height="208" rx="6" ry="6"/>
-  <text class="node-label" x="410" y="800">minibatch sweep  (uses lr_scale, shock_scale)</text>
-  <text class="node-sub"   x="410" y="816">for epoch in n_epochs: for mb in n_minibatches:</text>
-  <text class="node-sub"   x="410" y="830">grad_step receives one batch slice per call</text>
+  <rect class="node" x="100" y="868" width="720" height="236" rx="6" ry="6"/>
+  <text class="node-label"   x="460" y="888">minibatch sweep  (uses lr_scale, shock_scale)</text>
+  <text class="node-sub"     x="460" y="904">for epoch in n_epochs_per_rollout:  for mb in n_minibatches_per_epoch:  grad_step(state, batch, …)</text>
+  <text class="config-knob"  x="460" y="920">config: n_epochs_per_rollout · n_minibatches_per_epoch · batch_size</text>
 
   <!-- inner: grad_step -->
-  <rect class="node" x="135" y="830" width="245" height="140" rx="6" ry="6"
+  <rect class="node" x="140" y="930" width="280" height="164" rx="6" ry="6"
         fill="var(--bg)"/>
-  <text class="node-label"   x="257" y="852">grad_step</text>
-  <text class="node-sub"     x="257" y="870">value_and_grad / jacrev /</text>
-  <text class="node-sub"     x="257" y="886">lbfgs / GN — variant-specific</text>
-  <text class="node-pathref" x="257" y="910">optimizers/&lt;name&gt;.py</text>
-  <text class="node-sub"     x="257" y="936">(6 variants — fan-out in</text>
-  <text class="node-sub"     x="257" y="952">the detailed companion)</text>
+  <text class="node-label"   x="280" y="950">grad_step</text>
+  <text class="node-sub"     x="280" y="966">variant chosen at construction:</text>
+  <text class="node-sub"     x="280" y="982">value_and_grad · jacrev ·</text>
+  <text class="node-sub"     x="280" y="998">lbfgs · GN/LM · pcgrad · MAO</text>
+  <text class="config-knob"  x="280" y="1018">config: optimizer.kind · grad_clip</text>
+  <text class="node-pathref" x="280" y="1038">optimizers/&lt;kind&gt;.py</text>
+  <text class="node-sub"     x="280" y="1062">→ optax.apply_updates(</text>
+  <text class="node-sub"     x="280" y="1078">      params, updates)</text>
 
   <!-- bidirectional arrow grad_step ↔ compute_loss -->
-  <path class="arrow" d="M 385 900 L 425 900" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <path class="arrow" d="M 425 1004 L 455 1004" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
 
-  <!-- inner: compute_loss -->
-  <rect class="node" x="430" y="830" width="260" height="140" rx="6" ry="6"
+  <!-- inner: compute_loss (shifted left by 40px so it has the same 40px
+       margin from the sweep-box right edge that grad_step has on the left) -->
+  <rect class="node" x="460" y="930" width="320" height="164" rx="6" ry="6"
         fill="var(--bg)"/>
-  <text class="node-label"   x="560" y="852">compute_loss</text>
-  <text class="node-sub"     x="560" y="870">shocks → vmap(residuals)</text>
-  <text class="node-sub"     x="560" y="886">→ aggregate (+ aux if</text>
-  <text class="node-sub"     x="560" y="902">composite)</text>
-  <text class="node-pathref" x="560" y="926">training/loss.py</text>
-  <text class="node-pathref" x="560" y="940">+ training/composite_loss.py</text>
-  <text class="node-pathref" x="560" y="954">+ training/shocks.py</text>
+  <text class="node-label"   x="620" y="950">compute_loss</text>
+  <text class="node-sub"     x="620" y="966">shocks [K, batch_size, n_shocks]</text>
+  <text class="node-sub"     x="620" y="982">→ vmap(residuals) → [K, B, n_eq]</text>
+  <text class="node-sub"     x="620" y="998">→ E_ε[r]² · weighted (+ aux if composite)</text>
+  <text class="config-knob"  x="620" y="1018">K = mc_samples  (or quad_n^n_shocks)</text>
+  <text class="config-knob"  x="620" y="1032">config: loss_type · loss_reweight ·</text>
+  <text class="config-knob"  x="620" y="1046">target_update_every · model.p_disaster</text>
+  <text class="node-pathref" x="620" y="1066">training/loss.py · composite_loss.py</text>
+  <text class="node-pathref" x="620" y="1080">+ training/shocks.py · reweighting.py</text>
 
   <!--
     ============================================================
@@ -298,24 +311,25 @@
     ============================================================
   -->
 
-  <path class="arrow" d="M 410 1004 L 410 1024" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 460 1122 L 460 1142" marker-end="url(#arrow)"/>
 
   <!-- new TrainState pill on exit -->
-  <rect class="state-box" x="320" y="1024" width="180" height="26" rx="13" ry="13"/>
-  <text class="state-label" x="410" y="1042">→ updated TrainState</text>
+  <rect class="state-box" x="370" y="1142" width="180" height="26" rx="13" ry="13"/>
+  <text class="state-label" x="460" y="1160">→ updated TrainState</text>
 
   <!-- log + checkpoint footer -->
-  <text class="node-sub"     x="180" y="1075">log metrics</text>
-  <text class="node-pathref" x="320" y="1075">training/reporting.py</text>
-  <text class="node-sub"     x="475" y="1075">checkpoint</text>
-  <text class="node-pathref" x="630" y="1075">training/checkpointing.py</text>
+  <text class="node-sub"     x="200" y="1193">log metrics</text>
+  <text class="node-pathref" x="350" y="1193">training/reporting.py</text>
+  <text class="node-sub"     x="525" y="1193">checkpoint</text>
+  <text class="node-pathref" x="700" y="1193">training/checkpointing.py</text>
 
   <!--
     ============================================================
     LEGEND
     ============================================================
   -->
-  <g transform="translate(40, 1085)">
+  <!-- Visual legend (row 1) -->
+  <g transform="translate(40, 1244)">
     <rect class="node" x="0" y="0" width="14" height="10" rx="2" ry="2"/>
     <text class="legend-text" x="20" y="9">function / module</text>
 
@@ -331,4 +345,37 @@
     <rect class="pyloop-box" x="660" y="0" width="14" height="10" rx="2" ry="2"/>
     <text class="legend-text" x="680" y="9">Python loop</text>
   </g>
+
+  <!-- Config-knob legend + reference. Single <text> per row with <tspan>
+       children: the .legend-text class is left-anchored (default), and
+       tspans inherit anchor, so categories and knob lists never collide. -->
+  <text class="legend-text" x="40" y="1278">
+    <tspan style="fill:var(--text-pathref);font-style:italic">config: knob_name</tspan>
+    <tspan>  — italic indigo annotations are user-settable in TrainConfig (YAML / CLI / --set overrides). Full reference:</tspan>
+  </text>
+
+  <text class="legend-text" x="40" y="1297">
+    <tspan font-weight="700">rollout       </tspan>
+    <tspan style="fill:var(--text-pathref);font-style:italic">episode_length · sim_batch · initialize_each_episode · ss_reset_frac · shock_mask · history_len</tspan>
+  </text>
+
+  <text class="legend-text" x="40" y="1311">
+    <tspan font-weight="700">slice         </tspan>
+    <tspan style="fill:var(--text-pathref);font-style:italic">batch_size · sorted_within_batch</tspan>
+  </text>
+
+  <text class="legend-text" x="40" y="1325">
+    <tspan font-weight="700">sweep         </tspan>
+    <tspan style="fill:var(--text-pathref);font-style:italic">n_epochs_per_rollout · n_minibatches_per_epoch</tspan>
+  </text>
+
+  <text class="legend-text" x="40" y="1339">
+    <tspan font-weight="700">grad_step     </tspan>
+    <tspan style="fill:var(--text-pathref);font-style:italic">optimizer.kind · grad_clip</tspan>
+  </text>
+
+  <text class="legend-text" x="40" y="1353">
+    <tspan font-weight="700">loss          </tspan>
+    <tspan style="fill:var(--text-pathref);font-style:italic">mc_samples · loss_type · loss_reweight · target_update_every · model.p_disaster</tspan>
+  </text>
 </svg>

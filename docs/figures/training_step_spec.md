@@ -5,21 +5,24 @@ original hand-drawn diagram so the digital recreation reflects the
 **current** code, not the historical one. The original drawing is the
 visual language; this file is the ground truth for content.
 
-We want **two artefacts**:
+We ship **two artefacts**:
 
-- **High-level SVG** — replaces the existing
-  `docs/site/figures/deqn_solver_loop.svg`. One screenful: setup → loop
-  → JIT box, no fine-grain optimisation guts.
-- **Detailed SVG** — new
-  `docs/site/figures/deqn_solver_loop_detailed.svg`, embedded in
-  `architecture.md` as a zoom-in companion. Includes mixture branch,
-  composite aux losses, all five gradient-path variants, history
-  threading.
+- **Conceptual SVG** — `docs/site/figures/deqn_conceptual.svg`,
+  embedded in `what_is_deqn.md`. Pure four-level nested ladder
+  (CYCLE ⊃ {SIM, TRAIN} ⊃ STEP/EPOCH ⊃ BATCH ⊃ action). No file
+  paths, no JIT boundary, no variant fan-out — just the method.
+- **High-level (code-level) SVG** — `docs/site/figures/deqn_solver_loop.svg`,
+  embedded in `reading_guide.md`. Setup region + cycle loop + JIT box,
+  with file-path annotations on every node so contributors can navigate
+  from diagram label to source. This is the single code-level diagram;
+  the originally-planned "detailed companion" was dropped after audit
+  (the things it would add — mixture branch, composite aux cluster,
+  variant fan-out, tensor-shape cascade — are already covered by prose
+  in `composite_loss.md`, `architecture.md §4`, and the optimizer-
+  family docs).
 
-Both share the same visual language. Annotations should reference
-**concrete file paths and function names** (e.g.
-`training/cycle.py:cycle_step`) so a contributor can ctrl-click from
-diagram label to source.
+Both share the same visual language (JetBrains Mono, palette swap
+header, same pytree/JIT/loop visual primitives).
 
 ---
 
@@ -266,27 +269,37 @@ gradient step actually do?" view.
 
 ## What to put in each diagram
 
-### High-level SVG (`deqn_solver_loop.svg`)
+### Conceptual SVG (`deqn_conceptual.svg`)
 
-Keep it readable at a glance. One screen of content. Show:
+Pedagogical, no code references. Show only:
 
-- Setup chain collapsed: `TrainConfig → ModelSpec → TrainState →
-  cycle_step` (single labelled arrow, not the detailed Region 1).
-- The cycle loop with the JIT boundary clearly marked.
-- A small inset (or call-out) for "inside cycle_step": rollout →
-  minibatch sweep → grad_step. No mixture branch, no composite aux,
-  no five-variant fanout — those go in the detailed SVG.
-- File-path annotations for the four headline modules (`config.py`,
-  `training/trainer.py`, `training/cycle.py`, `training/loss.py`).
+- The four nesting levels (CYCLE ⊃ {SIMULATION, TRAINING} ⊃
+  STEP/EPOCH ⊃ BATCH).
+- Inside STEP: forward pass + total step actions.
+- Inside BATCH: forward+backward + update NN actions.
+- The `state_episode` data bridge between SIMULATION and TRAINING.
+- The cycle-back arrow: STEP's final state `s_{T-1}` seeds next
+  cycle's `s_0`. Source the arrow from clearly-empty space (not from
+  state_episode pill, which is the *whole tensor* used for training
+  data, not the seed).
 
-### Detailed SVG (`deqn_solver_loop_detailed.svg`)
+### High-level (code-level) SVG (`deqn_solver_loop.svg`)
 
-Show all of Region 3. Show the mixture branch, the composite aux
-losses, and the five gradient-path variants as a fan-out. Annotate
-every box with `file:function`. Embed in `architecture.md` next to the
-existing mermaid `cycle_step` sequence diagram, so the user can flip
-between "what calls what" (mermaid) and "what data flows through what"
-(SVG).
+Keep it readable at a glance. Show:
+
+- Setup region with the fork: `TrainConfig → load_model → ModelSpec`,
+  then ModelSpec splits to `create_train_state` (→ `TrainState` data)
+  and `make_train_step` (→ JIT'd `cycle_step` callable). Both feed the
+  loop.
+- The Python loop with the JIT boundary on `cycle_step`.
+- Inside `cycle_step`: SIMULATION (rollout_fn → state_episode) and
+  TRAINING (minibatch sweep with `grad_step ↔ compute_loss`) as two
+  labelled sub-regions.
+- File-path annotations under every box.
+- Config-knob annotations on the boxes whose behaviour they shape
+  (e.g. `initialize_each_episode`, `ss_reset_frac`, `mc_samples`,
+  `n_epochs_per_rollout`). This is the diagram's main job for an
+  experimenter trying to understand what their YAML actually does.
 
 ## Visual conventions
 

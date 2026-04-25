@@ -141,7 +141,7 @@
 
   <!-- title -->
   <text class="title-text"    x="410" y="34">DEQN training cycle — conceptual</text>
-  <text class="subtitle-text" x="410" y="52">the four-level nested loop · code-level companions: deqn_solver_loop{,_detailed}.svg</text>
+  <text class="subtitle-text" x="410" y="52">the four-level nested loop · code-level companion: deqn_solver_loop.svg (rendered in reading_guide.md)</text>
 
   <!--
     ============================================================
