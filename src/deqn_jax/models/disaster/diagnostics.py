@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
+from deqn_jax.models.disaster.equations import _soft_floor
 from deqn_jax.types import ModelSpec
 
 
@@ -359,6 +360,78 @@ def _eq2_diagnostics(
     }
 
 
+def _eq5_diagnostics(
+    model: ModelSpec,
+    policy_fn: Callable,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq5 (consumption_euler) decomposition at training states.
+
+    Residual structure:
+        habit_now  = soft_floor(c * mu_z - b * c_lag, 1e-2)
+        habit_next = soft_floor(c_n * mu_z_n - b * c, 1e-2)
+        eq5 = ((1 + tau_c) * lambda_z * habit_now
+               + beta * b * habit_now / habit_next) / mu_z - 1
+    Logs the two summands, habit means (raw + floored), the
+    habit_now/habit_next ratio, and saturation fractions for each
+    soft-floored habit term.
+    """
+    c_const = model.constants
+    batch_size = states.shape[0]
+
+    zero_shock = jnp.zeros((batch_size, model.n_shocks))
+    next_states = model.step_fn(states, policy_out, zero_shock, c_const)
+    next_policies = jax.vmap(policy_fn)(next_states)
+
+    c_idx = list(model.policy_names).index("c")
+    lambda_z_idx = list(model.policy_names).index("lambda_z")
+    mu_z_state_idx = list(model.state_names).index("mu_z")
+    c_lag_state_idx = list(model.state_names).index("c_lag")
+
+    c_now = policy_out[:, c_idx]
+    c_n = next_policies[:, c_idx]
+    lambda_z = policy_out[:, lambda_z_idx]
+    mu_z = states[:, mu_z_state_idx]
+    mu_z_n = next_states[:, mu_z_state_idx]
+    c_lag = states[:, c_lag_state_idx]
+
+    habit_now_raw = c_now * mu_z - c_const["b"] * c_lag
+    habit_next_raw = c_n * mu_z_n - c_const["b"] * c_now
+    habit_now = _soft_floor(habit_now_raw, 1e-2)
+    habit_next = _soft_floor(habit_next_raw, 1e-2)
+
+    tax_term = (1.0 + c_const["tau_c"]) * lambda_z * habit_now
+    habit_ratio_term = c_const["beta"] * c_const["b"] * habit_now / (habit_next + 1e-8)
+    rhs = tax_term + habit_ratio_term
+    log_residual = jnp.log(jnp.maximum(rhs, 1e-8)) - jnp.log(jnp.maximum(mu_z, 1e-8))
+    habit_ratio = habit_now / (habit_next + 1e-8)
+
+    floor_thresh = 0.012  # 1e-2 + 2e-3 buffer for saturation detection
+    floor_frac_now = float(np.mean(np.asarray(habit_now_raw) < floor_thresh))
+    floor_frac_next = float(np.mean(np.asarray(habit_next_raw) < floor_thresh))
+
+    lr = np.asarray(log_residual)
+    hr = np.asarray(habit_ratio)
+    return {
+        "tax_term_mean": float(np.mean(np.asarray(tax_term))),
+        "habit_ratio_term_mean": float(np.mean(np.asarray(habit_ratio_term))),
+        "habit_now_raw_mean": float(np.mean(np.asarray(habit_now_raw))),
+        "habit_next_raw_mean": float(np.mean(np.asarray(habit_next_raw))),
+        "habit_now_mean": float(np.mean(np.asarray(habit_now))),
+        "habit_next_mean": float(np.mean(np.asarray(habit_next))),
+        "habit_now_floor_frac": floor_frac_now,
+        "habit_next_floor_frac": floor_frac_next,
+        "habit_ratio_mean": float(np.mean(hr)),
+        "habit_ratio_std": float(np.std(hr)),
+        "habit_ratio_min": float(np.min(hr)),
+        "habit_ratio_max": float(np.max(hr)),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+    }
+
+
 def scalar_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -406,5 +479,11 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq4_diag/{k}"] = v
+
+    if "c_lag" in model.state_names and "c" in model.policy_names:
+        for k, v in _eq5_diagnostics(
+            model, policy_fn, states, policy_out, defs
+        ).items():
+            out[f"eq5_diag/{k}"] = v
 
     return out

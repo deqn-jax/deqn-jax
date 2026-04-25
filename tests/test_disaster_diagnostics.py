@@ -134,3 +134,29 @@ def test_eq4a_Kw_definition_diagnostics():
     missing = expected - set(out.keys())
     assert not missing, f"missing eq4a_diag keys: {sorted(missing)}"
     _assert_all_float_finite(out, "eq4a_diag/")
+
+
+def test_eq5_consumption_euler_diagnostics():
+    """eq5 (consumption Euler) helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq5_diag/tax_term_mean",
+        "eq5_diag/habit_ratio_term_mean",
+        "eq5_diag/habit_now_raw_mean",
+        "eq5_diag/habit_next_raw_mean",
+        "eq5_diag/habit_now_mean",
+        "eq5_diag/habit_next_mean",
+        "eq5_diag/habit_now_floor_frac",
+        "eq5_diag/habit_next_floor_frac",
+        "eq5_diag/habit_ratio_mean",
+        "eq5_diag/habit_ratio_std",
+        "eq5_diag/habit_ratio_min",
+        "eq5_diag/habit_ratio_max",
+        "eq5_diag/log_residual_mean",
+        "eq5_diag/log_residual_std",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq5_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq5_diag/")
