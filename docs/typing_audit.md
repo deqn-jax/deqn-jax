@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **75** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
+- Total: **57** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=2, ANNOTATION_LIE=2, EQX_NOISE=24, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=1.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -108,7 +108,7 @@ Two functions promise `Dict[str, float]` but return `Dict[str, str | int | float
 **Plan:** Read the surrounding context to decide whether the type union is real or an annotation issue. If real, narrow with `assert isinstance(span, Array)`; if not, fix the producing function's return type.
 **Cost:** S.
 
-### 8. Equinox ``Linear`` / ``Module`` `__init__` typing limitation  [EQX_NOISE]  [STATUS: TODO]
+### 8. Equinox ``Linear`` / ``Module`` `__init__` typing limitation  [EQX_NOISE]  [STATUS: SUPPRESSED]
 
 `eqx.nn.Linear(...)`, `eqx.nn.LayerNorm(...)`, etc. are typed as returning `Module` (the base class), so every `self.q_proj = eqx.nn.Linear(...)` assignment fails when the field is annotated `Linear`. **22 errors** across `networks/transformer.py` (13), `networks/lstm.py` (3), `networks/mlp.py` (the `_apply_init` invocations, 6).
 

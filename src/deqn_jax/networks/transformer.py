@@ -39,10 +39,13 @@ class MultiHeadSelfAttention(eqx.Module):
         k1, k2, k3, k4 = jax.random.split(key, 4)
         self.num_heads = num_heads
         self.head_dim = hidden_dim // num_heads
-        self.q_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k1)
-        self.k_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k2)
-        self.v_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k3)
-        self.o_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k4)
+        # eqx.nn.Linear's typestub returns the Module base; the runtime
+        # value IS Linear and the field annotations are correct. Suppress
+        # the four init-site assignments.
+        self.q_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k1)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.k_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k2)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.v_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k3)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.o_proj = eqx.nn.Linear(hidden_dim, hidden_dim, key=k4)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
 
     def __call__(self, x: Array) -> Array:
         """Self-attention on [seq_len, hidden_dim]."""
@@ -83,12 +86,13 @@ class TransformerBlock(eqx.Module):
 
     def __init__(self, hidden_dim: int, num_heads: int, *, key: Array):
         k1, k2, k3 = jax.random.split(key, 3)
-        self.attn = MultiHeadSelfAttention(hidden_dim, num_heads, key=k1)
-        self.ln1 = eqx.nn.LayerNorm(hidden_dim)
-        self.ln2 = eqx.nn.LayerNorm(hidden_dim)
+        # See MultiHeadSelfAttention.__init__ for the eqx-typing rationale.
+        self.attn = MultiHeadSelfAttention(hidden_dim, num_heads, key=k1)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.ln1 = eqx.nn.LayerNorm(hidden_dim)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.ln2 = eqx.nn.LayerNorm(hidden_dim)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
         ffn_dim = hidden_dim * 4
-        self.ffn_up = eqx.nn.Linear(hidden_dim, ffn_dim, key=k2)
-        self.ffn_down = eqx.nn.Linear(ffn_dim, hidden_dim, key=k3)
+        self.ffn_up = eqx.nn.Linear(hidden_dim, ffn_dim, key=k2)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.ffn_down = eqx.nn.Linear(ffn_dim, hidden_dim, key=k3)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
 
     def __call__(self, x: Array) -> Array:
         """Forward pass for single sequence [seq_len, hidden_dim]."""
@@ -161,7 +165,7 @@ class TransformerPolicy(eqx.Module):
         # Split keys: input_proj, pos_embed, each block, final_ln, output_proj
         keys = jax.random.split(key, n_layers + 3)
 
-        self.input_proj = eqx.nn.Linear(in_features, hidden_dim, key=keys[0])
+        self.input_proj = eqx.nn.Linear(in_features, hidden_dim, key=keys[0])  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
         self.pos_embed = jax.random.normal(keys[1], (history_len, hidden_dim)) * 0.02
 
         self.blocks = [
@@ -169,8 +173,8 @@ class TransformerPolicy(eqx.Module):
             for i in range(n_layers)
         ]
 
-        self.final_ln = eqx.nn.LayerNorm(hidden_dim)
-        self.output_proj = eqx.nn.Linear(hidden_dim, out_features, key=keys[-1])
+        self.final_ln = eqx.nn.LayerNorm(hidden_dim)  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
+        self.output_proj = eqx.nn.Linear(hidden_dim, out_features, key=keys[-1])  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
 
     def _forward_single(self, x: Array) -> Array:
         """Forward pass for single sequence [history_len, n_states]."""

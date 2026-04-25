@@ -78,7 +78,7 @@ class MLP(eqx.Module):
         for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
             layer = eqx.nn.Linear(in_size, out_size, key=layer_keys[i])
             if use_custom_init:
-                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])
+                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
             self.layers.append(layer)
 
     def _forward_single(self, x: Array) -> Array:
@@ -175,7 +175,7 @@ class ResMLP(eqx.Module):
         for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
             layer = eqx.nn.Linear(in_size, out_size, key=layer_keys[i])
             if use_custom_init:
-                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])
+                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
             self.layers.append(layer)
 
             # Skip connection for hidden layers (not the output layer)
@@ -273,7 +273,7 @@ class MultiHeadMLP(eqx.Module):
         for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
             layer = eqx.nn.Linear(in_size, out_size, key=trunk_keys[i])
             if use_custom_init:
-                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])
+                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
             self.trunk_layers.append(layer)
 
         # Build per-policy output heads: each hidden_sizes[-1] → 1

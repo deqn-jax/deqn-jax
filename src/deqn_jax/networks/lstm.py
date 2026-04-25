@@ -77,7 +77,7 @@ class LSTMPolicy(eqx.Module):
         keys = jax.random.split(key, self.n_layers + 2)
 
         # Input projection: n_states -> hidden_size
-        self.input_proj = eqx.nn.Linear(in_features, hidden_sizes[0], key=keys[0])
+        self.input_proj = eqx.nn.Linear(in_features, hidden_sizes[0], key=keys[0])  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
 
         # Stacked LSTM cells
         self.cells = []
@@ -92,7 +92,7 @@ class LSTMPolicy(eqx.Module):
             self.cells.append(eqx.nn.LSTMCell(cell_in, cell_hidden, key=keys[i + 1]))
 
         # Output projection: last hidden_size -> n_policies
-        self.output_proj = eqx.nn.Linear(hidden_sizes[-1], out_features, key=keys[-1])
+        self.output_proj = eqx.nn.Linear(hidden_sizes[-1], out_features, key=keys[-1])  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
 
     def _forward_single(self, x: Array) -> Array:
         """Forward pass for single sequence [history_len, n_states]."""

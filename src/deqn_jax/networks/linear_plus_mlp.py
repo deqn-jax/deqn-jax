@@ -101,8 +101,10 @@ class LinearPlusMLP(eqx.Module):
 
         # UNBOUNDED MLP for the correction. The linear component provides
         # the "raw" output, so we don't want sigmoid/softplus on top.
+        # eqx-typing: MLP() is typed as returning Module (the base class);
+        # the runtime is MLP and the field annotation is correct.
         act_fn = _resolve_activation(activation)
-        self.mlp = MLP(
+        self.mlp = MLP(  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
             in_features=n_states + n_extra,
             out_features=n_policies,
             hidden_sizes=hidden_sizes,
