@@ -27,7 +27,18 @@ For multi-equation models the losses are aggregated as a mean across equations (
 
 ## The training loop
 
-One outer **cycle** looks like:
+![DEQN training cycle — conceptual](figures/deqn_conceptual.svg)
+
+DEQN is a four-level nested loop. Reading from outside in:
+
+- **CYCLE** — the outer iteration; you run this until the equilibrium residuals are small.
+- **SIMULATION** (one episode per cycle) — fills a trajectory by stepping the model under the *current* network policy.
+- **STEP** (one per timestep in the episode) — a forward pass of the network gives the policy at the current state, then the model dynamics produce the next state.
+- **TRAINING** (on the trajectory just simulated) — sweeps **EPOCH × BATCH** updates that adjust the network parameters to drive the equilibrium residuals toward zero.
+
+The end-state of the episode seeds the next cycle's starting state, which is what makes the procedure *on-policy*: you simulate under the policy you currently have, then improve that policy on the data it just generated, and iterate.
+
+In code-level form:
 
 1. **Simulate** a trajectory or draw a rect batch of states.
 2. **Forward** the network at each state to get a candidate policy $\pi = \mathcal{N}_\theta(s)$.

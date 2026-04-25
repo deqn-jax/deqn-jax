@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 820 650"
+     width="100%"
+     role="img"
+     aria-labelledby="svg-title svg-desc">
+  <title id="svg-title">DEQN training cycle (conceptual)</title>
+  <desc id="svg-desc">
+    The DEQN method as a four-level nested loop. One CYCLE consists of a
+    SIMULATION phase and a TRAINING phase. SIMULATION runs one episode of
+    STEP × N_episode_length, where each step is a forward pass of the
+    network followed by a model-dynamics step that produces the next state.
+    The episode fills a trajectory (state_episode), which becomes the data
+    for the TRAINING phase: EPOCH × N_epochs of BATCH × N_minibatches,
+    where each batch performs a forward + backward pass and updates the
+    network. The end-state of the episode seeds the next cycle.
+  </desc>
+
+  <!--
+    ============================================================
+    PALETTE & TYPOGRAPHY — same swap header as the other diagrams.
+    Edit :root variables to reskin.
+    ============================================================
+  -->
+  <style><![CDATA[
+    :root {
+      --bg:           #fafafa;
+
+      --node-fill:    #ffffff;
+      --node-stroke:  #303030;
+      --node-stroke-w: 1.2;
+
+      --text:         #1f1f1f;
+      --text-muted:   #707070;
+      --text-accent:  #4527a0;
+
+      --arrow:        #404040;
+      --arrow-w:      1.4;
+
+      /* nesting levels — outer to inner */
+      --L1-fill:      #f4f7fb;   /* CYCLE  */
+      --L1-stroke:    #4a6890;
+      --L2-fill:      #f1f3f5;   /* SIMULATION / TRAINING */
+      --L2-stroke:    #8a8f97;
+      --L3-fill:      #ffffff;   /* STEP / EPOCH */
+      --L3-stroke:    #5a5a5a;
+      --L4-fill:      #ffffff;   /* BATCH (training only) */
+      --L4-stroke:    #5a5a5a;
+      --L4-dash:      4 3;
+
+      /* action verbs — the "what actually runs" boxes */
+      --action-fill:  #fff7e0;
+      --action-stroke: #c5421a;
+
+      /* trajectory pytree */
+      --state-fill:   #ede7f6;
+      --state-stroke: #5e35b1;
+
+      /* cycle-back wire */
+      --cycle-arrow:  #c5421a;
+
+      --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    }
+
+    .bg            { fill: var(--bg); }
+
+    .L1-box        { fill: var(--L1-fill); stroke: var(--L1-stroke);
+                     stroke-width: 1.4; }
+    .L1-label      { font-family: var(--font-mono); font-size: 13px;
+                     font-weight: 700; fill: var(--L1-stroke);
+                     letter-spacing: 0.5px; }
+
+    .L2-box        { fill: var(--L2-fill); stroke: var(--L2-stroke);
+                     stroke-width: 1.2; }
+    .L2-label      { font-family: var(--font-mono); font-size: 12px;
+                     font-weight: 700; fill: var(--L2-stroke);
+                     letter-spacing: 0.5px; }
+
+    .L3-box        { fill: var(--L3-fill); stroke: var(--L3-stroke);
+                     stroke-width: 1.1; }
+    .L3-label      { font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--text); }
+
+    .L4-box        { fill: var(--L4-fill); stroke: var(--L4-stroke);
+                     stroke-width: 1; stroke-dasharray: var(--L4-dash); }
+    .L4-label      { font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--text); }
+
+    .action-box    { fill: var(--action-fill); stroke: var(--action-stroke);
+                     stroke-width: 1.2; }
+    .action-label  { font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--text); text-anchor: middle; }
+    .action-sub    { font-family: var(--font-mono); font-size: 10px;
+                     fill: var(--text-muted); text-anchor: middle; }
+
+    .state-box     { fill: var(--state-fill); stroke: var(--state-stroke);
+                     stroke-width: 1.2; }
+    .state-label   { font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--state-stroke);
+                     text-anchor: middle; }
+    .state-sub     { font-family: var(--font-mono); font-size: 10px;
+                     fill: var(--state-stroke); text-anchor: middle; }
+
+    .arrow         { fill: none; stroke: var(--arrow);
+                     stroke-width: var(--arrow-w); }
+    .arrow-head    { fill: var(--arrow); }
+    .cycle-arrow   { fill: none; stroke: var(--cycle-arrow);
+                     stroke-width: 1.6; stroke-dasharray: 6 4; }
+    .cycle-arrow-head { fill: var(--cycle-arrow); }
+    .cycle-label   { font-family: var(--font-mono); font-size: 11px;
+                     font-weight: 700; fill: var(--cycle-arrow);
+                     text-anchor: middle; letter-spacing: 0.3px; }
+
+    .sub           { font-family: var(--font-mono); font-size: 10px;
+                     fill: var(--text-muted); }
+    .wire-label    { font-family: var(--font-mono); font-size: 10px;
+                     fill: var(--text-muted); text-anchor: middle;
+                     font-style: italic; }
+
+    .title-text    { font-family: var(--font-mono); font-size: 18px;
+                     font-weight: 700; fill: var(--text); text-anchor: middle; }
+    .subtitle-text { font-family: var(--font-mono); font-size: 11px;
+                     fill: var(--text-muted); text-anchor: middle; }
+    .legend-text   { font-family: var(--font-mono); font-size: 10px;
+                     fill: var(--text-muted); }
+  ]]></style>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head"/>
+    </marker>
+    <marker id="cycle-arrow-head" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="cycle-arrow-head"/>
+    </marker>
+  </defs>
+
+  <!-- background -->
+  <rect class="bg" x="0" y="0" width="820" height="650"/>
+
+  <!-- title -->
+  <text class="title-text"    x="410" y="34">DEQN training cycle — conceptual</text>
+  <text class="subtitle-text" x="410" y="52">the four-level nested loop · code-level companions: deqn_solver_loop{,_detailed}.svg</text>
+
+  <!--
+    ============================================================
+    LEVEL 1 — CYCLE (outermost, repeats to convergence)
+    ============================================================
+  -->
+  <rect class="L1-box" x="40" y="78" width="740" height="510" rx="10" ry="10"/>
+  <text class="L1-label" x="56" y="100">CYCLE × N_cycles  (repeat until convergence)</text>
+  <text class="sub"      x="56" y="116">one cycle: simulate a trajectory, then train the network on it</text>
+
+  <!--
+    ============================================================
+    LEVEL 2A — SIMULATION (left half)
+    ============================================================
+  -->
+  <rect class="L2-box" x="60" y="134" width="320" height="380" rx="8" ry="8"/>
+  <text class="L2-label" x="74" y="156">SIMULATION</text>
+  <text class="sub"      x="74" y="172">one episode = one rollout under current policy</text>
+
+  <!--
+    ============================================================
+    LEVEL 3 — STEP loop
+    ============================================================
+  -->
+  <rect class="L3-box" x="78" y="186" width="284" height="232" rx="6" ry="6"/>
+  <text class="L3-label" x="92" y="206">STEP × N_episode_length</text>
+  <text class="sub"      x="92" y="222">for t in 0..T:</text>
+
+  <!--
+    ============================================================
+    LEVEL 4 — actions inside one step
+    ============================================================
+  -->
+  <rect class="action-box" x="98" y="240" width="244" height="64" rx="6" ry="6"/>
+  <text class="action-label" x="220" y="262">forward pass</text>
+  <text class="action-sub"   x="220" y="282">policy = NN(state)</text>
+
+  <path class="arrow" d="M 220 308 L 220 332" marker-end="url(#arrow)"/>
+
+  <rect class="action-box" x="98" y="336" width="244" height="68" rx="6" ry="6"/>
+  <text class="action-label" x="220" y="358">total step</text>
+  <text class="action-sub"   x="220" y="378">next_state = step(state, policy, shock)</text>
+  <text class="action-sub"   x="220" y="392">(model dynamics + shock)</text>
+
+  <!-- state_episode output pill -->
+  <rect class="state-box" x="98" y="440" width="244" height="44" rx="8" ry="8"/>
+  <text class="state-label" x="220" y="458">state_episode</text>
+  <text class="state-sub"   x="220" y="474">= (s₀, s₁, …, s_{T-1})  — the trajectory</text>
+
+
+  <!--
+    ============================================================
+    LEVEL 2B — TRAINING (right half)
+    ============================================================
+  -->
+  <rect class="L2-box" x="440" y="134" width="320" height="380" rx="8" ry="8"/>
+  <text class="L2-label" x="454" y="156">TRAINING</text>
+  <text class="sub"      x="454" y="172">supervised pass on state_episode</text>
+
+  <!--
+    ============================================================
+    LEVEL 3 — EPOCH loop
+    ============================================================
+  -->
+  <rect class="L3-box" x="458" y="186" width="284" height="312" rx="6" ry="6"/>
+  <text class="L3-label" x="472" y="206">EPOCH × N_epochs_per_episode</text>
+  <text class="sub"      x="472" y="222">for epoch in 0..E:</text>
+
+  <!--
+    ============================================================
+    LEVEL 4 — BATCH loop (inside an epoch)
+    ============================================================
+  -->
+  <rect class="L4-box" x="478" y="240" width="244" height="244" rx="6" ry="6"/>
+  <text class="L4-label" x="490" y="260">BATCH × N_minibatches</text>
+  <text class="sub"      x="490" y="276">for mb in 0..N_mb:  batch ⊂ state_episode</text>
+
+  <!--
+    ============================================================
+    LEVEL 5 — actions inside one batch (training body)
+    ============================================================
+  -->
+  <rect class="action-box" x="498" y="296" width="204" height="74" rx="6" ry="6"/>
+  <text class="action-label" x="600" y="318">forward + backward</text>
+  <text class="action-sub"   x="600" y="338">loss = (E_ε[r(s,π,s′,π′)])²</text>
+  <text class="action-sub"   x="600" y="354">∇θ loss</text>
+
+  <path class="arrow" d="M 600 374 L 600 398" marker-end="url(#arrow)"/>
+
+  <rect class="action-box" x="498" y="402" width="204" height="68" rx="6" ry="6"/>
+  <text class="action-label" x="600" y="424">update NN params</text>
+  <text class="action-sub"   x="600" y="444">θ ← θ − lr · ∇θ loss</text>
+  <text class="action-sub"   x="600" y="458">(SGD / Adam / NGD / …)</text>
+
+  <!--
+    ============================================================
+    HANDOFF — state_episode (data) crosses from sim to training
+    ============================================================
+  -->
+  <path class="arrow" d="M 350 462 C 400 462, 420 362, 470 362"
+        marker-end="url(#arrow)"/>
+
+  <!--
+    ============================================================
+    CYCLE-BACK — STEP's final state (s_{T-1}) seeds the next
+    cycle's initial state (s_0). It originates from STEP itself,
+    NOT from the state_episode pill: the trajectory tensor is
+    used as training data, but only the last element loops back.
+    Path: down the left side of the cycle box (avoids crossing
+    the sim→training handoff arrow which fills the right gap),
+    back into STEP's top-left.
+    ============================================================
+  -->
+  <text class="cycle-label" x="220" y="528" text-anchor="middle">end of cycle: take last next_state (= s_{T-1})</text>
+  <path class="cycle-arrow"
+        d="M 220 538 L 50 538 L 50 200 L 76 200"
+        marker-end="url(#cycle-arrow-head)"/>
+  <text class="cycle-label" x="410" y="568">↻  s_{T-1} seeds next cycle's starting state s_0</text>
+
+  <!--
+    ============================================================
+    LEGEND — two rows so every label fits without clipping.
+    ============================================================
+  -->
+  <g transform="translate(40, 605)">
+    <rect class="L1-box" x="0" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="20" y="9">CYCLE × N (outer)</text>
+
+    <rect class="L2-box" x="160" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="180" y="9">phase (sim / train)</text>
+
+    <rect class="L3-box" x="320" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="340" y="9">loop layer (step / epoch)</text>
+
+    <rect class="L4-box" x="540" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="560" y="9">batch loop (dashed)</text>
+  </g>
+
+  <g transform="translate(40, 627)">
+    <rect class="action-box" x="0" y="0" width="14" height="10" rx="2" ry="2"/>
+    <text class="legend-text" x="20" y="9">action (what actually runs)</text>
+
+    <rect class="state-box" x="220" y="0" width="14" height="10" rx="5" ry="5"/>
+    <text class="legend-text" x="240" y="9">data (trajectory between phases)</text>
+
+    <line class="cycle-arrow" x1="490" y1="5" x2="514" y2="5"/>
+    <text class="legend-text" x="520" y="9">cycle-back arrow</text>
+  </g>
+</svg>
