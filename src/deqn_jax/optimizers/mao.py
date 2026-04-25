@@ -135,3 +135,89 @@ class _MAOFactory:
 @register_optimizer("mao", kind=OptimizerKind.MAO)
 def _mao(config):
     return _MAOFactory(config)
+
+
+def make_grad_step_mao(
+    model,
+    mao_opt: Any,
+    mc_samples: int,
+    quad_nodes,
+    quad_weights,
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn,
+    grad_clip,
+):
+    """JIT'd: one MAO (per-equation Jacobian) gradient update on a minibatch."""
+    import equinox as eqx
+    import optax
+
+    from deqn_jax.training.loss import compute_loss, eq_losses_to_array
+    from deqn_jax.training.reweighting import update_reweighting
+    from deqn_jax.types import Metrics, TrainState
+
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss_total = compute_loss_fn or compute_loss
+
+    @jax.jit
+    def grad_step(
+        state: TrainState,
+        batch: Array,
+        lr_scale: Array,
+        shock_scale: Array = jnp.array(1.0),
+    ) -> Tuple[TrainState, Metrics]:
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        params_arrays = eqx.filter(state.params, eqx.is_array)
+        params_static = eqx.filter(state.params, lambda x: not eqx.is_array(x))
+
+        def per_eq_loss_fn(p_arrays):
+            full_params = eqx.combine(p_arrays, params_static)
+            _, eq_losses = compute_loss(
+                model, full_params, batch, loss_key, mc_samples,
+                weights=None,
+                shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return eq_losses_to_array(eq_losses)
+
+        eq_jac = jax.jacrev(per_eq_loss_fn)(params_arrays)
+
+        def total_loss_fn(params):
+            loss, eq_losses = _compute_loss_total(
+                model, params, batch, loss_key, mc_samples,
+                weights=state.loss_weights, shock_scale=shock_scale,
+                quad_nodes=quad_nodes, quad_weights=quad_weights,
+                target_policy_fn=target_fn,
+            )
+            return loss, eq_losses
+
+        (loss, eq_losses), grads = eqx.filter_value_and_grad(total_loss_fn, has_aux=True)(
+            state.params
+        )
+        grad_norm = optax.global_norm(eqx.filter(grads, eqx.is_array))
+
+        updates, new_opt_state = mao_opt.update(eq_jac, state.opt_state, params_arrays)
+        if grad_clip is not None:
+            update_norm = optax.global_norm(updates)
+            clip_scale = jnp.minimum(1.0, grad_clip / (update_norm + 1e-8))
+            updates = jax.tree.map(lambda u: clip_scale * u, updates)
+        updates = jax.tree.map(lambda u: lr_scale * u, updates)
+        new_params_arrays = optax.apply_updates(params_arrays, updates)
+        new_params = eqx.combine(new_params_arrays, state.params)
+
+        new_weights, new_rw = update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params, opt_state=new_opt_state,
+            episode_state=state.episode_state, key=new_key,
+            step=state.step + 1, episode=state.episode,
+            loss_weights=new_weights, reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+    return grad_step

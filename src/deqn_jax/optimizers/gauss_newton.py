@@ -264,3 +264,96 @@ def levenberg_marquardt(
         learning_rate, initial_damping, damping_increase,
         damping_decrease, min_damping, max_damping
     )
+
+
+def make_grad_step_gn(
+    model,
+    opt: Any,
+    mc_samples: int,
+    batch_size: int,
+    quad_nodes,
+    quad_weights,
+    loss_reweight: str,
+    reweight_alpha: float,
+    use_target_network: bool,
+    compute_loss_fn,
+):
+    """JIT'd: one Gauss-Newton / Levenberg-Marquardt update on a minibatch."""
+    import equinox as eqx
+    import optax
+
+    from deqn_jax.training.loss import (
+        compute_loss,
+        compute_residuals,
+        sample_antithetic_shocks,
+    )
+    from deqn_jax.training.reweighting import update_reweighting
+    from deqn_jax.types import Metrics, TrainState
+
+    n_eq = len(model.equation_names) if model.equation_names else 1
+    _compute_loss_log = compute_loss_fn or compute_loss
+    use_quadrature = quad_nodes is not None and quad_weights is not None
+
+    @jax.jit
+    def grad_step(
+        state,
+        batch,
+        lr_scale,
+        shock_scale=jnp.array(1.0),
+    ):
+        loss_key, new_key = jax.random.split(state.key)
+        target_fn = state.target_params if use_target_network else None
+
+        def residual_fn(params):
+            if use_quadrature:
+                n_nodes = quad_nodes.shape[0]
+                shocks = jnp.broadcast_to(
+                    quad_nodes[:, None, :],
+                    (n_nodes, batch_size, model.n_shocks),
+                ) * shock_scale
+                sample_weights = quad_weights
+            else:
+                shocks = sample_antithetic_shocks(
+                    loss_key, mc_samples, batch_size, model.n_shocks, shock_scale,
+                )
+                n_samples = shocks.shape[0]
+                sample_weights = jnp.ones(n_samples) / n_samples
+
+            def sample_residuals(shock):
+                return compute_residuals(model, params, batch, shock,
+                                         target_policy_fn=target_fn)
+            all_residuals = jax.vmap(sample_residuals)(shocks)
+            per_eq = []
+            for r in all_residuals.values():
+                mean_r = jnp.einsum('s,sb->b', sample_weights, r)
+                per_eq.append(mean_r)
+            return jnp.concatenate(per_eq)
+
+        loss, eq_losses = _compute_loss_log(
+            model, state.params, batch, loss_key, mc_samples,
+            weights=state.loss_weights, shock_scale=shock_scale,
+            quad_nodes=quad_nodes, quad_weights=quad_weights,
+            target_policy_fn=target_fn,
+        )
+
+        new_params, new_opt_state = opt.update(
+            residual_fn, state.params, state.opt_state, lr_scale=lr_scale
+        )
+
+        def scalar_loss(p):
+            r = residual_fn(p)
+            return jnp.sum(r ** 2)
+        grad_norm = optax.global_norm(eqx.filter(jax.grad(scalar_loss)(state.params), eqx.is_array))
+
+        new_weights, new_rw = update_reweighting(
+            eq_losses, state, loss_reweight, reweight_alpha, n_eq,
+        )
+        new_state = TrainState(
+            params=new_params, opt_state=new_opt_state,
+            episode_state=state.episode_state, key=new_key,
+            step=state.step + 1, episode=state.episode,
+            loss_weights=new_weights, reweight_state=new_rw,
+            target_params=state.target_params,
+        )
+        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
+    return grad_step
