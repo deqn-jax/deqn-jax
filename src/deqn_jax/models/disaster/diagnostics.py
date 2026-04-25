@@ -592,6 +592,71 @@ def _eq8_diagnostics(
     }
 
 
+def _eq9_diagnostics(
+    model: ModelSpec,
+    states: Array,
+    policy_out: Array,
+    defs: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute eq9 (resource_constraint) decomposition.
+
+    Additive accounting identity:
+        y_z = g + c + i/mu_ups + Theta*(1-gamma_e)/gamma_e*(n-w_e)
+              + mu_mon*G*R_k*q_lag*k_lag/(mu_z*pi)
+    Each summand is logged as a share of y_z; total_share should be
+    ≈ 1 + residual.
+    """
+    c_const = model.constants
+    i_idx = list(model.policy_names).index("i")
+    pi_idx = list(model.policy_names).index("pi")
+    g_idx = list(model.state_names).index("g")
+    mu_ups_idx = list(model.state_names).index("mu_ups")
+    mu_z_idx = list(model.state_names).index("mu_z")
+    q_lag_idx = list(model.state_names).index("q_lag")
+    k_lag_idx = list(model.state_names).index("k_lag")
+
+    g = states[:, g_idx]
+    mu_ups = states[:, mu_ups_idx]
+    mu_z = states[:, mu_z_idx]
+    q_lag = states[:, q_lag_idx]
+    k_lag = states[:, k_lag_idx]
+    i_now = policy_out[:, i_idx]
+    pi_now = policy_out[:, pi_idx]
+    c_now = defs["c"]
+    n = defs["n"]
+    G_val = defs["G_val"]
+    R_k = defs["R_k"]
+    y_z = defs["y_z"]
+
+    Theta = c_const["Theta"]
+    gamma_e = c_const["gamma_e"]
+    w_e = c_const["w_e"]
+    mu_mon = c_const["mu_mon"]
+
+    inv_y_z = 1.0 / (y_z + 1e-8)
+    g_share = g * inv_y_z
+    c_share = c_now * inv_y_z
+    i_share = (i_now / (mu_ups + 1e-8)) * inv_y_z
+    entrepreneur_share = Theta * (1.0 - gamma_e) / gamma_e * (n - w_e) * inv_y_z
+    monitoring_share = (
+        mu_mon * G_val * R_k * q_lag * k_lag / ((mu_z * pi_now) + 1e-8) * inv_y_z
+    )
+    total_share = g_share + c_share + i_share + entrepreneur_share + monitoring_share
+    log_residual = jnp.log(jnp.maximum(total_share, 1e-8))
+
+    lr = np.asarray(log_residual)
+    return {
+        "g_share_mean": float(np.mean(np.asarray(g_share))),
+        "c_share_mean": float(np.mean(np.asarray(c_share))),
+        "i_share_mean": float(np.mean(np.asarray(i_share))),
+        "entrepreneur_share_mean": float(np.mean(np.asarray(entrepreneur_share))),
+        "monitoring_share_mean": float(np.mean(np.asarray(monitoring_share))),
+        "total_share_mean": float(np.mean(np.asarray(total_share))),
+        "log_residual_mean": float(np.mean(lr)),
+        "log_residual_std": float(np.std(lr)),
+    }
+
+
 def scalar_diagnostics(
     model: ModelSpec,
     policy_fn: Callable,
@@ -657,5 +722,9 @@ def scalar_diagnostics(
             model, policy_fn, states, policy_out, defs
         ).items():
             out[f"eq8_diag/{k}"] = v
+
+    if "y_z" in defs and "n" in defs and "G_val" in defs and "R_k" in defs:
+        for k, v in _eq9_diagnostics(model, states, policy_out, defs).items():
+            out[f"eq9_diag/{k}"] = v
 
     return out

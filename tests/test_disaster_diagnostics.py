@@ -219,3 +219,23 @@ def test_eq8_entrepreneur_contract_diagnostics():
     missing = expected - set(out.keys())
     assert not missing, f"missing eq8_diag keys: {sorted(missing)}"
     _assert_all_float_finite(out, "eq8_diag/")
+
+
+def test_eq9_resource_constraint_diagnostics():
+    """eq9 (resource constraint) helper emits a complete, finite scalar dict."""
+    states, policy_out, policy_fn, defs = _setup_batch()
+    out = scalar_diagnostics(MODEL, policy_fn, states, policy_out, defs)
+
+    expected = {
+        "eq9_diag/g_share_mean",
+        "eq9_diag/c_share_mean",
+        "eq9_diag/i_share_mean",
+        "eq9_diag/entrepreneur_share_mean",
+        "eq9_diag/monitoring_share_mean",
+        "eq9_diag/total_share_mean",
+        "eq9_diag/log_residual_mean",
+        "eq9_diag/log_residual_std",
+    }
+    missing = expected - set(out.keys())
+    assert not missing, f"missing eq9_diag keys: {sorted(missing)}"
+    _assert_all_float_finite(out, "eq9_diag/")
