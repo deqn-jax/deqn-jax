@@ -5,8 +5,8 @@ Tool versions: `ty 0.0.32`, `pyright` (ad-hoc via `uvx`).
 
 ## Summary
 
-- Total: **91** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
-- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=12, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
+- Total: **89** diagnostics on `uvx ty check src/` (was 104 at the start of phase 2).
+- Bucket counts: REAL_BUG=8, ANNOTATION_LIE=10, EQX_NOISE=42, JAX_NOISE=11, PYDANTIC_DICT=2, OPTIONAL_NARROWING=14, DECISION_NEEDED=2.
 - Stop target: **≤ 30 diagnostics** (the 27 OPTIONAL_NARROWING + 2 PYDANTIC_DICT collapse to one source-of-truth fix each, which leaves the residual JAX/EQX framework noise).
 
 ## Suppression syntax
@@ -65,7 +65,7 @@ That's a test edit, which the loop's prompt forbids beyond import-path updates. 
 **Plan:** Each call site is reached only after the caller already required SS (e.g. composite_loss only runs when `loss_type=composite` which requires linearisation which requires SS). Add `assert model.steady_state_fn is not None, "<reason>"` immediately above each call. Five small edits.
 **Cost:** S.
 
-### 3. ``Metrics``-style annotation lies in optimizer states  [ANNOTATION_LIE]  [STATUS: TODO]
+### 3. ``Metrics``-style annotation lies in optimizer states  [ANNOTATION_LIE]  [STATUS: DONE]
 
 `gauss_newton.py:119, 239` build `GaussNewtonState(last_loss=new_loss, ...)` where `new_loss` is a JAX `Array` but `last_loss: float`. Identical pattern to the `Metrics` fix in commit `3ae741f`.
 

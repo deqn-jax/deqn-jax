@@ -23,14 +23,24 @@ from typing import Any, Callable, NamedTuple, Tuple
 import jax
 import jax.flatten_util
 import jax.numpy as jnp
+from jax import Array
 
 
 class GaussNewtonState(NamedTuple):
-    """State for Gauss-Newton optimizer."""
+    """State for Gauss-Newton optimizer.
+
+    ``last_loss`` is a JAX scalar Array at runtime (sum of squared
+    residuals from inside the JIT'd update step). It was annotated as
+    Python ``float`` originally, which produced spurious
+    ``invalid-argument-type`` errors at every constructor call — same
+    pattern as the ``Metrics`` annotation lie cleared in commit
+    ``3ae741f``. ``damping`` stays ``float`` because the LM update
+    keeps it on the Python side.
+    """
 
     count: int  # Iteration count
     damping: float  # Current LM damping
-    last_loss: float  # Previous loss for adaptive damping
+    last_loss: Array  # Previous loss for adaptive damping
 
 
 class GaussNewton:
@@ -47,7 +57,9 @@ class GaussNewton:
         self.solve_method = solve_method
 
     def init(self, params) -> GaussNewtonState:
-        return GaussNewtonState(count=0, damping=self.damping, last_loss=jnp.inf)
+        return GaussNewtonState(
+            count=0, damping=self.damping, last_loss=jnp.asarray(jnp.inf)
+        )
 
     def update(
         self,
@@ -161,7 +173,7 @@ class LevenbergMarquardt:
 
     def init(self, params) -> GaussNewtonState:
         return GaussNewtonState(
-            count=0, damping=self.initial_damping, last_loss=jnp.inf
+            count=0, damping=self.initial_damping, last_loss=jnp.asarray(jnp.inf)
         )
 
     def update(
