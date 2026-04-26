@@ -556,7 +556,7 @@ class NetworkConfig(_ConfigBase):
     model_config = ConfigDict(extra="forbid")
 
     VALID_TYPES: ClassVar[frozenset] = frozenset(
-        {"mlp", "lstm", "transformer", "linear_plus_mlp"}
+        {"mlp", "lstm", "transformer", "linear_plus_mlp", "kf_anchored_mlp"}
     )
     VALID_ACTIVATIONS: ClassVar[frozenset] = frozenset(
         {"tanh", "relu", "gelu", "silu", "softplus"}
@@ -574,7 +574,7 @@ class NetworkConfig(_ConfigBase):
 
     type: str = Field(
         default="mlp",
-        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, or `linear_plus_mlp`.",
+        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp`, or `kf_anchored_mlp` (CMR-class K/F gauge elimination via Blanchard-Kahn linearization anchor).",
     )
     hidden_sizes: Tuple[int, ...] = Field(
         default=(64, 64),
@@ -620,6 +620,11 @@ class NetworkConfig(_ConfigBase):
         description="`linear_plus_mlp` + disaster only: prepend `(R_lag - R_lb)` as an extra feature for the delta MLP. Experimental.",
     )
 
+    kf_names: Tuple[str, ...] = Field(
+        default=("F_p", "K_p", "F_w", "K_w"),
+        description="`kf_anchored_mlp` only: policy names to pin to the linearization anchor. Default targets the four CMR Calvo Phillips-curve auxiliaries.",
+    )
+
     @field_validator("hidden_sizes", mode="before")
     @classmethod
     def _coerce_hidden_sizes(cls, v):
@@ -635,6 +640,13 @@ class NetworkConfig(_ConfigBase):
     @field_validator("activations", mode="before")
     @classmethod
     def _coerce_activations(cls, v):
+        if isinstance(v, list):
+            return tuple(v)
+        return v
+
+    @field_validator("kf_names", mode="before")
+    @classmethod
+    def _coerce_kf_names(cls, v):
         if isinstance(v, list):
             return tuple(v)
         return v
@@ -1323,11 +1335,17 @@ class TrainConfig(_ConfigBase):
         import yaml
 
         d = self.to_dict()
-        # Convert tuples to lists for YAML readability
+        # Convert tuples to lists for YAML readability + safe_load compat:
+        # PyYAML's default dumper writes tuples as `!!python/tuple` which
+        # safe_load refuses; the round-trip path uses safe_load (correctly,
+        # since trusting arbitrary-Python deserialization on a config is
+        # bad). Coerce known-tuple fields to lists at write time.
         if "network" in d and "hidden_sizes" in d["network"]:
             d["network"]["hidden_sizes"] = list(d["network"]["hidden_sizes"])
         if "network" in d and d["network"].get("activations") is not None:
             d["network"]["activations"] = list(d["network"]["activations"])
+        if "network" in d and d["network"].get("kf_names") is not None:
+            d["network"]["kf_names"] = list(d["network"]["kf_names"])
 
         with open(path, "w") as f:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)

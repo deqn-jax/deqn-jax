@@ -204,6 +204,23 @@ def create_train_state(
             use_zlb_feature=use_zlb_feature,
             key=net_key,
         )
+    elif net_type == "kf_anchored_mlp":
+        # K/F gauge elimination: network outputs only non-K/F policies; K/F
+        # values come from the model's Blanchard-Kahn linearization at each
+        # state. See networks/kf_anchored_mlp.py for the rationale.
+        from deqn_jax.networks.kf_anchored_mlp import create_kf_anchored_mlp
+
+        kf_names = getattr(network_config, "kf_names", ("F_p", "K_p", "F_w", "K_w"))
+        policy_net = create_kf_anchored_mlp(
+            model=model,
+            hidden_sizes=hidden_sizes,
+            activation=activation,
+            init=init,
+            kf_names=kf_names,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            key=net_key,
+        )
     else:
         policy_net = create_mlp(
             n_states=model.n_states,
