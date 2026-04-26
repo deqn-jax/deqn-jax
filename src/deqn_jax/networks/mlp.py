@@ -11,8 +11,10 @@ from deqn_jax.networks.common import (
     INIT_FNS,
     _apply_bounds,
     _apply_init,
+    _normalize_input,
     _resolve_activation,
     _sanitize_upper,
+    _to_tuple,
 )
 
 
@@ -33,11 +35,16 @@ class MLP(eqx.Module):
 
     layers: list
     activations: tuple = eqx.field(static=True)
-    output_lower: Optional[Array]
-    output_upper: Optional[Array]  # inf replaced with safe finite values
+    # Static fields below: stored as tuple-of-floats so the optimizer
+    # can't write to them via Adam-family second-moment updates. See
+    # networks/common.py for rationale.
+    output_lower: Optional[tuple] = eqx.field(static=True)
+    output_upper: Optional[tuple] = eqx.field(
+        static=True
+    )  # inf replaced with safe finite values
     _has_upper: Optional[tuple] = eqx.field(static=True)  # per-output sigmoid mask
-    input_shift: Optional[Array]
-    input_scale: Optional[Array]
+    input_shift: Optional[tuple] = eqx.field(static=True)
+    input_scale: Optional[tuple] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -54,12 +61,12 @@ class MLP(eqx.Module):
         key: Array,
     ):
         self.activations = tuple(activations)
-        self.output_lower = output_lower
+        self.output_lower = _to_tuple(output_lower)
         safe_upper, mask = _sanitize_upper(output_upper, output_lower)
         self.output_upper = safe_upper
         self._has_upper = mask
-        self.input_shift = input_shift
-        self.input_scale = input_scale
+        self.input_shift = _to_tuple(input_shift)
+        self.input_scale = _to_tuple(input_scale)
 
         # Build layers
         sizes = [in_features] + list(hidden_sizes) + [out_features]
@@ -83,11 +90,7 @@ class MLP(eqx.Module):
 
     def _forward_single(self, x: Array) -> Array:
         """Forward pass for single input [in_features]."""
-        # Input normalization (frozen)
-        if self.input_shift is not None:
-            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(
-                self.input_scale
-            )
+        x = _normalize_input(x, self.input_shift, self.input_scale)
 
         # Forward through hidden layers with per-layer activation
         for i, layer in enumerate(self.layers[:-1]):
@@ -129,11 +132,11 @@ class ResMLP(eqx.Module):
     layers: list
     skip_projs: list  # Linear projections for size mismatches (or None)
     activations: tuple = eqx.field(static=True)
-    output_lower: Optional[Array]
-    output_upper: Optional[Array]
+    output_lower: Optional[tuple] = eqx.field(static=True)
+    output_upper: Optional[tuple] = eqx.field(static=True)
     _has_upper: Optional[tuple] = eqx.field(static=True)
-    input_shift: Optional[Array]
-    input_scale: Optional[Array]
+    input_shift: Optional[tuple] = eqx.field(static=True)
+    input_scale: Optional[tuple] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -150,12 +153,12 @@ class ResMLP(eqx.Module):
         key: Array,
     ):
         self.activations = tuple(activations)
-        self.output_lower = output_lower
+        self.output_lower = _to_tuple(output_lower)
         safe_upper, mask = _sanitize_upper(output_upper, output_lower)
         self.output_upper = safe_upper
         self._has_upper = mask
-        self.input_shift = input_shift
-        self.input_scale = input_scale
+        self.input_shift = _to_tuple(input_shift)
+        self.input_scale = _to_tuple(input_scale)
 
         sizes = [in_features] + list(hidden_sizes) + [out_features]
         n_layers = len(sizes) - 1
@@ -232,11 +235,11 @@ class MultiHeadMLP(eqx.Module):
     trunk_layers: list
     heads: list  # list of eqx.nn.Linear, one per output
     activations: tuple = eqx.field(static=True)
-    output_lower: Optional[Array]
-    output_upper: Optional[Array]
+    output_lower: Optional[tuple] = eqx.field(static=True)
+    output_upper: Optional[tuple] = eqx.field(static=True)
     _has_upper: Optional[tuple] = eqx.field(static=True)
-    input_shift: Optional[Array]
-    input_scale: Optional[Array]
+    input_shift: Optional[tuple] = eqx.field(static=True)
+    input_scale: Optional[tuple] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -253,12 +256,12 @@ class MultiHeadMLP(eqx.Module):
         key: Array,
     ):
         self.activations = tuple(activations)
-        self.output_lower = output_lower
+        self.output_lower = _to_tuple(output_lower)
         safe_upper, mask = _sanitize_upper(output_upper, output_lower)
         self.output_upper = safe_upper
         self._has_upper = mask
-        self.input_shift = input_shift
-        self.input_scale = input_scale
+        self.input_shift = _to_tuple(input_shift)
+        self.input_scale = _to_tuple(input_scale)
 
         # Build trunk (hidden layers only, no output layer)
         sizes = [in_features] + list(hidden_sizes)

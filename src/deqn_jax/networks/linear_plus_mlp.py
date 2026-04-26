@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.networks.common import _resolve_activation
+from deqn_jax.networks.common import _resolve_activation, _to_array, _to_tuple
 from deqn_jax.networks.mlp import MLP
 
 
@@ -56,8 +56,8 @@ class LinearPlusMLP(eqx.Module):
     P: Array
     ss_state: Array
     ss_policy: Array
-    policy_lower: Optional[Array]
-    policy_upper: Optional[Array]
+    policy_lower: Optional[tuple] = eqx.field(static=True)
+    policy_upper: Optional[tuple] = eqx.field(static=True)
     use_zlb_feature: bool = eqx.field(static=True)
     r_lag_idx: int = eqx.field(static=True)
     r_lb: float = eqx.field(static=True)
@@ -133,12 +133,8 @@ class LinearPlusMLP(eqx.Module):
         self.P = jnp.asarray(P)
         self.ss_state = jnp.asarray(ss_state)
         self.ss_policy = jnp.asarray(ss_policy)
-        self.policy_lower = (
-            jnp.asarray(policy_lower) if policy_lower is not None else None
-        )
-        self.policy_upper = (
-            jnp.asarray(policy_upper) if policy_upper is not None else None
-        )
+        self.policy_lower = _to_tuple(policy_lower)
+        self.policy_upper = _to_tuple(policy_upper)
 
     def _forward_single(self, state: Array) -> Array:
         # stop_gradient on the linearization constants: they are frozen
@@ -162,10 +158,10 @@ class LinearPlusMLP(eqx.Module):
         delta = self.mlp(mlp_input)
         raw = linear + delta
         if self.policy_lower is not None:
-            lower = jax.lax.stop_gradient(self.policy_lower)
+            lower = jax.lax.stop_gradient(_to_array(self.policy_lower))
             raw = jnp.maximum(raw, lower)
         if self.policy_upper is not None:
-            upper = jax.lax.stop_gradient(self.policy_upper)
+            upper = jax.lax.stop_gradient(_to_array(self.policy_upper))
             safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
             raw = jnp.minimum(raw, safe_upper)
         return raw

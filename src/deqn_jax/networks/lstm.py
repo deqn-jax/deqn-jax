@@ -18,6 +18,7 @@ from deqn_jax.networks.common import (
     _apply_bounds,
     _normalize_input,
     _sanitize_upper,
+    _to_tuple,
 )
 
 
@@ -39,11 +40,11 @@ class LSTMPolicy(eqx.Module):
     hidden_size: int = eqx.field(static=True)
     n_layers: int = eqx.field(static=True)
     history_len: int = eqx.field(static=True)
-    output_lower: Optional[Array]
-    output_upper: Optional[Array]
+    output_lower: Optional[tuple] = eqx.field(static=True)
+    output_upper: Optional[tuple] = eqx.field(static=True)
     _has_upper: Optional[tuple] = eqx.field(static=True)
-    input_shift: Optional[Array]
-    input_scale: Optional[Array]
+    input_shift: Optional[tuple] = eqx.field(static=True)
+    input_scale: Optional[tuple] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -59,12 +60,12 @@ class LSTMPolicy(eqx.Module):
         key: Array,
     ):
         self.history_len = history_len
-        self.output_lower = output_lower
+        self.output_lower = _to_tuple(output_lower)
         safe_upper, mask = _sanitize_upper(output_upper, output_lower)
         self.output_upper = safe_upper
         self._has_upper = mask
-        self.input_shift = input_shift
-        self.input_scale = input_scale
+        self.input_shift = _to_tuple(input_shift)
+        self.input_scale = _to_tuple(input_scale)
 
         if isinstance(hidden_sizes, int):
             hidden_sizes = [hidden_sizes]
