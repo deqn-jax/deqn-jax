@@ -51,6 +51,7 @@ scripts/*
 !scripts/gen_config_reference.py
 !scripts/check_module_graph.py
 !scripts/sweep_disaster_second_order.py
+!scripts/sweep_disaster_kf_validation.py
 !scripts/run_sweep_in_container.sh
 !scripts/fetch_sweep_results.sh
 dynare/

@@ -1,0 +1,64 @@
+# Base config for the K/F-anchor + moment-matching validation sweep on disaster.
+#
+# Sweep dimensions (overridden per run via launcher):
+#   - network.type      ∈ {mlp, kf_anchored_mlp}
+#   - moment_matching.enabled, .weight
+#   - seed              ∈ {0, 1, 2}
+#
+# Held fixed:
+#   - adam, lr=1e-3, no curriculum-cliff schedule
+#   - 5000 episodes, lenient early stop (kill on 1500 eps no-improvement)
+#   - mse loss (NOT composite — composing all three would muddy attribution)
+#   - replay off (separate experiment to compose later if signal warrants it)
+#
+# Wall-clock target on GB10: ~3 ep/s post-JIT × 5000 = ~30min/cell.
+# 15 cells → ~7-8 hr overnight.
+
+model: disaster
+episodes: 5000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 0
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: mlp                           # OVERRIDDEN per run
+  hidden_sizes: [64, 64]
+  activation: tanh
+  init: xavier_normal
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: mse
+
+# Lenient early stop — keep slow learners alive.
+early_stop_patience: 1500
+early_stop_min_delta: 1.0e-6
+
+# Per-run paths and the moment-matching toggle filled in by launcher.
+checkpoint_dir: null
+checkpoint_every: 500
+max_checkpoints: 3
+tensorboard_dir: null
+wandb_project: deqn-disaster-kf-validation
+
+moment_matching:
+  enabled: false                      # OVERRIDDEN per run
+  weight: 0.1                         # OVERRIDDEN per run
+  mean_weight: 1.0
+  std_weight: 1.0
+  dynare_dir: dynare/results
+  scale_eps: 1.0e-3
