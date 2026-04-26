@@ -72,8 +72,14 @@ class GaussNewton:
         self.solve_method = solve_method
 
     def init(self, params) -> GaussNewtonState:
+        # ``count`` must be a JAX scalar from the start; after the first
+        # update it becomes one anyway (jnp ops upcast Python ints), and
+        # checkpoint round-trip needs the *initial* and *post-update* leaf
+        # types to match the saved tree.
         return GaussNewtonState(
-            count=0, damping=self.damping, last_loss=jnp.asarray(jnp.inf)
+            count=jnp.asarray(0, dtype=jnp.int32),
+            damping=self.damping,
+            last_loss=jnp.asarray(jnp.inf),
         )
 
     def update(
@@ -176,7 +182,7 @@ class ImplicitGaussNewton:
 
     def init(self, params) -> ImplicitGaussNewtonState:
         return ImplicitGaussNewtonState(
-            count=0,
+            count=jnp.asarray(0, dtype=jnp.int32),
             damping=self.damping,
             last_loss=jnp.asarray(jnp.inf),
             last_cg_residual=jnp.asarray(jnp.inf),
@@ -323,7 +329,9 @@ class LevenbergMarquardt:
 
     def init(self, params) -> GaussNewtonState:
         return GaussNewtonState(
-            count=0, damping=self.initial_damping, last_loss=jnp.asarray(jnp.inf)
+            count=jnp.asarray(0, dtype=jnp.int32),
+            damping=self.initial_damping,
+            last_loss=jnp.asarray(jnp.inf),
         )
 
     def update(
