@@ -2,11 +2,13 @@
 
 ## What This Is
 
-DEQN-JAX is a **Physics-Informed Neural Network (PINN) for economics**. It trains neural networks to satisfy equilibrium conditions of economic models across the entire state space, replacing traditional point-by-point solvers.
+DEQN-JAX is a **Deep Equilibrium Network** trainer for economic models — a JAX/Equinox port of the Azinovic-Maliar-Maliar method. It trains a policy network to satisfy a model's equilibrium conditions across its ergodic distribution, replacing traditional point-by-point solvers (Dynare, time iteration, etc.).
 
 ```
 State (K, Z) --> Policy Network --> Policy (C, L) --> Equilibrium Equations --> Loss = sum(residuals^2)
 ```
+
+It's *PINN-adjacent* but not a PINN: collocation points come from on-policy simulation rather than a fixed spatial domain, the operator is an expectation over shocks rather than a differential operator, and equilibrium equations have multiple fixed points (Blanchard-Kahn-style selection is missing). The closer functional cousin is model-based RL with a known dynamics — that framing predicts the right toolkit (replay, off-policy correction, ensembles) for the failure modes we hit on real research models. (A separate project tracks a true PINN for a related class of problems.)
 
 Stack: JAX + Equinox (networks) + Optax (optimizers). No TensorFlow, no PyTorch, no Keras.
 
