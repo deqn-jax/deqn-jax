@@ -1189,6 +1189,48 @@ def _run_training_loop(
 
     elapsed = time.perf_counter() - t_start
 
+    # End-of-training save-best fallback. The save-best gate (line 1173) is
+    # `ep_num > best_save_grace AND loss_val < best_save_loss`, which is the
+    # right policy for STANDARD training: the curriculum-ramp grace prevents
+    # artificially-low ramp losses from being labelled "best." But for a
+    # run whose post-grace losses are ALL NaN (curvature methods at
+    # aggressive lr/damping settle into NaN-update regions once shocks
+    # reach full magnitude), the gate never fires and no checkpoint_best.eqx
+    # is written even though we have a perfectly good `last_good_state` from
+    # the periodic-checkpoint NaN-rollback path. Without this fallback, eval
+    # tooling can't load *anything* from such runs.
+    if (
+        config.save_best_checkpoint
+        and config.checkpoint_dir is not None
+        and best_save_loss == float("inf")
+    ):
+        fallback_state = last_good_state if last_good_state is not None else state
+        # Synthesize a best-loss for meta from history if we have one;
+        # otherwise leave NaN so post-hoc eval can detect it's a fallback.
+        finite_losses = [v for v in history.get("loss", []) if not math.isnan(v)]
+        fallback_loss = min(finite_losses) if finite_losses else float("nan")
+        _save_best_checkpoint(
+            fallback_state,
+            config.checkpoint_dir,
+            last_good_episode if last_good_state is not None else config.episodes,
+            fallback_loss,
+            config=config,
+        )
+        # Annotate fallback so downstream eval can distinguish from a real
+        # in-loop save-best. We append rather than overwrite so the canonical
+        # episode/loss line stays first.
+        meta_path = os.path.join(config.checkpoint_dir, "checkpoint_best.meta")
+        with open(meta_path, "a") as f:
+            f.write(
+                "fallback true  # save-best gate never fired during loop "
+                "(post-grace losses all NaN); persisted last_good_state\n"
+            )
+        if config.verbose:
+            print(
+                f"Best checkpoint: FALLBACK save (post-grace losses all NaN) "
+                f"→ {_best_checkpoint_path(config.checkpoint_dir)}"
+            )
+
     if config.verbose and last_metrics is not None:
         _print_final(
             elapsed=elapsed,
