@@ -331,6 +331,21 @@ def main():
         default=None,
         help="Output directory for CSV results",
     )
+    eval_parser.add_argument(
+        "--dynare-dir",
+        type=str,
+        default=None,
+        help="Directory with dynare_moments.csv / dynare_ghx.csv / dynare_ghu.csv "
+        "/ irf_e_<shock>.csv. When provided, runs moment, linearization (ghx), "
+        "and IRF comparisons against the Dynare perturbation reference.",
+    )
+    eval_parser.add_argument(
+        "--dynare-irf-girf",
+        action="store_true",
+        help="Use generalized IRF (GIRF) for the Dynare IRF comparison; "
+        "matches the nonlinear-policy IRF semantics of `deqn-jax irf --girf`. "
+        "Default deterministic IRF mirrors Dynare's first-order perturbation IRFs.",
+    )
 
     # Check command
     subparsers.add_parser("check", help="Check installation")

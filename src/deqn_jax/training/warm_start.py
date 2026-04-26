@@ -294,9 +294,6 @@ def warm_start_from_dynare(
     Returns:
         Warm-started policy network
     """
-    import csv
-    from pathlib import Path
-
     if key is None:
         key = jax.random.PRNGKey(42)
 
@@ -304,96 +301,21 @@ def warm_start_from_dynare(
         "warm_start_network requires a model with steady_state_fn defined"
     )
     ss_state, ss_policy = model.steady_state_fn(model.constants)
-    constants = model.constants
 
-    # --- Parse Dynare CSVs ---
-    dynare_path = Path(dynare_dir)
+    # Parse Dynare CSVs and build the [n_policies × n_states] Jacobian.
+    # Lives in dynare_io so the eval-vs-Dynare comparators can reuse it.
+    from deqn_jax.dynare_io import load_dynare_jacobian
 
-    def read_csv_matrix(fname):
-        with open(dynare_path / fname) as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            col_names = header[1:]  # skip 'variable'
-            rows = {}
-            for row in reader:
-                rows[row[0]] = [float(x) for x in row[1:]]
-        return col_names, rows
-
-    ghx_cols, ghx_rows = read_csv_matrix("dynare_ghx.csv")
-    ghu_cols, ghu_rows = read_csv_matrix("dynare_ghu.csv")
-
-    # --- Build Jacobian: J[n_policies, 13 DEQN states] ---
-    # DEQN state ordering
-    deqn_state_names = list(model.state_names)
-
-    # DEQN policy ordering (omega_bar eliminated analytically)
-    deqn_policy_names = list(model.policy_names)
-
-    # Map DEQN policy names to Dynare variable names.
-    # Keep aliases for renamed variables; default to identity when possible.
-    policy_aliases = {
-        "i": "i_var",
-    }
-
-    # Map DEQN state names to Dynare state column names (lagged endogenous)
-    # Dynare ghx columns: R(-1), w_tilda(-1), L(-1), k(-1), eps(-1),
-    #   mu_ups(-1), g(-1), c(-1), i_var(-1), pi(-1), q(-1), mu_z(-1)
-    state_col_map = {
-        "pi_lag": "pi(-1)",
-        "k_lag": "k(-1)",
-        "c_lag": "c(-1)",
-        "q_lag": "q(-1)",
-        "i_lag": "i_var(-1)",
-        "R_lag": "R(-1)",
-        "w_tilda_lag": "w_tilda(-1)",
-        "L_lag": "L(-1)",
-        "eps": "eps(-1)",
-        "mu_ups": "mu_ups(-1)",
-        "g": "g(-1)",
-        "mu_z": "mu_z(-1)",
-    }
+    J = load_dynare_jacobian(model, dynare_dir)
 
     n_policies = model.n_policies
     n_states = model.n_states
-    J = jnp.zeros((n_policies, n_states))
-
-    for pi, pname in enumerate(deqn_policy_names):
-        dynare_var = policy_aliases.get(pname, pname)
-        if dynare_var not in ghx_rows or dynare_var not in ghu_rows:
-            available = sorted(set(ghx_rows.keys()) & set(ghu_rows.keys()))
-            raise KeyError(
-                f"Policy '{pname}' maps to Dynare variable '{dynare_var}', "
-                f"but that row was not found in dynare_ghx/ghu.csv. "
-                f"Available rows: {available}"
-            )
-        ghx_row = ghx_rows[dynare_var]
-        ghu_row = ghu_rows[dynare_var]
-
-        for si, sname in enumerate(deqn_state_names):
-            if sname == "m_p":
-                # m_p is i.i.d.: m_p = sigma_mp * e_mp
-                # response to m_p_t = ghu_mp / sigma_mp * m_p_t
-                sigma_mp = constants["sigma_mp"]
-                mp_col = ghu_cols.index("e_mp")
-                J = J.at[pi, si].set(ghu_row[mp_col] / sigma_mp)
-            elif sname in state_col_map:
-                ghx_col_name = state_col_map[sname]
-                col_idx = ghx_cols.index(ghx_col_name)
-                coeff = ghx_row[col_idx]
-
-                # For exogenous states (eps, mu_ups, g, mu_z):
-                # Dynare ghx has response to x_{t-1}, but DEQN state has x_t.
-                # x_t ≈ x_ss + rho*(x_{t-1} - x_ss) + sigma*e
-                # Treating deviation as persistent: x_{t-1} - x_ss ≈ (x_t - x_ss)
-                # (ghx already gives the right order of magnitude)
-                # No adjustment needed for endogenous lags.
-                J = J.at[pi, si].set(coeff)
+    deqn_policy_names = list(model.policy_names)
 
     if verbose:
         print("Warm starting from Dynare linear policy...")
         print(f"  Jacobian J: [{n_policies} x {n_states}]")
         print(f"  Max |J|: {float(jnp.max(jnp.abs(J))):.4f}")
-        # Show per-policy response magnitude
         for pi, pname in enumerate(deqn_policy_names):
             row_norm = float(jnp.sqrt(jnp.sum(J[pi] ** 2)))
             print(f"    {pname:>12s}: ||J_row|| = {row_norm:.4f}")
