@@ -457,6 +457,66 @@ class CompositeLossConfig(_ConfigBase):
 
 
 # ---------------------------------------------------------------------------
+# MomentMatchingConfig
+# ---------------------------------------------------------------------------
+
+
+class MomentMatchingConfig(_ConfigBase):
+    """Aux loss that penalizes ergodic-moment deviation from a Dynare reference.
+
+    Composes with any base loss (residual MSE, composite, etc). Uses
+    per-minibatch policy-output moments as the estimator; the gradient
+    flows through ``policy(s)`` only, with states ``stop_gradient``-ed
+    (they came from a separate rollout). See
+    ``training/moment_loss.py`` for the design rationale.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch. When False, training behaviour is identical to the base loss.",
+    )
+    weight: float = Field(
+        default=0.1,
+        description="Multiplier on the aux loss term added to the total loss.",
+    )
+    mean_weight: float = Field(
+        default=1.0,
+        description="Within the aux, weight on the squared mean-deviation term.",
+    )
+    std_weight: float = Field(
+        default=1.0,
+        description="Within the aux, weight on the squared std-deviation term.",
+    )
+    dynare_dir: str = Field(
+        default="dynare/results",
+        description="Directory containing dynare_moments.csv (the target moments).",
+    )
+    scale_eps: float = Field(
+        default=1.0e-3,
+        description="Floor on the per-variable scale used for relative comparison; prevents division blowup for variables with near-zero target.",
+    )
+
+    @field_validator("weight", "mean_weight", "std_weight", "scale_eps", mode="before")
+    @classmethod
+    def _coerce_float_reject_bool(cls, v, info):
+        return _coerce_float(v, f"moment_matching.{info.field_name}")
+
+    @model_validator(mode="after")
+    def _validate_ranges(self):
+        if self.weight < 0:
+            raise ValueError(f"weight must be >= 0, got {self.weight}")
+        if self.mean_weight < 0:
+            raise ValueError(f"mean_weight must be >= 0, got {self.mean_weight}")
+        if self.std_weight < 0:
+            raise ValueError(f"std_weight must be >= 0, got {self.std_weight}")
+        if self.scale_eps <= 0:
+            raise ValueError(f"scale_eps must be > 0, got {self.scale_eps}")
+        return self
+
+
+# ---------------------------------------------------------------------------
 # ReplayBufferConfig
 # ---------------------------------------------------------------------------
 
@@ -782,6 +842,10 @@ class TrainConfig(_ConfigBase):
     replay_buffer: ReplayBufferConfig = Field(
         default_factory=ReplayBufferConfig,
         description="Prioritized state-replay buffer; only active when `replay_buffer.enabled=true`.",
+    )
+    moment_matching: MomentMatchingConfig = Field(
+        default_factory=MomentMatchingConfig,
+        description="Aux loss biasing ergodic moments toward a Dynare reference; only active when `moment_matching.enabled=true`.",
     )
 
     loss_choice: str = Field(
@@ -1260,6 +1324,7 @@ class TrainConfig(_ConfigBase):
         net_dict = d.pop("network", {})
         comp_dict = d.pop("composite_loss", {})
         replay_dict = d.pop("replay_buffer", {})
+        mom_dict = d.pop("moment_matching", {})
 
         # If optimizer is a plain string, treat as name
         if isinstance(opt_dict, str):
@@ -1289,12 +1354,14 @@ class TrainConfig(_ConfigBase):
         net_fields = set(NetworkConfig.model_fields.keys())
         comp_fields = set(CompositeLossConfig.model_fields.keys())
         replay_fields = set(ReplayBufferConfig.model_fields.keys())
+        mom_fields = set(MomentMatchingConfig.model_fields.keys())
         train_fields = set(TrainConfig.model_fields.keys())
 
         _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
         _check_unknown_keys(set(net_dict.keys()), net_fields, "network")
         _check_unknown_keys(set(comp_dict.keys()), comp_fields, "composite_loss")
         _check_unknown_keys(set(replay_dict.keys()), replay_fields, "replay_buffer")
+        _check_unknown_keys(set(mom_dict.keys()), mom_fields, "moment_matching")
         _check_unknown_keys(set(d.keys()), train_fields, "config")
 
         return cls(
@@ -1302,6 +1369,7 @@ class TrainConfig(_ConfigBase):
             network=NetworkConfig(**net_dict),
             composite_loss=CompositeLossConfig(**comp_dict),
             replay_buffer=ReplayBufferConfig(**replay_dict),
+            moment_matching=MomentMatchingConfig(**mom_dict),
             **{k: v for k, v in d.items() if k in train_fields},
         )
 
@@ -1401,6 +1469,9 @@ def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
         elif name == "replay_buffer":
             for rf in ReplayBufferConfig.model_fields:
                 flat[f"replay_buffer.{rf}"] = getattr(val, rf)
+        elif name == "moment_matching":
+            for mf in MomentMatchingConfig.model_fields:
+                flat[f"moment_matching.{mf}"] = getattr(val, mf)
         else:
             flat[name] = val
     return flat
@@ -1412,17 +1483,20 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     net_kw: Dict[str, Any] = {}
     comp_kw: Dict[str, Any] = {}
     replay_kw: Dict[str, Any] = {}
+    mom_kw: Dict[str, Any] = {}
     train_kw: Dict[str, Any] = {}
 
     opt_fields = set(OptimizerConfig.model_fields.keys())
     net_fields = set(NetworkConfig.model_fields.keys())
     comp_fields = set(CompositeLossConfig.model_fields.keys())
     replay_fields = set(ReplayBufferConfig.model_fields.keys())
+    mom_fields = set(MomentMatchingConfig.model_fields.keys())
     train_fields = set(TrainConfig.model_fields.keys()) - {
         "optimizer",
         "network",
         "composite_loss",
         "replay_buffer",
+        "moment_matching",
     }
 
     # Build set of all valid flat keys for validation
@@ -1431,6 +1505,7 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     valid_flat_keys |= {f"network.{n}" for n in net_fields}
     valid_flat_keys |= {f"composite_loss.{n}" for n in comp_fields}
     valid_flat_keys |= {f"replay_buffer.{n}" for n in replay_fields}
+    valid_flat_keys |= {f"moment_matching.{n}" for n in mom_fields}
 
     _check_unknown_keys(set(flat.keys()), valid_flat_keys, "config overrides")
 
@@ -1443,6 +1518,8 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
             comp_kw[key[len("composite_loss.") :]] = val
         elif key.startswith("replay_buffer."):
             replay_kw[key[len("replay_buffer.") :]] = val
+        elif key.startswith("moment_matching."):
+            mom_kw[key[len("moment_matching.") :]] = val
         else:
             train_kw[key] = val
 
@@ -1451,6 +1528,7 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
         network=NetworkConfig(**net_kw),
         composite_loss=CompositeLossConfig(**comp_kw),
         replay_buffer=ReplayBufferConfig(**replay_kw),
+        moment_matching=MomentMatchingConfig(**mom_kw),
         **train_kw,
     )
 

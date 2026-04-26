@@ -787,6 +787,43 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
         if config.verbose:
             print(f"  Loss choice: {config.loss_choice} (δ={config.huber_delta})")
 
+    # Moment-matching aux loss layered on top of whatever was chosen above.
+    # Uses Dynare's reference moments as the target. See
+    # training/moment_loss.py for the design rationale.
+    if (
+        getattr(config, "moment_matching", None) is not None
+        and config.moment_matching.enabled
+    ):
+        from deqn_jax.dynare_io import deqn_policy_to_dynare, load_dynare_moments
+        from deqn_jax.training.moment_loss import (
+            _resolve_target_indices,
+            make_moment_matching_wrapper,
+        )
+
+        mom_cfg = config.moment_matching
+        target_moments = load_dynare_moments(mom_cfg.dynare_dir)
+        # DEQN ↔ Dynare name aliases (currently just `i` -> `i_var`); reuse
+        # the canonical mapping from dynare_io.
+        aliases = {p: deqn_policy_to_dynare(p) for p in model.policy_names}
+        target_idx = _resolve_target_indices(
+            policy_names=list(model.policy_names),
+            target_moments=target_moments,
+            name_aliases=aliases,
+        )
+        if config.verbose:
+            print(
+                f"  Moment-matching aux loss: weight={mom_cfg.weight}, "
+                f"matching {len(target_idx)} policies against {mom_cfg.dynare_dir}"
+            )
+        custom_loss_fn = make_moment_matching_wrapper(
+            custom_loss_fn,
+            target_idx_to_moments=target_idx,
+            weight=mom_cfg.weight,
+            mean_weight=mom_cfg.mean_weight,
+            std_weight=mom_cfg.std_weight,
+            scale_eps=mom_cfg.scale_eps,
+        )
+
     return custom_loss_fn
 
 
