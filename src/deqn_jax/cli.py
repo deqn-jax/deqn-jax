@@ -346,6 +346,14 @@ def main():
         "matches the nonlinear-policy IRF semantics of `deqn-jax irf --girf`. "
         "Default deterministic IRF mirrors Dynare's first-order perturbation IRFs.",
     )
+    eval_parser.add_argument(
+        "--dynare-ghx-perturb",
+        type=float,
+        default=1.0e-3,
+        help="Std of Gaussian perturbation around SS used by the ghx jacobian "
+        "comparator (default: 1e-3). Set to 0 to evaluate at exact SS, which "
+        "may hit gradient discontinuities at sigmoid/soft-floor boundaries.",
+    )
 
     # Check command
     subparsers.add_parser("check", help="Check installation")

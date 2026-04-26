@@ -156,6 +156,50 @@ def test_ghx_diff_nonzero_when_policy_perturbed():
     assert abs(diff["frobenius"] - expected_fro) < 1e-3 * max(expected_fro, 1.0)
 
 
+def test_ghx_diff_perturb_off_recovers_exact_jacrev():
+    """`perturb_sigma=0` falls back to exact-SS jacrev (legacy behaviour).
+
+    For a linear policy the result must still match Dynare exactly.
+    """
+    from deqn_jax.evaluate import compare_to_dynare_ghx
+    from deqn_jax.models import load_model
+
+    if not os.path.isdir(DYNARE_DIR):
+        pytest.skip("dynare/results not present in this repo")
+    model = load_model("disaster")
+    assert model.steady_state_fn is not None
+    ss_state, ss_policy = model.steady_state_fn(model.constants)
+    J_dyn = load_dynare_jacobian(model, DYNARE_DIR)
+    policy = _LinearPolicy(ss_state, ss_policy, J_dyn)
+    diff = compare_to_dynare_ghx(policy, model, DYNARE_DIR, perturb_sigma=0.0)
+    assert diff["frobenius"] < 1e-5
+
+
+def test_ghx_diff_perturb_default_recovers_linear_policy():
+    """For a linear policy, the perturbed-jacrev average is also exact.
+
+    Linear means jacrev is constant; averaging samples doesn't perturb the
+    matrix. This is the regression test guarding the default path: if a
+    future change to perturb_sigma breaks linear recovery, this catches it.
+    """
+    from deqn_jax.evaluate import compare_to_dynare_ghx
+    from deqn_jax.models import load_model
+
+    if not os.path.isdir(DYNARE_DIR):
+        pytest.skip("dynare/results not present in this repo")
+    model = load_model("disaster")
+    assert model.steady_state_fn is not None
+    ss_state, ss_policy = model.steady_state_fn(model.constants)
+    J_dyn = load_dynare_jacobian(model, DYNARE_DIR)
+    policy = _LinearPolicy(ss_state, ss_policy, J_dyn)
+    # Default args (perturb_sigma=1e-3, n_perturbs=4).
+    diff = compare_to_dynare_ghx(policy, model, DYNARE_DIR)
+    assert diff["frobenius"] < 1e-5, (
+        f"perturbed jacrev should average to exact J for a linear policy, "
+        f"got Frobenius={diff['frobenius']:.2e}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # compare_to_dynare_moments — schema test
 # ---------------------------------------------------------------------------

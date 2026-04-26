@@ -573,15 +573,40 @@ def compare_to_dynare_ghx(
     policy_net: eqx.Module,
     model,
     dynare_dir: str,
+    perturb_sigma: float = 1.0e-3,
+    n_perturbs: int = 4,
+    seed: int = 0,
 ) -> Dict[str, Any]:
     """Diff the network's policy Jacobian at SS against Dynare's perturbation.
 
-    Computes ``J_net = jacrev(policy_net)(ss_state)`` and loads Dynare's
-    perturbation matrix via ``dynare_io.load_dynare_jacobian``. Outputs
-    Frobenius-norm difference, plus per-policy row L2 and max-abs deviation.
-    Sharp local-correctness test: if the policy gradient at SS doesn't
-    match the linearization, the network's behaviour for small shocks is
-    also off — even if ergodic means agree by coincidence.
+    Computes ``J_net`` by averaging ``jacrev(policy_net)`` at small
+    perturbations of SS, then loads Dynare's perturbation matrix via
+    ``dynare_io.load_dynare_jacobian``. Outputs Frobenius-norm difference
+    plus per-policy row L2 and max-abs deviation. Sharp local-correctness
+    test: if the policy gradient at SS doesn't match the linearization,
+    the network's behaviour for small shocks is also off — even if
+    ergodic means agree by coincidence.
+
+    Why perturb instead of evaluating at exact SS:
+        Policies that bound outputs via sigmoid / softplus / soft-floor
+        regularizers can sit *exactly* at a saturating boundary at SS
+        for some entries. The forward is finite there but the gradient
+        can hit a derivative discontinuity (e.g. soft_floor's softplus
+        having near-zero derivative just below the floor). For a
+        well-posed network the behaviour is continuous off-SS, so
+        averaging jacrev at ``SS + ε·N(0, I)`` over a few seeds gives
+        a numerically clean estimate of the local linearization without
+        moving meaningfully off the steady state. ``perturb_sigma=1e-3``
+        is small enough that nonlinearity is negligible (linear policy
+        recovers exactly within float roundoff in tests).
+
+    Args:
+        perturb_sigma: Std of the Gaussian perturbation around SS. Set
+            to 0 to evaluate at exact SS (legacy behaviour).
+        n_perturbs: Number of perturbed evaluations to average. Ignored
+            when ``perturb_sigma == 0``.
+        seed: PRNG seed for the perturbations (deterministic for
+            reproducibility across eval runs).
     """
     from deqn_jax.dynare_io import load_dynare_jacobian
 
@@ -595,7 +620,19 @@ def compare_to_dynare_ghx(
             out = out[0]
         return out
 
-    J_net = jax.jacrev(_policy_at_state)(ss_state)
+    if perturb_sigma > 0 and n_perturbs > 0:
+        keys = jax.random.split(jax.random.PRNGKey(seed), n_perturbs)
+        Js = jnp.stack(
+            [
+                jax.jacrev(_policy_at_state)(
+                    ss_state + perturb_sigma * jax.random.normal(k, ss_state.shape)
+                )
+                for k in keys
+            ]
+        )
+        J_net = jnp.mean(Js, axis=0)
+    else:
+        J_net = jax.jacrev(_policy_at_state)(ss_state)
     J_dyn = load_dynare_jacobian(model, dynare_dir)
 
     # Soft-floor / sigmoid-bound code paths in the policy can produce NaN
@@ -852,7 +889,12 @@ def run_evaluate_cli(args):
             n_periods=args.periods,
             seed=args.seed,
         )
-        ghx_diff = compare_to_dynare_ghx(policy_net, model, args.dynare_dir)
+        ghx_diff = compare_to_dynare_ghx(
+            policy_net,
+            model,
+            args.dynare_dir,
+            perturb_sigma=getattr(args, "dynare_ghx_perturb", 1.0e-3),
+        )
         irf_diff = compare_to_dynare_irfs(
             policy_net,
             model,
