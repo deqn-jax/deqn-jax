@@ -358,6 +358,46 @@ def main():
     # Check command
     subparsers.add_parser("check", help="Check installation")
 
+    # Active-subspace command
+    asub_parser = subparsers.add_parser(
+        "active-subspace",
+        help="Estimate the per-policy effective dimensionality of a trained network",
+    )
+    asub_parser.add_argument(
+        "checkpoint", type=str, help="Path to checkpoint .eqx file"
+    )
+    asub_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Config YAML (auto-detected from checkpoint dir if omitted)",
+    )
+    asub_parser.add_argument(
+        "--n-states",
+        "-n",
+        type=int,
+        default=2000,
+        help="Number of states to sample from the ergodic trajectory (default: 2000)",
+    )
+    asub_parser.add_argument(
+        "--seed",
+        type=int,
+        default=123,
+        help="Simulation seed for the state sample",
+    )
+    asub_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.95,
+        help="Cumulative-variance threshold for effective_dim (default: 0.95)",
+    )
+    asub_parser.add_argument(
+        "--label",
+        type=str,
+        default=None,
+        help="Header label for the printed table (default: checkpoint dir name)",
+    )
+
     # Init-config command
     init_parser = subparsers.add_parser(
         "init-config", help="Generate default config file"
@@ -385,6 +425,8 @@ def main():
         run_evaluate_command(args)
     elif args.command == "check":
         run_check()
+    elif args.command == "active-subspace":
+        run_active_subspace_command(args)
     elif args.command == "init-config":
         run_init_config(args)
     else:
@@ -608,6 +650,93 @@ def run_info(args):
         print(f"  {k:20s} = {v}")
 
     print()
+
+
+def run_active_subspace_command(args):
+    """CLI handler for ``deqn-jax active-subspace``.
+
+    Loads a trained policy, simulates a long ergodic trajectory under it,
+    estimates the per-output gradient covariance, and prints an effective-
+    dimensionality table. The motivating use is post-sweep diagnostics:
+    is each architecture's policy genuinely 13-d, or does it compress to
+    a few directions of state-space variation?
+    """
+    # IMPORTANT: enable fp64 BEFORE the deqn_jax/jax imports below so the
+    # template state's array dtypes match the on-disk checkpoint when the
+    # original training run had fp64=True.
+    _enable_fp64_from_config(args)
+
+    from pathlib import Path
+
+    import jax
+    import jax.numpy as jnp
+    import jax.random as jr
+
+    from deqn_jax.active_subspace import (
+        print_subspace_summary,
+        summarize_subspace_per_policy,
+    )
+    from deqn_jax.irf import load_policy_from_checkpoint
+
+    print(f"Loading checkpoint: {args.checkpoint}")
+    from typing import cast
+
+    from deqn_jax.types import ModelSpec
+
+    policy_net, model_obj = load_policy_from_checkpoint(
+        args.checkpoint, getattr(args, "config", None)
+    )
+    # ``load_policy_from_checkpoint`` returns ``Tuple[Module, object]``;
+    # narrow to ``ModelSpec`` so subsequent attribute access type-checks.
+    model = cast(ModelSpec, model_obj)
+    assert model.steady_state_fn is not None  # narrows for the type checker
+
+    # Sample states from a long simulation under the trained policy.
+    # ``simulated_moments`` already does this internally; rather than
+    # duplicate the loop, we rebuild a thin sampler here so the active
+    # subspace estimator sees a fresh trajectory.
+    print(f"Simulating {args.n_states} ergodic states (seed={args.seed})...")
+    constants = model.constants
+    ss_state, _ = model.steady_state_fn(constants)
+    n_shocks = model.n_shocks
+    state = ss_state[None, :]
+    key = jr.PRNGKey(args.seed)
+
+    @jax.jit
+    def _sim_step(state, shock):
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(state, policy, shock, constants)
+        return next_state, state[0]
+
+    burn_in = min(500, args.n_states // 5)
+    states_collected = []
+    for t in range(args.n_states + burn_in):
+        key, shock_key = jax.random.split(key)
+        shock = jr.normal(shock_key, (1, n_shocks))
+        next_state, st = _sim_step(state, shock)
+        if t >= burn_in:
+            states_collected.append(st)
+        state = (
+            model.clip_state_fn(next_state)
+            if model.clip_state_fn is not None
+            else next_state
+        )
+    states = jnp.stack(states_collected)
+    # Drop any non-finite states (rare but defensive).
+    finite = jnp.all(jnp.isfinite(states), axis=1)
+    states = states[finite]
+
+    print(f"Estimating active subspace per policy on {states.shape[0]} states...")
+    label = args.label or Path(args.checkpoint).parent.name
+    summary = summarize_subspace_per_policy(
+        policy_net,
+        states,
+        list(model.policy_names),
+        threshold=args.threshold,
+    )
+    print_subspace_summary(summary, label=label)
 
 
 def run_check():
