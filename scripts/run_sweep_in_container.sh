@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
-# Run the disaster second-order sweep inside the NGC JAX container.
+# Run a disaster sweep inside the NGC JAX container.
 #
 # Mounts the repo at /workspace, pip-installs project deps that aren't in the
 # NGC base image (equinox, tensorboardX, wandb, tqdm, pydantic-settings, rich),
-# then runs scripts/sweep_disaster_second_order.py.
+# then runs the launcher selected by ``LAUNCHER`` (default:
+# ``scripts/sweep_disaster_second_order.py``).
 #
 # Env:
 #   REPO_DIR        defaults to /home/anna/projects/deqn-jax
 #   IMAGE           defaults to nvcr.io/nvidia/jax:26.02-py3
+#   LAUNCHER        path (relative to repo) of the sweep launcher to run.
+#                   Defaults to scripts/sweep_disaster_second_order.py for
+#                   backward compat. Set to scripts/sweep_disaster_kf_validation.py
+#                   for the K/F-anchor validation sweep.
+#   WANDB_DIR_NAME  per-sweep wandb subdir name (default: sweep_so)
 #   WANDB_API_KEY   optional; if unset, the launcher disables W&B
 #
 # Usage:
 #   ./scripts/run_sweep_in_container.sh                          # full sweep
-#   ./scripts/run_sweep_in_container.sh --only ngd_lr1e-3        # one cell
+#   LAUNCHER=scripts/sweep_disaster_kf_validation.py \
+#     WANDB_DIR_NAME=sweep_kf ./scripts/run_sweep_in_container.sh
+#   ./scripts/run_sweep_in_container.sh --only <cell>            # one cell
 #   ./scripts/run_sweep_in_container.sh --list                   # dry-run grid
 #   ./scripts/run_sweep_in_container.sh --redo                   # overwrite results
 
@@ -20,14 +28,22 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/home/anna/projects/deqn-jax}"
 IMAGE="${IMAGE:-nvcr.io/nvidia/jax:26.02-py3}"
+LAUNCHER="${LAUNCHER:-scripts/sweep_disaster_second_order.py}"
+WANDB_DIR_NAME="${WANDB_DIR_NAME:-sweep_so}"
 
 if [ ! -d "$REPO_DIR" ]; then
     echo "REPO_DIR=$REPO_DIR not found" >&2
     exit 1
 fi
 
+if [ ! -f "$REPO_DIR/$LAUNCHER" ]; then
+    echo "LAUNCHER=$LAUNCHER not found in $REPO_DIR" >&2
+    exit 1
+fi
+
 echo "[wrapper] image=$IMAGE"
 echo "[wrapper] repo=$REPO_DIR"
+echo "[wrapper] launcher=$LAUNCHER"
 echo "[wrapper] launcher args: ${*:-(none)}"
 
 HOST_UID="$(id -u)"
@@ -42,8 +58,9 @@ docker run --rm --gpus all \
     -w /workspace \
     -e HOME=/workspace/.docker_home \
     -e WANDB_API_KEY="${WANDB_API_KEY:-}" \
-    -e WANDB_DIR=/workspace/runs/sweep_so/.wandb \
+    -e WANDB_DIR="/workspace/runs/$WANDB_DIR_NAME/.wandb" \
     -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
+    -e LAUNCHER="$LAUNCHER" \
     "$IMAGE" \
     bash -c '
         set -euo pipefail
@@ -65,6 +82,6 @@ docker run --rm --gpus all \
             echo "[setup] WANDB_API_KEY unset — disabling W&B for this sweep"
             export DEQN_DISABLE_WANDB=1
         fi
-        echo "[run] starting launcher..."
-        python scripts/sweep_disaster_second_order.py "$@"
+        echo "[run] starting launcher: $LAUNCHER ..."
+        python "$LAUNCHER" "$@"
     ' bash "$@"
