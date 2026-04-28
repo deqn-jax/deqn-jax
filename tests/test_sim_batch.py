@@ -67,7 +67,7 @@ def test_sim_batch_carries_through_episode_state():
     from deqn_jax.training.trainer import create_train_state
 
     key = jax.random.PRNGKey(0)
-    state, _, _, _ = create_train_state(
+    state, _, _ = create_train_state(
         MODEL,
         key,
         hidden_sizes=(8,),
@@ -91,7 +91,7 @@ def test_sim_batch_none_uses_batch_size_for_episode_state():
     from deqn_jax.training.trainer import create_train_state
 
     key = jax.random.PRNGKey(0)
-    state, _, _, _ = create_train_state(
+    state, _, _ = create_train_state(
         MODEL,
         key,
         hidden_sizes=(8,),

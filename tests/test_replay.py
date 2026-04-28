@@ -244,7 +244,7 @@ def test_replay_state_serialization_roundtrip():
     }
     cfg = TrainConfig.model_validate(cfg_dict)
     model = load_model(cfg.model)
-    state, _, _, _ = create_train_state(
+    state, _, _ = create_train_state(
         model,
         jr.PRNGKey(0),
         hidden_sizes=cfg.network.hidden_sizes,
@@ -266,7 +266,7 @@ def test_replay_state_serialization_roundtrip():
         eqx.tree_serialise_leaves(path, state)
 
         # Build a fresh template for deserialization.
-        template_state, _, _, _ = create_train_state(
+        template_state, _, _ = create_train_state(
             model,
             jr.PRNGKey(0),
             hidden_sizes=cfg.network.hidden_sizes,
@@ -314,7 +314,7 @@ def test_replay_disabled_state_is_none():
         }
     )
     model = load_model(cfg.model)
-    state, _, _, _ = create_train_state(
+    state, _, _ = create_train_state(
         model,
         jr.PRNGKey(0),
         hidden_sizes=cfg.network.hidden_sizes,

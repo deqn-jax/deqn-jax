@@ -48,7 +48,7 @@ def benchmark_model(
     key = jax.random.PRNGKey(42)
     learning_rate = 1e-3
 
-    state, opt, _kind, _critic_opt = create_train_state(
+    state, opt, _kind = create_train_state(
         MODEL,
         key,
         hidden_sizes=hidden_sizes,

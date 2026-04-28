@@ -329,7 +329,7 @@ def load_policy_from_checkpoint(
         n_layers=n_layers,
     )
 
-    template_state, _, _, _ = create_train_state(
+    template_state, _, _ = create_train_state(
         model,
         key,
         hidden_sizes=hidden_sizes,

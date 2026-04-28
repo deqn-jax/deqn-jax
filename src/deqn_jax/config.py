@@ -196,26 +196,6 @@ class OptimizerConfig(_ConfigBase):
         default=10, description="Shampoo preconditioner update frequency."
     )
     memory_size: int = Field(default=10, description="L-BFGS history size.")
-
-    critic_name: Optional[str] = Field(
-        default=None,
-        description=(
-            "Optimizer name for the critic (actor-critic only). None = inherit "
-            "`name`. Must be in CRITIC_VALID_NAMES (standard first-order optimizers)."
-        ),
-    )
-    critic_learning_rate: Optional[float] = Field(
-        default=None,
-        description="Critic peak learning rate. None = inherit `learning_rate`.",
-    )
-    critic_grad_clip: Optional[float] = Field(
-        default=None,
-        description="Critic global gradient-norm clipping. None = inherit `grad_clip`.",
-    )
-    critic_weight_decay: Optional[float] = Field(
-        default=None,
-        description="Critic L2 weight decay. None = inherit `weight_decay`.",
-    )
     ns_steps: int = Field(default=5, description="Muon Newton-Schulz iteration count.")
     cg_iters: int = Field(
         default=20,
@@ -276,12 +256,6 @@ class OptimizerConfig(_ConfigBase):
     VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset(
         {"constant", "cosine", "reduce_on_plateau"}
     )
-    # Restricted set: only standard first-order optimizers compose with the
-    # actor-critic split-tuple grad path in `optimizers/standard.py`. Adding
-    # MAO/PCGrad/GN/LBFGS support is a future commit.
-    CRITIC_VALID_NAMES: ClassVar[frozenset] = frozenset(
-        {"adam", "sgd", "adamw", "lion"}
-    )
 
     @field_validator(
         "learning_rate",
@@ -305,28 +279,6 @@ class OptimizerConfig(_ConfigBase):
     @classmethod
     def _coerce_grad_clip(cls, v, info):
         return _coerce_optional_float(v, f"optimizer.{info.field_name}")
-
-    @field_validator(
-        "critic_learning_rate",
-        "critic_grad_clip",
-        "critic_weight_decay",
-        mode="before",
-    )
-    @classmethod
-    def _coerce_critic_optional_float(cls, v, info):
-        return _coerce_optional_float(v, f"optimizer.{info.field_name}")
-
-    @field_validator("critic_name", mode="before")
-    @classmethod
-    def _check_critic_name_type(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, str):
-            raise TypeError(
-                f"OptimizerConfig.critic_name: expected Optional[str], "
-                f"got {type(v).__name__} ({v!r})"
-            )
-        return v
 
     @field_validator(
         "block_size",
@@ -403,27 +355,6 @@ class OptimizerConfig(_ConfigBase):
         if not (0 <= self.lr_min_factor <= 1):
             raise ValueError(
                 f"lr_min_factor must be in [0, 1], got {self.lr_min_factor}"
-            )
-        if (
-            self.critic_name is not None
-            and self.critic_name not in self.CRITIC_VALID_NAMES
-        ):
-            raise ValueError(
-                f"critic_name must be one of {sorted(self.CRITIC_VALID_NAMES)} "
-                f"(actor-critic v1 supports only standard first-order optimizers), "
-                f"got {self.critic_name!r}"
-            )
-        if self.critic_learning_rate is not None and self.critic_learning_rate <= 0:
-            raise ValueError(
-                f"critic_learning_rate must be > 0, got {self.critic_learning_rate}"
-            )
-        if self.critic_grad_clip is not None and self.critic_grad_clip <= 0:
-            raise ValueError(
-                f"critic_grad_clip must be > 0, got {self.critic_grad_clip}"
-            )
-        if self.critic_weight_decay is not None and self.critic_weight_decay < 0:
-            raise ValueError(
-                f"critic_weight_decay must be >= 0, got {self.critic_weight_decay}"
             )
         return self
 
@@ -675,103 +606,6 @@ class ReplayBufferConfig(_ConfigBase):
 
 
 # ---------------------------------------------------------------------------
-# ActorCriticConfig
-# ---------------------------------------------------------------------------
-
-
-class ActorCriticConfig(_ConfigBase):
-    """Actor-critic configuration.
-
-    Adds a value-function head V(s) whose gradient is exposed to
-    ``equations()`` so model authors can write FOCs that reference
-    ∂V/∂s. Bellman residual is added as another equation (key
-    ``"bellman"`` or ``"aux_bellman"``).
-
-    Off by default (``mode=None``); existing models train unchanged.
-
-    Modes:
-        ``"shared"``: one network with policy head + value head sharing
-            a trunk. Net lives in ``state.params``; ``aux_params=None``.
-        ``"separate"``: critic is its own MLP in ``state.aux_params``,
-            with its own optimizer state in ``state.aux_opt_state``.
-            Critic optimizer is configured via ``OptimizerConfig.critic_*``
-            fields.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    VALID_MODES: ClassVar[frozenset] = frozenset({"shared", "separate"})
-
-    mode: Optional[str] = Field(
-        default=None,
-        description=(
-            "Actor-critic mode: `shared` (one trunk, two heads), `separate` "
-            "(critic is a second network in `aux_params`), or None (no critic, "
-            "default; training behaves identically to today)."
-        ),
-    )
-    value_hidden_sizes: Tuple[int, ...] = Field(
-        default=(64, 64),
-        description=(
-            "Hidden layer widths for the standalone critic network. Used only "
-            "when `mode='separate'`. In `shared` mode the trunk is sized by "
-            "`network.hidden_sizes`."
-        ),
-    )
-
-    # Deliberately minimal surface. Per-equation weighting (including the
-    # Bellman residual) is handled by `TrainConfig.loss_weights`. The
-    # `aux_*` filtering convention is up to the model author: if you want
-    # the Bellman residual to be excluded from adaptive reweighting,
-    # return it under the key `"aux_bellman"` instead of `"bellman"` (the
-    # framework's `eq_losses_to_array` filter already strips `aux_*` keys
-    # — see docs/composite_loss.md). Selective stop_gradient on V in
-    # specific residuals is also up to the model author (use
-    # `jax.lax.stop_gradient(value_grad_next)` inside `equations()` where
-    # appropriate); a global "detach in policy grad" flag is
-    # ill-defined when actor and critic share one residual sum.
-
-    @field_validator("mode", mode="before")
-    @classmethod
-    def _check_mode_type(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, str):
-            raise TypeError(
-                f"ActorCriticConfig.mode: expected Optional[str], "
-                f"got {type(v).__name__} ({v!r})"
-            )
-        return v
-
-    @field_validator("value_hidden_sizes", mode="before")
-    @classmethod
-    def _coerce_value_hidden_sizes(cls, v):
-        if isinstance(v, list):
-            return tuple(v)
-        if isinstance(v, str) or isinstance(v, int):
-            raise TypeError(
-                f"ActorCriticConfig.value_hidden_sizes: expected Tuple[int, ...], "
-                f"got {type(v).__name__} ({v!r})"
-            )
-        return v
-
-    @model_validator(mode="after")
-    def _validate_ranges(self):
-        if self.mode is not None and self.mode not in self.VALID_MODES:
-            raise ValueError(
-                f"Unknown actor_critic.mode '{self.mode}'. "
-                f"Valid: {sorted(self.VALID_MODES)} or None"
-            )
-        if not self.value_hidden_sizes:
-            raise ValueError("value_hidden_sizes must be non-empty")
-        if any(s <= 0 for s in self.value_hidden_sizes):
-            raise ValueError(
-                f"All value_hidden_sizes must be > 0, got {self.value_hidden_sizes}"
-            )
-        return self
-
-
-# ---------------------------------------------------------------------------
 # NetworkConfig
 # ---------------------------------------------------------------------------
 
@@ -1013,14 +847,6 @@ class TrainConfig(_ConfigBase):
         default_factory=MomentMatchingConfig,
         description="Aux loss biasing ergodic moments toward a Dynare reference; only active when `moment_matching.enabled=true`.",
     )
-    actor_critic: ActorCriticConfig = Field(
-        default_factory=ActorCriticConfig,
-        description=(
-            "Actor-critic configuration; only active when `actor_critic.mode` "
-            "is `shared` or `separate`. None (default) = pure DEQN residual "
-            "minimization, no value head."
-        ),
-    )
 
     loss_choice: str = Field(
         default="mse",
@@ -1166,15 +992,6 @@ class TrainConfig(_ConfigBase):
             "Applied to BOTH the residual expectation and the rollout state path."
         ),
     )
-    shock_distribution: str = Field(
-        default="gaussian",
-        description=(
-            "Shock distribution for the residual expectation and rollout: "
-            "`gaussian` (standard normal, default) or `truncated_normal` "
-            "(uses model-declared `shock_bounds`; falls back to MC and warns "
-            "if combined with `expectation_type='quadrature'`)."
-        ),
-    )
 
     target_update_every: int = Field(
         default=0,
@@ -1253,9 +1070,6 @@ class TrainConfig(_ConfigBase):
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
     VALID_EXPECTATION_TYPES: ClassVar[frozenset] = frozenset(
         {"mc", "quadrature", "gh", "gauss_hermite"}
-    )
-    VALID_SHOCK_DISTRIBUTIONS: ClassVar[frozenset] = frozenset(
-        {"gaussian", "truncated_normal"}
     )
 
     # -- before-mode validators for type coercion --
@@ -1495,23 +1309,6 @@ class TrainConfig(_ConfigBase):
             raise ValueError(
                 f"n_minibatches_per_epoch must be >= 1 or None, got {self.n_minibatches_per_epoch}"
             )
-        if self.shock_distribution not in self.VALID_SHOCK_DISTRIBUTIONS:
-            raise ValueError(
-                f"Unknown shock_distribution '{self.shock_distribution}'. "
-                f"Valid: {sorted(self.VALID_SHOCK_DISTRIBUTIONS)}"
-            )
-        if self.actor_critic.mode is not None:
-            # AC v1 only composes with STANDARD-family optimizers in
-            # `optimizers/standard.py` (the (params, aux_params)-tuple
-            # grad path). MAO/PCGrad/GN/LBFGS support is a follow-up.
-            if self.optimizer.name not in OptimizerConfig.CRITIC_VALID_NAMES:
-                raise ValueError(
-                    f"actor_critic.mode={self.actor_critic.mode!r} requires "
-                    f"a standard first-order primary optimizer "
-                    f"(one of {sorted(OptimizerConfig.CRITIC_VALID_NAMES)}); "
-                    f"got optimizer.name={self.optimizer.name!r}. "
-                    f"AC support for MAO/PCGrad/GN/LBFGS is a future commit."
-                )
         return self
 
     @classmethod
@@ -1528,19 +1325,12 @@ class TrainConfig(_ConfigBase):
         comp_dict = d.pop("composite_loss", {})
         replay_dict = d.pop("replay_buffer", {})
         mom_dict = d.pop("moment_matching", {})
-        ac_dict = d.pop("actor_critic", {})
 
         # If optimizer is a plain string, treat as name
         if isinstance(opt_dict, str):
             opt_dict = {"name": opt_dict}
         if isinstance(net_dict, str):
             net_dict = {"type": net_dict}
-
-        # Convert value_hidden_sizes list to tuple (YAML gives list)
-        if "value_hidden_sizes" in ac_dict and isinstance(
-            ac_dict["value_hidden_sizes"], list
-        ):
-            ac_dict["value_hidden_sizes"] = tuple(ac_dict["value_hidden_sizes"])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment]
 
         # Convert hidden_sizes list to tuple. The dict came from YAML
         # so its element type is Any; ty narrows it to ``str`` after
@@ -1565,7 +1355,6 @@ class TrainConfig(_ConfigBase):
         comp_fields = set(CompositeLossConfig.model_fields.keys())
         replay_fields = set(ReplayBufferConfig.model_fields.keys())
         mom_fields = set(MomentMatchingConfig.model_fields.keys())
-        ac_fields = set(ActorCriticConfig.model_fields.keys())
         train_fields = set(TrainConfig.model_fields.keys())
 
         _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
@@ -1573,7 +1362,6 @@ class TrainConfig(_ConfigBase):
         _check_unknown_keys(set(comp_dict.keys()), comp_fields, "composite_loss")
         _check_unknown_keys(set(replay_dict.keys()), replay_fields, "replay_buffer")
         _check_unknown_keys(set(mom_dict.keys()), mom_fields, "moment_matching")
-        _check_unknown_keys(set(ac_dict.keys()), ac_fields, "actor_critic")
         _check_unknown_keys(set(d.keys()), train_fields, "config")
 
         return cls(
@@ -1582,7 +1370,6 @@ class TrainConfig(_ConfigBase):
             composite_loss=CompositeLossConfig(**comp_dict),
             replay_buffer=ReplayBufferConfig(**replay_dict),
             moment_matching=MomentMatchingConfig(**mom_dict),
-            actor_critic=ActorCriticConfig(**ac_dict),
             **{k: v for k, v in d.items() if k in train_fields},
         )
 
@@ -1627,10 +1414,6 @@ class TrainConfig(_ConfigBase):
             d["network"]["activations"] = list(d["network"]["activations"])
         if "network" in d and d["network"].get("kf_names") is not None:
             d["network"]["kf_names"] = list(d["network"]["kf_names"])
-        if "actor_critic" in d and "value_hidden_sizes" in d["actor_critic"]:
-            d["actor_critic"]["value_hidden_sizes"] = list(
-                d["actor_critic"]["value_hidden_sizes"]
-            )
 
         with open(path, "w") as f:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)
@@ -1689,9 +1472,6 @@ def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
         elif name == "moment_matching":
             for mf in MomentMatchingConfig.model_fields:
                 flat[f"moment_matching.{mf}"] = getattr(val, mf)
-        elif name == "actor_critic":
-            for af in ActorCriticConfig.model_fields:
-                flat[f"actor_critic.{af}"] = getattr(val, af)
         else:
             flat[name] = val
     return flat
@@ -1704,7 +1484,6 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     comp_kw: Dict[str, Any] = {}
     replay_kw: Dict[str, Any] = {}
     mom_kw: Dict[str, Any] = {}
-    ac_kw: Dict[str, Any] = {}
     train_kw: Dict[str, Any] = {}
 
     opt_fields = set(OptimizerConfig.model_fields.keys())
@@ -1712,14 +1491,12 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     comp_fields = set(CompositeLossConfig.model_fields.keys())
     replay_fields = set(ReplayBufferConfig.model_fields.keys())
     mom_fields = set(MomentMatchingConfig.model_fields.keys())
-    ac_fields = set(ActorCriticConfig.model_fields.keys())
     train_fields = set(TrainConfig.model_fields.keys()) - {
         "optimizer",
         "network",
         "composite_loss",
         "replay_buffer",
         "moment_matching",
-        "actor_critic",
     }
 
     # Build set of all valid flat keys for validation
@@ -1729,7 +1506,6 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     valid_flat_keys |= {f"composite_loss.{n}" for n in comp_fields}
     valid_flat_keys |= {f"replay_buffer.{n}" for n in replay_fields}
     valid_flat_keys |= {f"moment_matching.{n}" for n in mom_fields}
-    valid_flat_keys |= {f"actor_critic.{n}" for n in ac_fields}
 
     _check_unknown_keys(set(flat.keys()), valid_flat_keys, "config overrides")
 
@@ -1744,8 +1520,6 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
             replay_kw[key[len("replay_buffer.") :]] = val
         elif key.startswith("moment_matching."):
             mom_kw[key[len("moment_matching.") :]] = val
-        elif key.startswith("actor_critic."):
-            ac_kw[key[len("actor_critic.") :]] = val
         else:
             train_kw[key] = val
 
@@ -1755,7 +1529,6 @@ def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
         composite_loss=CompositeLossConfig(**comp_kw),
         replay_buffer=ReplayBufferConfig(**replay_kw),
         moment_matching=MomentMatchingConfig(**mom_kw),
-        actor_critic=ActorCriticConfig(**ac_kw),
         **train_kw,
     )
 
