@@ -86,6 +86,27 @@ from deqn_jax.types import ModelSpec, TrainState, make_reweight_state
 # ---------------------------------------------------------------------------
 
 
+# Side-channel for the critic optimizer (actor-critic separate mode).
+# We don't grow the (state, opt, kind) return tuple of create_train_state
+# to avoid touching all 6 callers; instead, the critic Optax transform is
+# attached to the primary opt object (or stashed here when opt is a frozen
+# NamedTuple) and recovered inside make_train_step.
+_CRITIC_OPT_BY_ID: Dict[int, Any] = {}
+
+
+def _attach_critic_opt(opt: Any, critic_opt: Any) -> None:
+    """Stash critic_opt so make_train_step can find it later."""
+    try:
+        opt._deqn_critic_opt = critic_opt  # noqa: SLF001
+    except AttributeError:
+        _CRITIC_OPT_BY_ID[id(opt)] = critic_opt
+
+
+def _get_critic_opt(opt: Any) -> Optional[Any]:
+    """Recover a previously-stashed critic_opt; None if AC was disabled."""
+    return getattr(opt, "_deqn_critic_opt", None) or _CRITIC_OPT_BY_ID.get(id(opt))
+
+
 def create_train_state(
     model: ModelSpec,
     key: Array,
@@ -100,6 +121,7 @@ def create_train_state(
     network_config=None,
     sim_batch: Optional[int] = None,
     replay_config=None,
+    actor_critic_config=None,
 ) -> Tuple[TrainState, Any, OptimizerKind]:
     """Initialize training state and optimizer.
 
@@ -222,21 +244,43 @@ def create_train_state(
             key=net_key,
         )
     else:
-        policy_net = create_mlp(
-            n_states=model.n_states,
-            n_policies=model.n_policies,
-            hidden_sizes=hidden_sizes,
-            activation=activation,
-            activations=activations,
-            init=init,
-            policy_lower=model.policy_lower,
-            policy_upper=model.policy_upper,
-            multi_head=multi_head,
-            skip_connections=skip_connections,
-            input_shift=input_shift,
-            input_scale=input_scale,
-            key=net_key,
+        ac_mode = (
+            getattr(actor_critic_config, "mode", None)
+            if actor_critic_config is not None
+            else None
         )
+        if ac_mode == "shared":
+            from deqn_jax.networks import create_actor_critic_mlp
+
+            policy_net = create_actor_critic_mlp(
+                n_states=model.n_states,
+                n_policies=model.n_policies,
+                hidden_sizes=hidden_sizes,
+                activation=activation,
+                activations=activations,
+                init=init,
+                policy_lower=model.policy_lower,
+                policy_upper=model.policy_upper,
+                input_shift=input_shift,
+                input_scale=input_scale,
+                key=net_key,
+            )
+        else:
+            policy_net = create_mlp(
+                n_states=model.n_states,
+                n_policies=model.n_policies,
+                hidden_sizes=hidden_sizes,
+                activation=activation,
+                activations=activations,
+                init=init,
+                policy_lower=model.policy_lower,
+                policy_upper=model.policy_upper,
+                multi_head=multi_head,
+                skip_connections=skip_connections,
+                input_shift=input_shift,
+                input_scale=input_scale,
+                key=net_key,
+            )
 
     # Create optimizer via registry or legacy path
     if optimizer_config is not None:
@@ -295,6 +339,73 @@ def create_train_state(
     else:
         replay_state = None
 
+    # Actor-critic separate-mode: build a standalone critic MLP into
+    # aux_params + initialize aux_opt_state with a critic optimizer
+    # synthesized from OptimizerConfig.critic_*. shared/None modes leave
+    # both at None (critic params live inside policy_net or there is no
+    # critic).
+    aux_params = None
+    aux_opt_state = None
+    ac_mode = (
+        getattr(actor_critic_config, "mode", None)
+        if actor_critic_config is not None
+        else None
+    )
+    if ac_mode == "separate":
+        from deqn_jax.config import OptimizerConfig
+
+        critic_hidden_sizes = getattr(
+            actor_critic_config, "value_hidden_sizes", (64, 64)
+        )
+        key, critic_net_key = jax.random.split(key)
+        # Critic network: scalar output, no bounds (sigmoid would saturate ∂V/∂s).
+        critic_net = create_mlp(
+            n_states=model.n_states,
+            n_policies=1,
+            hidden_sizes=critic_hidden_sizes,
+            activation=activation,
+            init=init,
+            policy_lower=None,
+            policy_upper=None,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            key=critic_net_key,
+        )
+        # Synthesize a critic OptimizerConfig: critic_* fields override
+        # primary; missing critic_* fields inherit from primary.
+        if optimizer_config is not None:
+            primary = optimizer_config
+        else:
+            primary = OptimizerConfig(
+                name=optimizer,
+                learning_rate=learning_rate,
+                grad_clip=grad_clip,
+            )
+        critic_opt_cfg = OptimizerConfig(
+            name=primary.critic_name or primary.name,
+            learning_rate=(
+                primary.critic_learning_rate
+                if primary.critic_learning_rate is not None
+                else primary.learning_rate
+            ),
+            grad_clip=(
+                primary.critic_grad_clip
+                if primary.critic_grad_clip is not None
+                else primary.grad_clip
+            ),
+            weight_decay=(
+                primary.critic_weight_decay
+                if primary.critic_weight_decay is not None
+                else primary.weight_decay
+            ),
+        )
+        critic_opt, _critic_kind = create_optimizer(critic_opt_cfg)
+        aux_params = critic_net
+        aux_opt_state = critic_opt.init(eqx.filter(critic_net, eqx.is_array))
+        # Stash the critic optimizer so make_train_step can retrieve it
+        # without changing the (state, opt, kind) return tuple.
+        _attach_critic_opt(opt, critic_opt)
+
     state = TrainState(
         params=policy_net,
         opt_state=opt_state,
@@ -306,6 +417,8 @@ def create_train_state(
         reweight_state=make_reweight_state(n_equations),
         history_state=init_history,
         replay_state=replay_state,
+        aux_params=aux_params,
+        aux_opt_state=aux_opt_state,
     )
 
     return state, opt, kind
@@ -426,6 +539,9 @@ def make_train_step(
             compute_loss_fn,
         )
     else:
+        # Recover the AC critic optimizer (None unless actor_critic.mode
+        # == "separate"; stashed by create_train_state).
+        critic_opt = _get_critic_opt(opt)
         grad_step = _make_grad_step_standard(
             model,
             opt,
@@ -436,6 +552,7 @@ def make_train_step(
             reweight_alpha,
             use_target_network,
             compute_loss_fn,
+            critic_opt=critic_opt,
         )
 
     return _make_cycle_step(

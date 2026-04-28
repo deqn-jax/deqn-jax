@@ -18,9 +18,10 @@ Residual aggregation uses (E[r])² (average THEN square):
 - With quadrature weights: weighted mean then square
 """
 
+import inspect
 import math
 from functools import lru_cache
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -129,6 +130,38 @@ def gauss_hermite_nd(
 
 
 # ---------------------------------------------------------------------------
+# Equations-signature introspection (actor-critic value passthrough)
+# ---------------------------------------------------------------------------
+
+# Optional kwargs the framework supplies to ``equations_fn`` when actor-critic
+# is enabled and the model's equations function declares them. Lifting the
+# tuple keeps the contract documented in one place.
+_VALUE_KWARG_NAMES: Tuple[str, ...] = ("value_now", "value_next", "value_grad_next")
+
+
+def equations_accepts_value(eq_fn: Callable) -> bool:
+    """Does ``eq_fn`` declare any of the actor-critic value kwargs?
+
+    Mirror of ``shocks.step_accepts_disaster``: introspects the function
+    signature once at setup time (outside JIT). When True, the loss
+    pipeline computes ``V(s)``, ``V(s')``, and ``∂V/∂s'`` via the value
+    network and passes them in as keyword arguments. When False, the
+    framework calls ``eq_fn(state, policy, next_state, next_policy,
+    constants)`` exactly as today — guaranteeing backward compat for
+    existing models that don't know about the critic.
+
+    Returns False on functions whose signature can't be inspected
+    (e.g. partial-application closures); the equations contract requires
+    a plain Python def.
+    """
+    try:
+        params = inspect.signature(eq_fn).parameters
+    except (ValueError, TypeError):
+        return False
+    return any(name in params for name in _VALUE_KWARG_NAMES)
+
+
+# ---------------------------------------------------------------------------
 # Residual computation
 # ---------------------------------------------------------------------------
 
@@ -139,6 +172,8 @@ def compute_residuals(
     train_batch: Array,
     shock: Array,
     target_policy_fn: Optional[Callable[[Array], Array]] = None,
+    value_fn: Optional[Callable[[Array], Array]] = None,
+    detach_value_in_policy_grad: bool = False,
 ) -> Dict[str, Array]:
     """Compute equilibrium equation residuals for a single shock realization.
 
@@ -154,18 +189,32 @@ def compute_residuals(
     the self-referential gradient loop where the network must simultaneously
     satisfy today's equations and be consistent with its own future outputs.
 
+    If ``value_fn`` is provided (actor-critic) AND the model's equations
+    function declares any of the value kwargs (``value_now``, ``value_next``,
+    ``value_grad_next``), the framework computes V at the current and next
+    states plus ∂V/∂s' and passes them in as keyword arguments. ``value_fn``
+    must be a per-sample function ``[n_states] -> scalar`` so ``jax.grad``
+    is well-defined.
+
     Args:
         model: Model specification
         policy_fn: Policy network (states -> policies) or (history -> policies)
         train_batch: Current states [batch, n_states] or history windows [batch, H, n_states]
         shock: Shock realization [batch, n_shocks]
         target_policy_fn: Frozen policy for next_policy (None = use policy_fn)
+        value_fn: Per-sample value head [n_states] -> scalar (None = no critic)
+        detach_value_in_policy_grad: If True, stop_gradient is applied to V
+            and ∂V/∂s' before they are passed to equations(). Matches
+            actor-critic "critic provides target" semantics.
 
     Returns:
         Dict mapping equation names to residuals [batch]
     """
     # Choose which function computes next_policy
     next_fn = target_policy_fn if target_policy_fn is not None else policy_fn
+
+    # Resolve once outside the inner _branch (compile-time bool).
+    use_value = value_fn is not None and equations_accepts_value(model.equations_fn)
 
     # Disaster probability — discrete mixture over disaster realisation:
     # E_t[x'] = (1-p) E_t[x' | no disaster] + p E_t[x' | disaster]
@@ -208,12 +257,33 @@ def compute_residuals(
             next_policy_local = next_fn(next_state_local)
         if target_policy_fn is not None:
             next_policy_local = jax.lax.stop_gradient(next_policy_local)
+
+        value_kwargs: Dict[str, Array] = {}
+        if use_value:
+            # value_fn: [n_states] -> scalar, vmap over batch.
+            # ∂V/∂s' is the autodiff path actor-critic FOCs reference.
+            v_now = jax.vmap(value_fn)(states_local)  # [batch]
+            v_next = jax.vmap(value_fn)(next_state_local)  # [batch]
+            dv_next = jax.vmap(jax.grad(value_fn))(
+                next_state_local
+            )  # [batch, n_states]
+            if detach_value_in_policy_grad:
+                v_now = jax.lax.stop_gradient(v_now)
+                v_next = jax.lax.stop_gradient(v_next)
+                dv_next = jax.lax.stop_gradient(dv_next)
+            value_kwargs = {
+                "value_now": v_now,
+                "value_next": v_next,
+                "value_grad_next": dv_next,
+            }
+
         return model.equations_fn(
             states_local,
             policy_local,
             next_state_local,
             next_policy_local,
             model.constants,
+            **value_kwargs,
         )
 
     if p_disaster <= 0.0:
@@ -231,6 +301,35 @@ def compute_residuals(
 # ---------------------------------------------------------------------------
 # Loss computation (unified MC + quadrature)
 # ---------------------------------------------------------------------------
+
+
+def _make_value_fn(
+    policy_fn: Callable[[Array], Array],
+    aux_params: Optional[Any],
+) -> Optional[Callable[[Array], Array]]:
+    """Build a per-sample value function ``[n_states] -> scalar``.
+
+    Three cases:
+
+    * Separate-mode actor-critic (``aux_params`` is a callable critic
+      module with scalar output): wrap to squeeze the trailing singleton
+      so ``jax.grad`` is well-defined.
+    * Shared-mode actor-critic (``policy_fn`` is an ``ActorCriticMLP``
+      with a ``.value`` attribute): use it directly. ``ActorCriticMLP.value``
+      already returns a scalar for ``[n_states]`` input.
+    * No actor-critic: returns ``None`` and the caller skips value
+      passthrough entirely (existing models train unchanged).
+    """
+    if aux_params is not None:
+
+        def value_fn(state: Array) -> Array:
+            # Critic MLP returns [1] for [n_states] input. Squeeze to scalar.
+            return aux_params(state).squeeze()
+
+        return value_fn
+    if hasattr(policy_fn, "value") and callable(getattr(policy_fn, "value")):
+        return policy_fn.value
+    return None
 
 
 def huber(x: Array, delta: float) -> Array:
@@ -266,6 +365,7 @@ def compute_loss(
     target_policy_fn: Optional[Callable[[Array], Array]] = None,
     loss_choice: str = "mse",
     huber_delta: float | Array = 1.0,
+    aux_params: Optional[Any] = None,
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with MC or quadrature expectations.
 
@@ -319,10 +419,20 @@ def compute_loss(
         n_samples = shocks.shape[0]
         sample_weights = jnp.ones(n_samples) / n_samples  # uniform
 
+    # Build the per-sample value function from the available state.
+    # None unless the user has actor-critic enabled (either shared trunk
+    # via ActorCriticMLP or separate critic in aux_params).
+    value_fn = _make_value_fn(policy_fn, aux_params)
+
     # Compute residuals for each shock/node
     def compute_sample_residuals(shock):
         return compute_residuals(
-            model, policy_fn, states, shock, target_policy_fn=target_policy_fn
+            model,
+            policy_fn,
+            states,
+            shock,
+            target_policy_fn=target_policy_fn,
+            value_fn=value_fn,
         )
 
     # vmap over samples/nodes: Dict[str, [n_samples, batch]]

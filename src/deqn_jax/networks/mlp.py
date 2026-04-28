@@ -309,6 +309,116 @@ class MultiHeadMLP(eqx.Module):
             return jax.vmap(self._forward_single)(x)
 
 
+class ActorCriticMLP(eqx.Module):
+    """Shared-trunk policy + value network for actor-critic DEQN.
+
+    Shared MLP trunk feeds two heads:
+      * ``policy_heads`` — one ``eqx.nn.Linear(hidden, 1)`` per policy
+        variable, concatenated and bounded (sigmoid scaling) to produce
+        the policy vector. Same shape as ``MultiHeadMLP``.
+      * ``value_head`` — single ``eqx.nn.Linear(hidden, 1)`` returning
+        a scalar V(s). **No bounds**: sigmoid clamping would saturate
+        ∂V/∂s, which is the quantity the policy FOCs reference.
+
+    ``__call__(x)`` returns the policy vector so existing
+    ``policy_fn(state)`` call sites work unchanged. Use ``.value(x)`` to
+    get the scalar critic output (and ``jax.grad(model.value)(state)``
+    for the value gradient).
+    """
+
+    trunk_layers: list
+    policy_heads: list  # list of eqx.nn.Linear(hidden, 1), one per policy
+    value_head: eqx.nn.Linear
+    activations: tuple = eqx.field(static=True)
+    output_lower: Optional[tuple] = eqx.field(static=True)
+    output_upper: Optional[tuple] = eqx.field(static=True)
+    _has_upper: Optional[tuple] = eqx.field(static=True)
+    input_shift: Optional[tuple] = eqx.field(static=True)
+    input_scale: Optional[tuple] = eqx.field(static=True)
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_sizes: Sequence[int] = (64, 64),
+        activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
+        output_lower: Optional[Array] = None,
+        output_upper: Optional[Array] = None,
+        input_shift: Optional[Array] = None,
+        input_scale: Optional[Array] = None,
+        init: str = "default",
+        *,
+        key: Array,
+    ):
+        self.activations = tuple(activations)
+        self.output_lower = _to_tuple(output_lower)
+        safe_upper, mask = _sanitize_upper(output_upper, output_lower)
+        self.output_upper = safe_upper
+        self._has_upper = mask
+        self.input_shift = _to_tuple(input_shift)
+        self.input_scale = _to_tuple(input_scale)
+
+        # Build trunk (hidden layers only)
+        sizes = [in_features] + list(hidden_sizes)
+        n_trunk = len(sizes) - 1
+        use_custom_init = init != "default" and init in INIT_FNS
+
+        key, *trunk_keys = jax.random.split(key, n_trunk + 1)
+        if use_custom_init:
+            key, *init_keys = jax.random.split(key, n_trunk + 1)
+
+        self.trunk_layers = []
+        for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
+            layer = eqx.nn.Linear(in_size, out_size, key=trunk_keys[i])
+            if use_custom_init:
+                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+            self.trunk_layers.append(layer)
+
+        # Per-policy heads + a separate value head. Distinct PRNG splits so
+        # adding the value head doesn't shift the policy-head init relative
+        # to MultiHeadMLP for the same seed.
+        head_key, value_key = jax.random.split(key, 2)
+        head_keys = jax.random.split(head_key, out_features)
+        self.policy_heads = [
+            eqx.nn.Linear(hidden_sizes[-1], 1, key=head_keys[i])
+            for i in range(out_features)
+        ]
+        self.value_head = eqx.nn.Linear(hidden_sizes[-1], 1, key=value_key)
+
+    def _trunk_single(self, x: Array) -> Array:
+        """Run shared trunk on a single input. Returns hidden activations."""
+        x = _normalize_input(x, self.input_shift, self.input_scale)
+        for i, layer in enumerate(self.trunk_layers):
+            x = self.activations[i](layer(x))
+        return x
+
+    def _policy_single(self, x: Array) -> Array:
+        h = self._trunk_single(x)
+        raw = jnp.concatenate([head(h) for head in self.policy_heads], axis=-1)
+        return _apply_bounds(raw, self.output_lower, self.output_upper, self._has_upper)
+
+    def _value_single(self, x: Array) -> Array:
+        h = self._trunk_single(x)
+        # value_head outputs shape [1]; squeeze to scalar so jax.grad works.
+        return self.value_head(h).squeeze(-1)
+
+    def policy(self, x: Array) -> Array:
+        """Policy output: [n_policies] for [in_features], [batch, n_policies] for [batch, in_features]."""
+        if x.ndim == 1:
+            return self._policy_single(x)
+        return jax.vmap(self._policy_single)(x)
+
+    def value(self, x: Array) -> Array:
+        """Scalar value output: scalar for [in_features], [batch] for [batch, in_features]."""
+        if x.ndim == 1:
+            return self._value_single(x)
+        return jax.vmap(self._value_single)(x)
+
+    def __call__(self, x: Array) -> Array:
+        """Default forward: returns policy. Existing call sites work unchanged."""
+        return self.policy(x)
+
+
 def create_mlp(
     n_states: int,
     n_policies: int,
@@ -364,6 +474,52 @@ def create_mlp(
     else:
         cls = MLP
     return cls(
+        in_features=n_states,
+        out_features=n_policies,
+        hidden_sizes=hidden_sizes,
+        activations=act_fns,
+        output_lower=policy_lower,
+        output_upper=policy_upper,
+        input_shift=input_shift,
+        input_scale=input_scale,
+        init=init,
+        key=key,
+    )
+
+
+def create_actor_critic_mlp(
+    n_states: int,
+    n_policies: int,
+    hidden_sizes: Sequence[int] = (64, 64),
+    activation: str = "tanh",
+    activations: Optional[Sequence[str]] = None,
+    init: str = "default",
+    policy_lower: Optional[Array] = None,
+    policy_upper: Optional[Array] = None,
+    input_shift: Optional[Array] = None,
+    input_scale: Optional[Array] = None,
+    *,
+    key: Array,
+) -> ActorCriticMLP:
+    """Factory function for the shared-trunk actor-critic MLP.
+
+    Same shape and bounding semantics as ``create_mlp(multi_head=True)``
+    for the policy heads, plus an unbounded scalar value head.
+    """
+    n_hidden = len(hidden_sizes)
+
+    if activations is not None:
+        if len(activations) != n_hidden:
+            raise ValueError(
+                f"activations length ({len(activations)}) must match "
+                f"hidden_sizes length ({n_hidden})"
+            )
+        act_fns = tuple(_resolve_activation(a) for a in activations)
+    else:
+        act_fn = _resolve_activation(activation)
+        act_fns = tuple(act_fn for _ in range(n_hidden))
+
+    return ActorCriticMLP(
         in_features=n_states,
         out_features=n_policies,
         hidden_sizes=hidden_sizes,
