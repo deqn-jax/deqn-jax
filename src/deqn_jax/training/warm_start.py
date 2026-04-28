@@ -61,6 +61,29 @@ def _init_output_bias_to_ss(
 
     # Set the last layer's bias and zero its weights. ``.layers`` is
     # an MLP-subclass attribute; the base Module type doesn't expose it.
+    # For composite policy classes (e.g. KfAnchoredMLP) the trainable
+    # MLP is nested under ``.inner_mlp``; dispatch through to the inner
+    # net so the bias init still works. The K/F-anchored outputs are
+    # pinned to the linearization and don't need (and can't accept) a
+    # bias init — we only need to bias the OTHER outputs to SS.
+    if hasattr(policy_net, "inner_mlp"):
+        # Trim ss_policy / bounds to the inner MLP's output indices.
+        other_idx = jnp.asarray(policy_net.other_indices)  # pyright: ignore[reportAttributeAccessIssue]
+        inner_ss_policy = ss_policy[other_idx]
+        inner_policy_lower = (
+            policy_lower[other_idx] if policy_lower is not None else None
+        )
+        inner_policy_upper = (
+            policy_upper[other_idx] if policy_upper is not None else None
+        )
+        new_inner = _init_output_bias_to_ss(
+            policy_net.inner_mlp,
+            inner_ss_policy,
+            inner_policy_lower,
+            inner_policy_upper,
+        )
+        return eqx.tree_at(lambda net: net.inner_mlp, policy_net, new_inner)
+
     last_layer = policy_net.layers[-1]  # pyright: ignore[reportAttributeAccessIssue]  # ty: ignore[unresolved-attribute]
     new_bias = target_raw
     new_weight = jnp.zeros_like(last_layer.weight)

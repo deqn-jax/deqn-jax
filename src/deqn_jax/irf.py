@@ -343,21 +343,14 @@ def load_policy_from_checkpoint(
     state = eqx.tree_deserialise_leaves(checkpoint_path, template_state)
     policy_net = state.params
 
-    # Restore correct bounds (old checkpoints may have drifted bounds
-    # due to a bug where output_lower/output_upper were trainable)
-    if model.policy_lower is not None and hasattr(policy_net, "output_lower"):
-        if model.policy_upper is not None:
-            policy_net = eqx.tree_at(
-                lambda net: (net.output_lower, net.output_upper),
-                policy_net,
-                (model.policy_lower, model.policy_upper),
-            )
-        else:
-            policy_net = eqx.tree_at(
-                lambda net: net.output_lower,
-                policy_net,
-                model.policy_lower,
-            )
+    # NB: the previous "restore correct bounds" rehab block was a fix for
+    # a former bug where output_lower / output_upper drifted under Adam-
+    # family second-moment updates. That bug was closed structurally in
+    # ``f5041c8`` (bound + normalization fields are now ``eqx.field(static=True)``
+    # tuples, excluded from the trainable pytree). New checkpoints inherit
+    # the correct bounds from the template state's ``__init__`` at load
+    # time, so no post-load rehab is needed — and ``eqx.tree_at`` on
+    # static fields raises, since static fields aren't pytree leaves.
 
     return policy_net, model
 
