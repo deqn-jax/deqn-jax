@@ -139,26 +139,28 @@ def gauss_hermite_nd(
 _VALUE_KWARG_NAMES: Tuple[str, ...] = ("value_now", "value_next", "value_grad_next")
 
 
-def equations_accepts_value(eq_fn: Callable) -> bool:
-    """Does ``eq_fn`` declare any of the actor-critic value kwargs?
+def equations_accepts_value(eq_fn: Callable) -> Tuple[str, ...]:
+    """Which actor-critic value kwargs does ``eq_fn`` declare?
 
     Mirror of ``shocks.step_accepts_disaster``: introspects the function
-    signature once at setup time (outside JIT). When True, the loss
-    pipeline computes ``V(s)``, ``V(s')``, and ``∂V/∂s'`` via the value
-    network and passes them in as keyword arguments. When False, the
-    framework calls ``eq_fn(state, policy, next_state, next_policy,
-    constants)`` exactly as today — guaranteeing backward compat for
-    existing models that don't know about the critic.
+    signature once at setup time (outside JIT). Returns a tuple of
+    accepted kwarg names — empty tuple if none.
 
-    Returns False on functions whose signature can't be inspected
-    (e.g. partial-application closures); the equations contract requires
-    a plain Python def.
+    The loss pipeline computes only the requested quantities and passes
+    only those as keyword arguments to ``eq_fn``. This keeps backward
+    compat for existing models (empty tuple → no value passing) and
+    lets new models opt in to whichever subset they need (e.g. just
+    ``value_now``/``value_next`` for an EZ Bellman without ever computing
+    the autodiff gradient).
+
+    Returns an empty tuple on functions whose signature can't be
+    inspected — the equations contract requires a plain Python def.
     """
     try:
         params = inspect.signature(eq_fn).parameters
     except (ValueError, TypeError):
-        return False
-    return any(name in params for name in _VALUE_KWARG_NAMES)
+        return ()
+    return tuple(name for name in _VALUE_KWARG_NAMES if name in params)
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +215,12 @@ def compute_residuals(
     # Choose which function computes next_policy
     next_fn = target_policy_fn if target_policy_fn is not None else policy_fn
 
-    # Resolve once outside the inner _branch (compile-time bool).
-    use_value = value_fn is not None and equations_accepts_value(model.equations_fn)
+    # Resolve once outside the inner _branch (compile-time tuple). Empty
+    # tuple = no AC value passing for this model; otherwise the named
+    # subset is what the equations function accepts.
+    accepted_value_kwargs: Tuple[str, ...] = (
+        equations_accepts_value(model.equations_fn) if value_fn is not None else ()
+    )
 
     # Disaster probability — discrete mixture over disaster realisation:
     # E_t[x'] = (1-p) E_t[x' | no disaster] + p E_t[x' | disaster]
@@ -258,24 +264,25 @@ def compute_residuals(
         if target_policy_fn is not None:
             next_policy_local = jax.lax.stop_gradient(next_policy_local)
 
+        # Compute only the value quantities the equations function asks
+        # for. The membership checks resolve at trace time (Python-level
+        # tuple), so the unused branches are never traced by JAX.
         value_kwargs: Dict[str, Array] = {}
-        if use_value:
-            # value_fn: [n_states] -> scalar, vmap over batch.
-            # ∂V/∂s' is the autodiff path actor-critic FOCs reference.
-            v_now = jax.vmap(value_fn)(states_local)  # [batch]
-            v_next = jax.vmap(value_fn)(next_state_local)  # [batch]
-            dv_next = jax.vmap(jax.grad(value_fn))(
-                next_state_local
-            )  # [batch, n_states]
+        if "value_now" in accepted_value_kwargs:
+            v_now = jax.vmap(value_fn)(states_local)
             if detach_value_in_policy_grad:
                 v_now = jax.lax.stop_gradient(v_now)
+            value_kwargs["value_now"] = v_now
+        if "value_next" in accepted_value_kwargs:
+            v_next = jax.vmap(value_fn)(next_state_local)
+            if detach_value_in_policy_grad:
                 v_next = jax.lax.stop_gradient(v_next)
+            value_kwargs["value_next"] = v_next
+        if "value_grad_next" in accepted_value_kwargs:
+            dv_next = jax.vmap(jax.grad(value_fn))(next_state_local)
+            if detach_value_in_policy_grad:
                 dv_next = jax.lax.stop_gradient(dv_next)
-            value_kwargs = {
-                "value_now": v_now,
-                "value_next": v_next,
-                "value_grad_next": dv_next,
-            }
+            value_kwargs["value_grad_next"] = dv_next
 
         return model.equations_fn(
             states_local,

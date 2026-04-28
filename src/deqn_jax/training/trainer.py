@@ -719,6 +719,7 @@ def _build_initial_state(
             network_config=orig_config.network,
             sim_batch=orig_config.sim_batch,
             replay_config=orig_config.replay_buffer,
+            actor_critic_config=orig_config.actor_critic,
         )
 
         state = _resume_from_checkpoint(template_state, config.resume)
@@ -757,6 +758,7 @@ def _build_initial_state(
         network_config=config.network,
         sim_batch=config.sim_batch,
         replay_config=config.replay_buffer,
+        actor_critic_config=config.actor_critic,
     )
 
     is_linear_plus_mlp = config.network.type == "linear_plus_mlp"
