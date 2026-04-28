@@ -397,6 +397,22 @@ def main():
         default=None,
         help="Header label for the printed table (default: checkpoint dir name)",
     )
+    asub_parser.add_argument(
+        "--plot-dir",
+        type=str,
+        default=None,
+        help="If set, also produce per-policy 2-D heatmap PNGs and a "
+        "spectrum panel under this directory.",
+    )
+    asub_parser.add_argument(
+        "--plot-overlay-dynare",
+        type=str,
+        default=None,
+        help="When --plot-dir is set, overlay Dynare's linearization "
+        "(ghx) contours from the given dynare_dir on each policy "
+        "heatmap. Lets you eyeball where the network deviates from "
+        "the linear policy.",
+    )
 
     # Init-config command
     init_parser = subparsers.add_parser(
@@ -737,6 +753,35 @@ def run_active_subspace_command(args):
         threshold=args.threshold,
     )
     print_subspace_summary(summary, label=label)
+
+    plot_dir = getattr(args, "plot_dir", None)
+    if plot_dir:
+        # Use a non-interactive backend so this works in headless setups.
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from deqn_jax.active_subspace_plot import save_active_subspace_report
+
+        # Optional Dynare ghx overlay on each policy heatmap.
+        overlay = None
+        dynare_dir = getattr(args, "plot_overlay_dynare", None)
+        if dynare_dir:
+            from deqn_jax.dynare_io import load_dynare_jacobian
+
+            overlay = load_dynare_jacobian(model, dynare_dir)
+
+        print(f"Writing plot report to {plot_dir} ...")
+        paths = save_active_subspace_report(
+            policy_net,
+            states,
+            list(model.state_names),
+            list(model.policy_names),
+            ss_state,
+            plot_dir,
+            overlay_linear=overlay,
+            label=label,
+        )
+        print(f"  {len(paths)} artifacts written.")
 
 
 def run_check():
