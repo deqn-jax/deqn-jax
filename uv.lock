@@ -407,6 +407,7 @@ dependencies = [
     { name = "jax", version = "0.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "jaxlib", version = "0.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "jaxlib", version = "0.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "matplotlib" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "optax" },
@@ -417,7 +418,6 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "matplotlib" },
     { name = "mkdocs" },
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
@@ -442,9 +442,6 @@ logging = [
     { name = "orbax-checkpoint" },
     { name = "tensorboardx" },
 ]
-plotting = [
-    { name = "matplotlib" },
-]
 wandb = [
     { name = "wandb" },
 ]
@@ -459,12 +456,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deqn-jax", extras = ["logging", "wandb", "docs", "plotting"], marker = "extra == 'all'" },
+    { name = "deqn-jax", extras = ["logging", "wandb", "docs"], marker = "extra == 'all'" },
     { name = "equinox", specifier = ">=0.11.0" },
     { name = "jax", specifier = ">=0.4.20" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.4.20" },
     { name = "jaxlib", specifier = ">=0.4.20" },
-    { name = "matplotlib", marker = "extra == 'plotting'", specifier = ">=3.7" },
+    { name = "matplotlib", specifier = ">=3.7" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.25" },
@@ -479,7 +476,7 @@ requires-dist = [
     { name = "treescope", specifier = ">=0.1.10" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.15.0" },
 ]
-provides-extras = ["cuda", "dev", "logging", "wandb", "plotting", "docs", "all"]
+provides-extras = ["cuda", "dev", "logging", "wandb", "docs", "all"]
 
 [package.metadata.requires-dev]
 dev = [
