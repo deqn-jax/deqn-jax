@@ -124,9 +124,14 @@ def plot_policy_subspace_2d(
     """
     import matplotlib.pyplot as plt
 
+    from deqn_jax.active_subspace import effective_dimensionality
+
     sub = estimate_active_subspace(policy_fn, states, output_idx)
     eigenvalues = sub["eigenvalues"]
     eigenvectors = sub["eigenvectors"]
+    # Annotate eff_dim here so the figure title is informative even when
+    # the caller hasn't gone through summarize_subspace_per_policy.
+    sub["effective_dim"] = effective_dimensionality(eigenvalues, threshold=0.95)
     v1 = eigenvectors[:, 0]
     v2 = eigenvectors[:, 1] if eigenvectors.shape[1] > 1 else None
 
