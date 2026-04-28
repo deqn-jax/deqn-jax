@@ -6,7 +6,7 @@ equilibrium networks.**
 Train a neural network to satisfy a dynamic model's equilibrium conditions
 across the full state space, rather than solving point-by-point.
 
-```
+```text
 state  →  Network  →  policy  →  Equilibrium equations  →  Loss = Σ residuals²
 ```
 
@@ -29,7 +29,11 @@ state  →  Network  →  policy  →  Equilibrium equations  →  Loss = Σ res
 
 - New here? → [Installation](getting-started/installation.md), then
   [Quickstart](getting-started/quickstart.md).
-- Want to add a model? → [Implementing a model](models/implementing.md).
+- Building an agent stack on top of deqn-jax? → [REFERENCE](REFERENCE.md) —
+  the type-signature-first contract for every public entry point.
+- Want to add a model? → [Implementing a model](models/implementing.md)
+  is the prose-first walkthrough; the [REFERENCE](REFERENCE.md#adding-a-model)
+  has the programmatic `register_model(...)` path for codegen / plugins.
 - Training in production? → [Running experiments](running_experiments.md).
 - Why this framework exists at all? → [Overview](why.md).
 - Reading the source? → [Reading guide](reading_guide.md) is a

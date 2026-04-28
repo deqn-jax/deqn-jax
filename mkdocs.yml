@@ -73,6 +73,7 @@ nav:
   - Home: index.md
   - What is DEQN?: what_is_deqn.md
   - Overview: why.md
+  - Reference (agent-facing): REFERENCE.md
   - Getting started:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
