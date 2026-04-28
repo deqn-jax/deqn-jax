@@ -718,29 +718,18 @@ class ActorCriticConfig(_ConfigBase):
             "`network.hidden_sizes`."
         ),
     )
-    bellman_loss_weight: float = Field(
-        default=1.0,
-        description="Weight on the Bellman residual within the equation set.",
-    )
-    aux_bellman: bool = Field(
-        default=False,
-        description=(
-            "If True, model authors should key the Bellman residual as "
-            "`aux_bellman` instead of `bellman` so it is filtered out of "
-            "adaptive reweighting (matches the `aux_*` convention from "
-            "composite_loss). Default False = Bellman participates in "
-            "reweighting alongside Euler/FOC residuals."
-        ),
-    )
-    detach_value_in_policy_grad: bool = Field(
-        default=False,
-        description=(
-            "If True, apply `jax.lax.stop_gradient` to V and ∂V/∂s when they "
-            "appear in policy FOCs. Prevents the actor's gradient from flowing "
-            "through the critic; matches RL-style 'critic provides target' "
-            "semantics. Default False = full joint gradient flow."
-        ),
-    )
+
+    # Deliberately minimal surface. Per-equation weighting (including the
+    # Bellman residual) is handled by `TrainConfig.loss_weights`. The
+    # `aux_*` filtering convention is up to the model author: if you want
+    # the Bellman residual to be excluded from adaptive reweighting,
+    # return it under the key `"aux_bellman"` instead of `"bellman"` (the
+    # framework's `eq_losses_to_array` filter already strips `aux_*` keys
+    # — see docs/composite_loss.md). Selective stop_gradient on V in
+    # specific residuals is also up to the model author (use
+    # `jax.lax.stop_gradient(value_grad_next)` inside `equations()` where
+    # appropriate); a global "detach in policy grad" flag is
+    # ill-defined when actor and critic share one residual sum.
 
     @field_validator("mode", mode="before")
     @classmethod
@@ -766,21 +755,6 @@ class ActorCriticConfig(_ConfigBase):
             )
         return v
 
-    @field_validator("bellman_loss_weight", mode="before")
-    @classmethod
-    def _coerce_float_reject_bool(cls, v, info):
-        return _coerce_float(v, f"actor_critic.{info.field_name}")
-
-    @field_validator("aux_bellman", "detach_value_in_policy_grad", mode="before")
-    @classmethod
-    def _check_bool_type(cls, v, info):
-        if not isinstance(v, bool):
-            raise TypeError(
-                f"ActorCriticConfig.{info.field_name}: expected bool, "
-                f"got {type(v).__name__} ({v!r})"
-            )
-        return v
-
     @model_validator(mode="after")
     def _validate_ranges(self):
         if self.mode is not None and self.mode not in self.VALID_MODES:
@@ -793,10 +767,6 @@ class ActorCriticConfig(_ConfigBase):
         if any(s <= 0 for s in self.value_hidden_sizes):
             raise ValueError(
                 f"All value_hidden_sizes must be > 0, got {self.value_hidden_sizes}"
-            )
-        if self.bellman_loss_weight < 0:
-            raise ValueError(
-                f"bellman_loss_weight must be >= 0, got {self.bellman_loss_weight}"
             )
         return self
 

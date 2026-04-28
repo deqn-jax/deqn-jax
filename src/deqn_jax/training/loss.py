@@ -175,7 +175,6 @@ def compute_residuals(
     shock: Array,
     target_policy_fn: Optional[Callable[[Array], Array]] = None,
     value_fn: Optional[Callable[[Array], Array]] = None,
-    detach_value_in_policy_grad: bool = False,
 ) -> Dict[str, Array]:
     """Compute equilibrium equation residuals for a single shock realization.
 
@@ -205,9 +204,6 @@ def compute_residuals(
         shock: Shock realization [batch, n_shocks]
         target_policy_fn: Frozen policy for next_policy (None = use policy_fn)
         value_fn: Per-sample value head [n_states] -> scalar (None = no critic)
-        detach_value_in_policy_grad: If True, stop_gradient is applied to V
-            and ∂V/∂s' before they are passed to equations(). Matches
-            actor-critic "critic provides target" semantics.
 
     Returns:
         Dict mapping equation names to residuals [batch]
@@ -267,22 +263,22 @@ def compute_residuals(
         # Compute only the value quantities the equations function asks
         # for. The membership checks resolve at trace time (Python-level
         # tuple), so the unused branches are never traced by JAX.
+        #
+        # Selective stop_gradient on V/V'/dV is the model author's
+        # responsibility — there is no way at the framework level to
+        # tell which residuals are "actor FOCs" (where V should be
+        # detached) and which are the "Bellman residual" (where V is
+        # the target). Use ``jax.lax.stop_gradient`` inside the
+        # ``equations()`` body when needed.
         value_kwargs: Dict[str, Array] = {}
         if "value_now" in accepted_value_kwargs:
-            v_now = jax.vmap(value_fn)(states_local)
-            if detach_value_in_policy_grad:
-                v_now = jax.lax.stop_gradient(v_now)
-            value_kwargs["value_now"] = v_now
+            value_kwargs["value_now"] = jax.vmap(value_fn)(states_local)
         if "value_next" in accepted_value_kwargs:
-            v_next = jax.vmap(value_fn)(next_state_local)
-            if detach_value_in_policy_grad:
-                v_next = jax.lax.stop_gradient(v_next)
-            value_kwargs["value_next"] = v_next
+            value_kwargs["value_next"] = jax.vmap(value_fn)(next_state_local)
         if "value_grad_next" in accepted_value_kwargs:
-            dv_next = jax.vmap(jax.grad(value_fn))(next_state_local)
-            if detach_value_in_policy_grad:
-                dv_next = jax.lax.stop_gradient(dv_next)
-            value_kwargs["value_grad_next"] = dv_next
+            value_kwargs["value_grad_next"] = jax.vmap(jax.grad(value_fn))(
+                next_state_local
+            )
 
         return model.equations_fn(
             states_local,

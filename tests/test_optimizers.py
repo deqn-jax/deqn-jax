@@ -246,7 +246,7 @@ class TestGaussNewtonIntegration:
         key = jax.random.PRNGKey(0)
         n_eq = len(model.equation_names) if model.equation_names else 1
 
-        state, opt, kind = create_train_state(
+        state, opt, kind, _critic_opt = create_train_state(
             model=model,
             key=key,
             hidden_sizes=(8,),

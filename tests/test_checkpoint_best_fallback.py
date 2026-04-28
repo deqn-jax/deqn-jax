@@ -116,7 +116,7 @@ def test_fallback_state_loadable(curriculum: int):
         assert os.path.exists(best_path), "checkpoint_best.eqx missing"
 
         model = load_model(cfg.model)
-        template, _, _ = create_train_state(
+        template, _, _, _ = create_train_state(
             model,
             jr.PRNGKey(cfg.seed),
             hidden_sizes=cfg.network.hidden_sizes,

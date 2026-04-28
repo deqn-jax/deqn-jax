@@ -60,7 +60,7 @@ def _build_state(model, mode: str, *, lr=1e-3, critic_lr=None, hidden=(8,)):
         critic_learning_rate=critic_lr,
     )
     ac_cfg = ActorCriticConfig(mode=mode, value_hidden_sizes=(8,))
-    state, opt, kind = create_train_state(
+    state, opt, kind, critic_opt = create_train_state(
         model,
         key,
         hidden_sizes=hidden,
@@ -82,6 +82,7 @@ def _build_state(model, mode: str, *, lr=1e-3, critic_lr=None, hidden=(8,)):
         n_epochs_per_rollout=1,
         n_minibatches_per_epoch=1,
         initialize_each_episode=True,
+        critic_opt=critic_opt,
     )
     return state, train_step
 
@@ -262,7 +263,7 @@ class TestBackwardCompat:
         # Default config: no AC, no critic. Run one cycle, just confirm
         # it doesn't crash and produces a finite loss.
         key = jax.random.key(0)
-        state, opt, kind = create_train_state(
+        state, opt, kind, critic_opt = create_train_state(
             m,
             key,
             hidden_sizes=(8,),
@@ -272,6 +273,8 @@ class TestBackwardCompat:
             optimizer_config=OptimizerConfig(name="adam", learning_rate=1e-3),
             network_config=NetworkConfig(hidden_sizes=(8,)),
         )
+        # No AC config supplied → critic_opt must be None (the contract).
+        assert critic_opt is None
         ts = make_train_step(
             m,
             opt,
@@ -337,3 +340,255 @@ class TestBrockMirmanEzConvergence:
         assert late < 0.75 * early, (
             f"loss didn't decrease 25%: early={early:.3e} -> late={late:.3e}"
         )
+
+
+# -- Regression tests for review-found bugs -----------------------------
+
+
+class TestModelACValidation:
+    """A model that requires value kwargs must have AC enabled at config time.
+
+    Reproduces the failure mode where ``deqn-jax train brock_mirman_ez``
+    without ``actor_critic.mode`` set crashed at the first JIT trace
+    with a ``TypeError: equations() missing required keyword-only
+    arguments 'value_now' and 'value_next'``. Validation now rejects
+    that combination at config-load time with a clear message.
+    """
+
+    def test_value_required_model_without_ac_raises(self):
+        from deqn_jax.training.trainer import _resolve_model_for_training
+
+        cfg = TrainConfig(
+            model="brock_mirman_ez",
+            episodes=1,
+            batch_size=4,
+            episode_length=4,
+            mc_samples=1,
+            network=NetworkConfig(hidden_sizes=(8,)),
+            optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+            initialize_each_episode=True,
+            verbose=False,
+        )
+        with pytest.raises(ValueError, match="value kwargs"):
+            _resolve_model_for_training(cfg)
+
+    def test_shared_mode_with_non_mlp_raises(self):
+        """Shared-mode AC + non-MLP network is rejected at config time."""
+        from deqn_jax.training.trainer import _resolve_model_for_training
+
+        cfg = TrainConfig(
+            model="brock_mirman_ez",
+            episodes=1,
+            batch_size=4,
+            episode_length=4,
+            mc_samples=1,
+            network=NetworkConfig(type="lstm", hidden_sizes=(8,)),
+            optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+            actor_critic=ActorCriticConfig(mode="shared"),
+            initialize_each_episode=True,
+            verbose=False,
+        )
+        with pytest.raises(ValueError, match="shared.*mlp"):
+            _resolve_model_for_training(cfg)
+
+    def test_separate_mode_works_with_any_network(self):
+        """Separate-mode builds an independent critic regardless of network type."""
+        from deqn_jax.training.trainer import _resolve_model_for_training
+
+        cfg = TrainConfig(
+            model="brock_mirman_ez",
+            episodes=1,
+            batch_size=4,
+            episode_length=4,
+            mc_samples=1,
+            network=NetworkConfig(type="lstm", hidden_sizes=(8,)),
+            optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+            actor_critic=ActorCriticConfig(mode="separate"),
+            initialize_each_episode=True,
+            verbose=False,
+        )
+        # Should not raise.
+        model, _ = _resolve_model_for_training(cfg)
+        assert model.name == "brock_mirman_ez"
+
+
+class TestResumePreservesCriticOpt:
+    """Resume from checkpoint must rebuild the critic optimizer.
+
+    Reproduces the bug where the resume path discarded the side-channel
+    critic_opt attached to the original opt, then built a fresh primary
+    opt without re-attaching anything — so the separate-mode critic
+    silently stopped training. Now the explicit 4-tuple + helper
+    rebuild ensures the critic optimizer is always reconstructed from
+    the current OptimizerConfig.critic_* fields.
+    """
+
+    def test_separate_mode_critic_resumes(self, tmp_path):
+        import os
+
+        import equinox as eqx
+
+        from deqn_jax.training.checkpointing import save_checkpoint
+        from deqn_jax.training.trainer import _build_initial_state
+
+        cfg = TrainConfig(
+            model="brock_mirman_ez",
+            episodes=1,
+            batch_size=4,
+            episode_length=4,
+            mc_samples=1,
+            network=NetworkConfig(hidden_sizes=(8,)),
+            optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+            actor_critic=ActorCriticConfig(mode="separate", value_hidden_sizes=(8,)),
+            initialize_each_episode=True,
+            verbose=False,
+            seed=0,
+        )
+        # First, build a fresh state and snapshot it to disk. Use the
+        # legacy uint32 PRNG key (matching production train_from_config
+        # at trainer.py:1521) — equinox's default serialise filter
+        # doesn't handle the typed key dtype.
+        from deqn_jax.training.trainer import _resolve_model_for_training
+
+        model, n_eq = _resolve_model_for_training(cfg)
+        state, opt, _kind, critic_opt, _ep, _tot = _build_initial_state(
+            cfg, model, jax.random.PRNGKey(cfg.seed), n_eq, cfg.optimizer
+        )
+        assert critic_opt is not None
+        assert state.aux_params is not None and state.aux_opt_state is not None
+
+        # Persist (mimicking checkpoint flow).
+        ckpt_dir = tmp_path / "ckpt"
+        os.makedirs(ckpt_dir, exist_ok=True)
+        save_checkpoint(state, str(ckpt_dir), episode=1, config=cfg)
+        ckpt_path = str(ckpt_dir / "checkpoint_000001.eqx")
+        assert os.path.exists(ckpt_path)
+
+        # Now resume — critic_opt must come back non-None.
+        resume_cfg = cfg.model_copy(update={"resume": ckpt_path})
+        model2, n_eq2 = _resolve_model_for_training(resume_cfg)
+        state2, _opt, _kind, critic_opt2, _ep2, _tot2 = _build_initial_state(
+            resume_cfg, model2, jax.random.PRNGKey(0), n_eq2, resume_cfg.optimizer
+        )
+        assert critic_opt2 is not None, (
+            "resumed critic_opt is None — separate-mode critic would silently stop"
+        )
+        assert state2.aux_params is not None
+        assert state2.aux_opt_state is not None
+
+        # Verify a step actually moves critic params with the rebuilt critic_opt.
+        from deqn_jax.training.trainer import make_train_step
+
+        ts = make_train_step(
+            model2,
+            _opt,
+            episode_length=4,
+            mc_samples=1,
+            batch_size=4,
+            kind=_kind,
+            history_len=1,
+            n_epochs_per_rollout=1,
+            n_minibatches_per_epoch=1,
+            initialize_each_episode=True,
+            critic_opt=critic_opt2,
+        )
+        c0 = jax.tree.map(
+            lambda x: x.copy() if hasattr(x, "copy") else x,
+            eqx.filter(state2.aux_params, eqx.is_array),
+        )
+        new_state, _ = ts(state2, jnp.array(1.0), jnp.array(1.0))
+        c1 = eqx.filter(new_state.aux_params, eqx.is_array)
+        diffs = jax.tree.map(lambda a, b: jnp.max(jnp.abs(a - b)), c0, c1)
+        assert max(jax.tree.leaves(diffs)) > 0, (
+            "critic params didn't move after resume — critic_opt missing again"
+        )
+
+
+class TestCompositeLossWithACDispatch:
+    """make_grad_step_standard always passes aux_params to compute_loss_fn.
+
+    Reproduces the bug where composite_loss_fn didn't accept aux_params
+    and crashed AC training (and would crash any custom-loss training
+    that goes through STANDARD now). The fix added aux_params to
+    composite_loss_fn's signature; this test verifies non-AC + composite
+    still works (the same path that the new aux_params=None default
+    flows through).
+    """
+
+    def test_composite_loss_no_ac_still_works(self):
+        """composite + no AC: aux_params=None is accepted and ignored."""
+        import contextlib
+        import io
+
+        from deqn_jax.training.composite_loss import (
+            make_composite_loss,
+            prepare_composite_data,
+        )
+        from deqn_jax.training.linearize import linearize_model
+
+        m = load_model("disaster")
+        key = jax.random.key(0)
+        state, opt, kind, critic_opt = create_train_state(
+            m,
+            key,
+            hidden_sizes=(16, 16),
+            batch_size=8,
+            sim_batch=8,
+            n_equations=len(m.equation_names),
+            optimizer_config=OptimizerConfig(name="adam", learning_rate=1e-3),
+            network_config=NetworkConfig(hidden_sizes=(16, 16)),
+        )
+        assert critic_opt is None
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink):
+            P, Q = linearize_model(m)
+            composite_data = prepare_composite_data(
+                m, P, Q, n_anchor_points=8, verbose=False
+            )
+        composite_loss_fn = make_composite_loss(
+            m,
+            composite_data,
+            anchor_weight=0.1,
+            jac_weight=0.01,
+            jac_anchor_weight=0.0,
+            barrier_weight=0.01,
+            newton_weight=0.01,
+            aux_decay_floor=0.2,
+            leverage_mult=5.0,
+            loss_choice="mse",
+            huber_delta=1.0,
+        )
+        ts = make_train_step(
+            m,
+            opt,
+            episode_length=4,
+            mc_samples=2,
+            batch_size=8,
+            kind=kind,
+            history_len=1,
+            n_epochs_per_rollout=1,
+            n_minibatches_per_epoch=1,
+            initialize_each_episode=False,
+            compute_loss_fn=composite_loss_fn,
+            critic_opt=critic_opt,
+        )
+        new_state, metrics = ts(state, jnp.array(1.0), jnp.array(1.0))
+        assert jnp.isfinite(metrics.loss)
+        # Composite aux residuals should still appear.
+        assert any(k.startswith("aux_") for k in metrics.residuals)
+
+
+class TestDroppedConfigKnobs:
+    """The half-baked AC knobs were removed, not silently kept dead."""
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("bellman_loss_weight", 0.5),
+            ("aux_bellman", True),
+            ("detach_value_in_policy_grad", True),
+        ],
+    )
+    def test_dropped_knobs_rejected(self, field, value):
+        with pytest.raises((ValueError, TypeError)):
+            ActorCriticConfig(**{field: value})

@@ -10,7 +10,7 @@ Usage:
     # loss_fn has the same signature as compute_loss
 """
 
-from typing import Callable, Dict, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -261,6 +261,7 @@ def make_composite_loss(
         quad_nodes: Optional[Array] = None,
         quad_weights: Optional[Array] = None,
         target_policy_fn: Optional[Callable[[Array], Array]] = None,
+        aux_params: Optional[Any] = None,
     ) -> Tuple[Array, Dict[str, Array]]:
         # NOTE: barrier_weight is NOT a parameter here. It's captured from
         # the enclosing make_composite_loss closure (line above in the
@@ -268,6 +269,12 @@ def make_composite_loss(
         # barrier_weight=0.0 default, which silently dropped the configured
         # barrier weight from composite training. Do not reintroduce it
         # as a parameter here -- the trainer does not thread it through.
+        #
+        # ``aux_params`` is the actor-critic critic network (separate-mode);
+        # it's threaded through to the base ``compute_loss`` so the value
+        # passthrough in ``compute_residuals`` works under composite loss.
+        # The composite-specific aux losses (anchor/Jacobian/barrier/Newton)
+        # don't reference V directly, so they ignore aux_params.
         # 1. Base residual loss — MSE or Huber on per-state mean residual.
         base_loss, eq_losses = compute_loss(
             model_,
@@ -282,6 +289,7 @@ def make_composite_loss(
             target_policy_fn=target_policy_fn,
             loss_choice=loss_choice,
             huber_delta=huber_delta,
+            aux_params=aux_params,
         )
 
         # Anchor + jac decay: fade as curriculum progresses, but keep a floor
