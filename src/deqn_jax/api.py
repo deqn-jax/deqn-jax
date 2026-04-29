@@ -98,6 +98,18 @@ from deqn_jax.networks.kf_anchored_mlp import KfAnchoredMLP, create_kf_anchored_
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 from deqn_jax.optimizers.registry import list_optimizers
 
+# --- Autodiff helper (Path-A codegen backbone) ------------------------
+# Synthesizes equations_fn from a scalar period-return Pi via jax.grad.
+# Used by the in-tree *_autodiff models and intended for agent-codegen
+# Path A (planner / autodiff). Stable because three in-tree models
+# already depend on it.
+# --- Autodiff helper (Path-A codegen backbone) ------------------------
+# Synthesizes equations_fn from a scalar period-return Pi via jax.grad.
+# Used by the in-tree *_autodiff models and intended for agent-codegen
+# Path A (planner / autodiff). Stable because three in-tree models
+# already depend on it.
+from deqn_jax.training.autodiff import euler_from_period_return
+
 # --- Training entry points --------------------------------------------
 from deqn_jax.training.trainer import (
     create_train_state,
@@ -148,6 +160,7 @@ __all__ = [
     "train_from_config",
     "create_train_state",
     "make_train_step",
+    "euler_from_period_return",
     # Evaluation
     "euler_equation_errors",
     "print_euler_errors",

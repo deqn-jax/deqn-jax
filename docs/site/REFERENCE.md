@@ -764,6 +764,50 @@ Pass `compute_loss_fn` to `make_train_step` (advanced; not exposed in
 `(model, policy_fn, states, key, mc_samples, weights, shock_scale,
 quad_nodes, quad_weights, target_policy_fn, loss_choice, huber_delta) -> (Array, dict)`.
 
+### Path-A autodiff helper: `euler_from_period_return`
+
+The framework provides one helper to synthesize `equations_fn` from a
+scalar period-return function via `jax.grad`. This is the natural
+backbone for any "Path A" codegen path (planner / autodiff): the model
+author (or generator) writes a single per-period return Π and the
+helper produces both the capital Euler residual (envelope theorem) and
+optional intratemporal FOCs (∂Π/∂policy[j] = 0).
+
+```python
+from deqn_jax.api import euler_from_period_return
+
+def Pi(K, K_next, z, policy, constants):
+    """Per-period return. K and K_next are scalars; z is exog vector;
+    policy is the full policy vector your network outputs."""
+    alpha = constants["alpha"]
+    c = z[0] * K**alpha - K_next        # budget closes consumption
+    return jnp.log(c)
+
+equations_fn = euler_from_period_return(
+    period_return_fn=Pi,
+    step_fn=my_step,            # used at zero shock to reconstruct K_{t+2}
+    capital_idx=0,              # which state column is the intertemporal capital
+    exog_idx=(1,),              # which columns are exogenous (AR(1), shocks, …)
+    n_shocks=1,
+    equation_name="euler",      # key under which the Euler residual is returned
+    intratemporal_policy_idx=(),    # add FOC equations for these policy indices
+    intratemporal_equation_names=(),
+)
+```
+
+Returns an `equations_fn(state, policy, next_state, next_policy, constants)`
+matching the standard `ModelSpec.equations_fn` contract. Three in-tree
+models build their `equations_fn` this way: `brock_mirman_autodiff`,
+`bm_labor_autodiff`, `irbc`.
+
+Current scope: single intertemporal state dimension, arbitrary exogenous
+state dimensions, arbitrary intratemporal-FOC equations. Out of scope
+(may land in a follow-up): multi-agent OLG-style Euler, Lagrangian-with-
+multipliers KKT, Fischer-Burmeister.
+
+This helper is part of the **stable surface** — three in-tree models
+depend on it; the signature is committed.
+
 ---
 
 ## Shock expectations
