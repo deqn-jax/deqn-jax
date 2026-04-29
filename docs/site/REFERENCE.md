@@ -188,8 +188,8 @@ must be **scalar** or **`[batch]`-shaped** — never `[batch, 1]`. Available to:
 #### `steady_state_fn(constants) -> (ss_state, ss_policy)`
 
 Optional. Returns 1-D arrays of length `n_states` and `n_policies` respectively.
-If you don't have a closed form, use
-`deqn_jax.training.steady_state.solve_steady_state` (numerical L-BFGS).
+If you don't have a closed form, use the framework's numerical fallback
+`solve_steady_state` (described next).
 
 Used by:
 
@@ -198,6 +198,55 @@ Used by:
 - input-normalization (`(state - ss) / max(|ss|, 0.01)`),
 - warm-start (L-BFGS pre-fit to the SS policy),
 - IRF (starting state is SS).
+
+#### `solve_steady_state(model, ...) -> (ss_state, ss_policy)`  *(numerical fallback)*
+
+When no analytical SS is available, build the rest of the model first
+(`equations_fn`, `step_fn`, etc.), then close the loop with this
+framework helper. It runs L-BFGS on the deterministic-residuals norm
+`Σ_eq r(s, π, s, π, c)²` at zero shock and returns the solution.
+
+```python
+from deqn_jax.api import solve_steady_state, verify_steady_state, ModelSpec
+
+partial = ModelSpec(name="…", n_states=…, equations_fn=…, step_fn=…,
+                    constants={…}, steady_state_fn=None, …)
+ss_state, ss_policy = solve_steady_state(partial, max_iter=1000, tol=1e-8)
+residuals = verify_steady_state(partial, ss_state, ss_policy, tol=1e-6)
+# residuals: dict[str, float] of per-equation residual values
+```
+
+Signature:
+
+```python
+solve_steady_state(
+    model: ModelSpec,
+    init_state: Array | None = None,    # default: jnp.ones(n_states)
+    init_policy: Array | None = None,   # default: 0.5 * jnp.ones(n_policies)
+    max_iter: int = 1000,
+    tol: float = 1e-8,                  # ||residual||² < tol → done
+    verbose: bool = True,
+    force_numerical: bool = False,      # True = ignore an existing analytical SS
+) -> Tuple[Array, Array]
+```
+
+Behavior notes for codegen:
+
+- If `model.steady_state_fn` is set and `force_numerical=False`, this
+  short-circuits to the analytical path. Codegen typically passes
+  `force_numerical=False` and lets the helper pick.
+- Solving is sensitive to the initial guess. For models far from the
+  unit-vector default, supply `init_state` / `init_policy` from a
+  back-of-envelope linearization or a hand-tuned guess.
+- Convergence isn't guaranteed; gate on `verify_steady_state` afterward
+  to refuse a model whose SS residuals exceed `tol`.
+
+#### `verify_steady_state(model, ss_state, ss_policy, tol=1e-6) -> dict[str, float]`
+
+Returns the per-equation residual at a candidate steady state. Use this
+as the verification gate after either analytical or numerical SS
+solution — Path-A codegen should refuse to publish a model whose
+`max(|residuals.values()|) > tol`.
 
 ### Optional `ModelSpec` hooks (full signatures)
 

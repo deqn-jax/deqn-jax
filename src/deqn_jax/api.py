@@ -110,6 +110,13 @@ from deqn_jax.optimizers.registry import list_optimizers
 # already depend on it.
 from deqn_jax.training.autodiff import euler_from_period_return
 
+# --- Numerical steady-state helpers ------------------------------------
+# When no analytical steady_state_fn is available, codegen / agent stacks
+# can fall back to the framework's L-BFGS solver. ``verify_steady_state``
+# is the natural companion: takes a candidate (ss_state, ss_policy) and
+# returns the per-equation residuals so a verifier can gate on tolerance.
+from deqn_jax.training.steady_state import solve_steady_state, verify_steady_state
+
 # --- Training entry points --------------------------------------------
 from deqn_jax.training.trainer import (
     create_train_state,
@@ -161,6 +168,8 @@ __all__ = [
     "create_train_state",
     "make_train_step",
     "euler_from_period_return",
+    "solve_steady_state",
+    "verify_steady_state",
     # Evaluation
     "euler_equation_errors",
     "print_euler_errors",
