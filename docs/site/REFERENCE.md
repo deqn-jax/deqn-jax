@@ -23,6 +23,7 @@ are *internal* and may be refactored without notice. Use `deqn_jax.api`.
 - [The user contract: `ModelSpec`](#the-user-contract-modelspec)
 - [Adding a model](#adding-a-model)
 - [Configuration schema](#configuration-schema)
+- [Runtime types: `TrainState` and `Metrics`](#runtime-types-trainstate-and-metrics)
 - [Training entry points](#training-entry-points)
 - [Networks](#networks)
 - [Optimizers](#optimizers)
@@ -61,9 +62,9 @@ cfg = TrainConfig(
                               lr_schedule="cosine", lr_min_factor=0.1),
     verbose=False,
 )
-state, history = train_from_config(cfg)
+params, history = train_from_config(cfg)
 
-diag = euler_equation_errors(state.params, load_model("brock_mirman"))
+diag = euler_equation_errors(params, load_model("brock_mirman"))
 print_euler_errors(diag)   # log10|residual| distribution; mean < -3 = converged
 ```
 
@@ -198,6 +199,105 @@ Used by:
 - warm-start (L-BFGS pre-fit to the SS policy),
 - IRF (starting state is SS).
 
+### Optional `ModelSpec` hooks (full signatures)
+
+The eight `ModelSpec` fields below are listed in the field block above
+without signatures. Each is `None` by default; set them only when you need
+the behavior. All are called outside JIT *unless explicitly noted*.
+
+#### `init_state_fn(key, batch_size, constants) -> Array`
+
+Initial-state sampler used at the start of each rollout (or every cycle
+if `initialize_each_episode=True`). Returns `[batch_size, n_states]`.
+Default: ergodic-like sampling around the steady state.
+
+#### `clip_state_fn(state) -> state`
+
+Used by `evaluate` and `irf` only — *never* in training (would break
+differentiability). Use it to keep simulation-time states in physically
+valid regions (e.g. capital ≥ ε). Same shape in/out.
+
+#### `state_barrier_fn(state) -> Array`
+
+Legacy soft barrier. Returns `[batch]` per-element penalty, added to the
+loss multiplied by `TrainConfig.barrier_weight`. Prefer the declarative
+`state_bounds` mechanism below.
+
+#### `cycle_hook(state, model, episode) -> None`
+
+Called every `log_every` episodes after scalar/histogram logging. Pure
+side effect (write plots, push to TB, etc.). Close over your output
+directory and logger at construction time. `state` is the current
+`TrainState`; `model` is the post-`setup_fn` `ModelSpec`.
+
+#### `setup_fn(model, config) -> ModelSpec`
+
+Called once before training starts. Lets the model rewrite itself based
+on the resolved `TrainConfig` — e.g. `disaster` swaps `steady_state_fn`
+to its risky-SS variant when `constants["p_disaster"] > 0` and
+`config.use_risky_steady_state` allows it. Plain Python branching is
+fine. Return the (possibly modified) `ModelSpec` the trainer should use.
+
+#### `scalar_diagnostics_fn(model, policy_fn, states, policy_out, defs) -> dict[str, float]`
+
+Called every `log_every` cycles, returns scalar diagnostics that the
+trainer prepends to TB / W&B with the model's namespace prefix. Lets a
+model expose per-equation decompositions, ratio diagnostics, soft-floor
+saturation fractions, etc., without the framework knowing model
+internals. Failures are tolerated (warning + continue).
+
+- `model`: the post-`setup_fn` `ModelSpec`
+- `policy_fn`: the trained Equinox module (or sequence-net wrapper)
+- `states`: `[batch, n_states]` from the current training minibatch
+- `policy_out`: `[batch, n_policies]` policy at `states`
+- `defs`: `dict[str, Array]` definitions at `(states, policy_out)`
+
+#### `composite_aux_fn(model, defs, data, weights) -> (dict[str, Array], Array)`
+
+Active only when `loss_type="composite"`. Lets a model contribute extra
+`aux_*`-keyed losses without the framework knowing about model-specific
+definitions or solver internals. Called inside `make_composite_loss`'s
+closure after barrier losses.
+
+- `model`: the post-`setup_fn` `ModelSpec`
+- `defs`: batch-level `definitions_fn` output
+- `data`: `CompositeData` (linearization + steady state precomputed at
+  setup time; see [training/composite_loss.md](training/composite_loss.md))
+- `weights`: subset of `CompositeLossConfig` weights relevant to this
+  model
+
+Returns `(aux_entries, total_contribution)`:
+
+- `aux_entries`: merged into `eq_losses` so adaptive reweighting / logging
+  see the individual *unweighted* scalars under their `aux_*` keys.
+- `total_contribution`: scalar added directly to the running loss total
+  (the hook applies its own weighting). Used by `disaster` for
+  `aux_newton_cond`, `aux_newton_resid`.
+
+#### `state_bounds` and `definition_bounds` (declarative soft bounds)
+
+Both are `dict[str, dict[str, float]]` of the form
+
+```python
+{"name": {"lower": float, "upper": float,
+          "penalty_lower": float, "penalty_upper": float}}
+```
+
+When set, the loss picks up a soft-penalty term
+
+```text
+penalty_lower * mean(max(0, lower - value) ** 2)
+```
+
+(and analogously for `upper`) for each bounded variable. Missing penalty
+coefficients default to `1 / bound**2` (DEQN-MAO upstream convention).
+
+- `state_bounds` keys must match `state_names`.
+- `definition_bounds` keys must match keys returned by `definitions_fn`.
+- Hard policy bounds are *separate*: enforced via `policy_lower` /
+  `policy_upper` at the network output activation, not through this
+  soft mechanism.
+
 ### Shape and dtype invariants (what the framework guarantees)
 
 - All arrays passed to your functions are `jnp.ndarray` of `float32` (or
@@ -262,7 +362,7 @@ register_model(MY_MODEL, description="My agent-built model")
 # Now usable through the same load path:
 from deqn_jax.api import load_model, train_from_config, TrainConfig
 cfg = TrainConfig(model="my_model", episodes=1000)
-state, history = train_from_config(cfg)
+params, history = train_from_config(cfg)   # params is the trained Equinox policy net
 ```
 
 `register_model` semantics:
@@ -410,9 +510,43 @@ Active only when `TrainConfig.loss_type == "composite"`. See
 | `leverage_mult` | float | 5.0 | Leverage barrier fires at `L > leverage_mult * L_ss` |
 | `aux_decay_floor` | float | 0.2 | Min retained anchor+jac weight after curriculum (1.0 = no decay) |
 
-### `ReplayBufferConfig` and `MomentMatchingConfig`
+### `ReplayBufferConfig`
 
-See [config_reference.md](config_reference.md) §replay_buffer and §moment_matching.
+Prioritized state-replay buffer. Off by default. When enabled, each cycle's
+just-rolled-out trajectory states are written to a fixed-shape ring buffer
+with per-state priorities (= sum-of-squared equilibrium residuals at write
+time). Each gradient minibatch then mixes `mix_ratio` fraction of
+priority-weighted buffered samples in with the current trajectory.
+
+Sequence networks (`network.history_len > 1`) are not supported in v1 and
+raise `NotImplementedError` if enabled together.
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `enabled` | bool | False | Master switch; False = byte-identical to no-replay |
+| `capacity` | int | 65536 | Ring-buffer size. Memory = `capacity * n_states * 4B` |
+| `mix_ratio` | float | 0.5 | Fraction of each minibatch drawn from the buffer (0 = none, 1 = all-buffer) |
+| `min_fill_frac` | float | 0.25 | Fraction of capacity required before sampling activates |
+| `priority_alpha` | float | 0.6 | PER's α: `prob ∝ (priority + eps) ** α`; 0 = uniform, 1 = fully proportional |
+| `priority_eps` | float | 1e-6 | Floor added to priorities before exponentiation |
+| `eviction` | str | `"fifo"` | Eviction policy. v1 only supports `"fifo"` |
+
+### `MomentMatchingConfig`
+
+Aux loss that penalizes ergodic-moment deviation from a Dynare reference.
+Composes with any base loss (residual MSE, composite, etc.). Uses
+per-minibatch policy-output moments as the estimator; the gradient flows
+through `policy(s)` only, with states `stop_gradient`-ed (they came from
+a separate rollout).
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `enabled` | bool | False | Master switch; False = identical to base loss |
+| `weight` | float | 0.1 | Multiplier on the aux loss term added to the total |
+| `mean_weight` | float | 1.0 | Within the aux, weight on the squared mean-deviation term |
+| `std_weight` | float | 1.0 | Within the aux, weight on the squared std-deviation term |
+| `dynare_dir` | str | `"dynare/results"` | Directory containing `dynare_moments.csv` |
+| `scale_eps` | float | 1e-3 | Floor on per-variable scale used for relative comparison |
 
 ### YAML loading
 
@@ -430,9 +564,64 @@ cfg.to_yaml("/tmp/copy.yaml")
 
 ---
 
+## Runtime types: `TrainState` and `Metrics`
+
+Both are JAX-pytree-compatible `NamedTuple`s in `deqn_jax.types`,
+re-exported from `deqn_jax.api`. Agents normally don't need to construct
+either — the trainer builds them — but you may need to read fields
+when driving the low-level `make_train_step` loop.
+
+### `TrainState`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `params` | Equinox module | The trainable policy network |
+| `opt_state` | Optax state | Optimizer momentum / preconditioner / etc. |
+| `episode_state` | `[batch, n_states]` | Current rollout starting points |
+| `key` | PRNG key | Use `jax.random.PRNGKey(int)`, NOT `jax.random.key(int)` (typed keys break Equinox serialization) |
+| `step` | int | Total gradient steps taken |
+| `episode` | int | Current episode (cycle) counter |
+| `loss_weights` | `[n_eq]` | Active per-equation weights (mutated by adaptive reweighting) |
+| `reweight_state` | `ReweightState` | EMA / running stats for `lr_annealing`, `relobralo` |
+| `target_params` | Equinox module \| None | Frozen policy copy when `target_update_every > 0` |
+| `aux_params` | Any \| None | Slot for a second trainable module (actor-critic value net, learned operator, …). Default training loop ignores it. |
+| `aux_opt_state` | Any \| None | Optimizer state for `aux_params` if trained with its own optimizer |
+| `history_state` | `[batch, H, n_states]` \| None | Sliding history window for sequence policies (`history_len > 1`); `None` for MLP |
+| `replay_state` | `ReplayState` \| None | Prioritized state buffer; `None` when off |
+
+### `Metrics`
+
+Returned by every `train_step` invocation. All three fields are JAX
+arrays at runtime (not Python scalars); cast explicitly when needed:
+`float(metrics.loss)`.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `loss` | scalar Array | Total loss for the step |
+| `residuals` | `dict[str, Array]` \| None | Per-equation residual breakdown (when emitted by the loss path) |
+| `grad_norm` | scalar Array \| None | Pre-clip global gradient norm |
+
+### `history` dict (returned by `train_from_config`)
+
+The `history` dict has **exactly two keys**, each a `list[float]` of
+length equal to the cycles actually run (≤ `episodes`, less if
+early-stopped):
+
+| Key | What it holds |
+| --- | --- |
+| `"loss"` | Per-cycle total loss (the same scalar `Metrics.loss` casts to) |
+| `"grad_norm"` | Per-cycle pre-clip gradient norm |
+
+Per-equation losses, learning-rate history, residual histograms, replay
+metrics, etc. are written to TensorBoard / W&B (when configured) — they
+are *not* in `history`. Don't rely on extra keys that may have appeared
+in older versions of this doc.
+
+---
+
 ## Training entry points
 
-### `train_from_config(config) -> (TrainState, dict)`
+### `train_from_config(config) -> (params, history)`
 
 The high-level entry point. Everything in `TrainConfig` is honored.
 
@@ -440,15 +629,22 @@ The high-level entry point. Everything in `TrainConfig` is honored.
 from deqn_jax.api import TrainConfig, train_from_config
 
 cfg = TrainConfig(model="brock_mirman", episodes=1000, ...)
-state, history = train_from_config(cfg)
+params, history = train_from_config(cfg)
 
-# state: TrainState (final). Use state.params for evaluation/IRF/checkpointing.
-# history: dict with keys "loss", "grad_norm", "step_time", optionally per-equation.
+# params: trained Equinox policy net (the same object you'd pass as
+#         policy_fn to evaluate / IRF / checkpoint loading).
+# history: dict with EXACTLY the keys {"loss", "grad_norm"}, each a
+#          list[float] of length == episodes. Per-equation losses,
+#          per-cycle LRs, gradient histograms, etc. are written to
+#          TensorBoard / W&B (when configured) — they are *not* in
+#          this dict. To read them post-hoc, parse the TB log dir.
 ```
 
-`history["loss"]` is per-cycle (length = `episodes`); `history["grad_norm"]` ditto.
 Checkpointing, TensorBoard / W&B logging, early stopping, optimizer switching,
-warm start, replay buffer — all driven by `cfg`.
+warm start, replay buffer — all driven by `cfg`. The final `TrainState`
+(opt_state, episode_state, PRNG key, replay buffer, …) is *not* returned;
+if you need it, use the lower-level `create_train_state` + `make_train_step`
+path described below or load a checkpoint via `load_policy_from_checkpoint`.
 
 ### `train(model_name, episodes, ...)` (legacy wrapper)
 
@@ -601,7 +797,7 @@ equation. Gold standard for global accuracy (Azinovic et al. 2022).
 ```python
 from deqn_jax.api import euler_equation_errors, print_euler_errors, load_model
 
-diag = euler_equation_errors(state.params, load_model("brock_mirman"))
+diag = euler_equation_errors(params, load_model("brock_mirman"))
 print_euler_errors(diag)
 ```
 
@@ -681,7 +877,7 @@ Resume:
 ```python
 cfg = TrainConfig.from_yaml(orig_config_yaml)
 cfg = cfg.model_copy(update={"resume": "runs/X/checkpoint_001000.eqx", "episodes": 5000})
-state, history = train_from_config(cfg)
+params, history = train_from_config(cfg)
 ```
 
 The resume path reads the sibling `config.yaml` to rebuild the matching pytree

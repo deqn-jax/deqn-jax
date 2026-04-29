@@ -81,15 +81,21 @@ from deqn_jax.irf import (
 from deqn_jax.models import list_models, load_model, register_model
 
 # --- Network factories (for advanced/custom training paths) ----------
+# Most agents drive this through ``NetworkConfig.type`` and never import
+# the classes directly. Exposed here for the rare case of constructing a
+# policy net manually (e.g. when calling the low-level ``create_train_state``
+# / ``make_train_step`` path for a custom outer loop).
 from deqn_jax.networks import (
     MLP,
     LSTMPolicy,
-    ResMLP,
     TransformerPolicy,
+    create_linear_plus_mlp,
     create_lstm,
     create_mlp,
     create_transformer,
 )
+from deqn_jax.networks.kf_anchored_mlp import KfAnchoredMLP, create_kf_anchored_mlp
+from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 from deqn_jax.optimizers.registry import list_optimizers
 
 # --- Training entry points --------------------------------------------
@@ -157,10 +163,13 @@ __all__ = [
     "print_irf_summary",
     # Networks (advanced)
     "MLP",
-    "ResMLP",
     "LSTMPolicy",
     "TransformerPolicy",
+    "LinearPlusMLP",
+    "KfAnchoredMLP",
     "create_mlp",
     "create_lstm",
     "create_transformer",
+    "create_linear_plus_mlp",
+    "create_kf_anchored_mlp",
 ]
