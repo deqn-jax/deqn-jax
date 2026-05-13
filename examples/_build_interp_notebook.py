@@ -379,6 +379,72 @@ print(
     ]
 
 
+def chapter_4() -> List[Dict]:
+    return [
+        md(
+            """## Chapter 4 — Ablation (causation, not just correlation)
+
+Probes are correlational. To ask *whether the network uses* a neuron,
+we run a causal intervention: force that neuron's post-activation to
+zero, recompute the policy, and measure the change.
+
+A neuron with high probe-R² *and* large ablation-effect is a strong
+candidate for "real feature encoding concept X."
+A neuron with high R² and small ablation-effect is redundant.
+A neuron with low R² and large ablation-effect is interesting — it
+matters for the policy in ways we can't read off from our concept list.
+A neuron with low R² and small ablation-effect is genuinely dead."""
+        ),
+        code(
+            """baseline = np.asarray(net(states))
+H_last = contrib_last.shape[1]
+necessity = np.zeros(H_last)
+for i in range(H_last):
+    ablated = np.asarray(ablate_neuron(net, last_layer_idx, i, states))
+    necessity[i] = float(np.linalg.norm(baseline - ablated))
+
+fig, ax = plt.subplots(figsize=(6, 3))
+ax.bar(range(H_last), necessity[order])
+ax.set_xlabel("neuron (ranked by contribution)")
+ax.set_ylabel("‖Δpolicy‖ on ablation")
+ax.set_title("Necessity score per neuron — γ=2")
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch4_necessity_gamma2.png", dpi=150)
+plt.show()"""
+        ),
+        code(
+            """r2_max_per_neuron = r2.max(axis=1)
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.scatter(r2_max_per_neuron, necessity)
+for i in range(H_last):
+    ax.annotate(
+        str(i), (r2_max_per_neuron[i], necessity[i]), fontsize=8, alpha=0.6
+    )
+ax.set_xlabel("max probe R² (correlational)")
+ax.set_ylabel("‖Δpolicy‖ (causal)")
+ax.set_title("Correlation × causation per neuron — γ=2")
+ax.set_xlim(-0.05, 1.05)
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch4_corr_vs_causal_gamma2.png", dpi=150)
+plt.show()
+
+# Spot the four quadrants
+hi_r2 = r2_max_per_neuron > 0.5
+hi_caus = necessity > np.median(necessity)
+print(f"high-R² + high-necessity (real features?):   {list(np.where( hi_r2 &  hi_caus)[0])}")
+print(f"high-R² + low-necessity  (redundant):        {list(np.where( hi_r2 & ~hi_caus)[0])}")
+print(f"low-R²  + high-necessity (mystery):          {list(np.where(~hi_r2 &  hi_caus)[0])}")
+print(f"low-R²  + low-necessity  (genuinely dead):   {list(np.where(~hi_r2 & ~hi_caus)[0])}")"""
+        ),
+        md(
+            """The four quadrants of the scatter give the 2×2 from the chapter
+intro. The most interesting story to find is a neuron in the upper-left:
+low probe R² yet high necessity — the network needs it but our concept
+list can't read it. That's the gap where deeper interp earns its money."""
+        ),
+    ]
+
+
 def main() -> None:
     chapters = [
         chapter_intro,
@@ -386,6 +452,7 @@ def main() -> None:
         chapter_1,
         chapter_2,
         chapter_3,
+        chapter_4,
     ]
     cells: List[Dict] = []
     for chapter in chapters:
