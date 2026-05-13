@@ -15,6 +15,7 @@ import pytest  # noqa: F401
 from deqn_jax.interp import (
     branch_decompose,
     forward_with_activations,
+    linear_probe,
     neuron_contributions,
 )
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
@@ -149,6 +150,40 @@ def test_neuron_contributions_sum_equals_pre_bias():
     bias = net.mlp.layers[-1].bias
     out = forward_with_activations(net.mlp, states)["out"]
     assert jnp.allclose(summed + bias[None, :], out, atol=1e-6)
+
+
+def test_linear_probe_perfect_fit():
+
+    n = 100
+    key = jax.random.PRNGKey(42)
+    c = jax.random.normal(key, (n, 1))
+    activations = 3.0 * c + 1.0
+    out = linear_probe(activations, c)
+    assert out["r2"].shape == (1, 1)
+    assert jnp.isclose(out["r2"][0, 0], 1.0, atol=1e-5)
+    assert jnp.isclose(out["coef"][0, 0], 3.0, atol=1e-4)
+
+
+def test_linear_probe_no_fit():
+
+    n = 1000
+    key = jax.random.PRNGKey(7)
+    k1, k2 = jax.random.split(key)
+    activations = jax.random.normal(k1, (n, 4))
+    concepts = jax.random.normal(k2, (n, 3))
+    out = linear_probe(activations, concepts)
+    assert out["r2"].shape == (4, 3)
+    assert jnp.all(out["r2"] < 0.05)
+
+
+def test_linear_probe_constant_activation_handled():
+
+    n = 50
+    activations = jnp.ones((n, 1)) * 2.7
+    concepts = jnp.arange(n, dtype=jnp.float32).reshape(n, 1)
+    out = linear_probe(activations, concepts)
+    assert jnp.all(jnp.isfinite(out["r2"]))
+    assert jnp.isclose(out["r2"][0, 0], 0.0, atol=1e-5)
 
 
 def test_neuron_contributions_two_hidden_layers():

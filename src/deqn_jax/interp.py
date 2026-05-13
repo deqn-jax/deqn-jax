@@ -174,3 +174,68 @@ def neuron_contributions(mlp: MLP, states: Array) -> Dict[int, Array]:
         #            w.T[None, :, :] is [1, H_layer, H_downstream]
         out[layer_idx] = h[:, :, None] * w.T[None, :, :]
     return out
+
+
+def linear_probe(activations: Array, concepts: Array) -> Dict[str, Array]:
+    """Per-(neuron, concept) univariate linear regression.
+
+    For each pair ``(i, j)`` of neuron ``i`` and concept ``j``, fits
+    ``activations[:, i] ≈ a · concepts[:, j] + b`` and returns the slope
+    ``a``, the coefficient of determination ``R²``, and the residual
+    variance.
+
+    R² uses ``1 - SS_res / SS_tot`` with sample-variance denominators.
+    When a neuron's activation is constant (``SS_tot == 0``) R² is
+    defined as 0 rather than NaN.
+
+    No regularization, no joint regression across concepts. Callers
+    should pre-scale concepts if they want comparable coefficients.
+
+    Args:
+        activations: Array of shape ``[batch, n_neurons]``.
+        concepts: Array of shape ``[batch, n_concepts]``.
+
+    Returns:
+        Dict with:
+          - ``"coef"``: ``Array[n_neurons, n_concepts]`` — slope per pair.
+          - ``"r2"``: ``Array[n_neurons, n_concepts]`` — coefficient of
+            determination per pair.
+          - ``"residual_var"``: ``Array[n_neurons, n_concepts]`` —
+            variance of the residual per pair.
+    """
+    if activations.ndim != 2 or concepts.ndim != 2:
+        raise ValueError(
+            f"activations and concepts must both be 2-D; got "
+            f"activations.shape={activations.shape}, concepts.shape={concepts.shape}"
+        )
+    if activations.shape[0] != concepts.shape[0]:
+        raise ValueError(
+            f"batch size mismatch: activations has {activations.shape[0]} rows, "
+            f"concepts has {concepts.shape[0]}"
+        )
+
+    n = activations.shape[0]
+    a_mean = activations.mean(axis=0, keepdims=True)  # [1, n_neurons]
+    c_mean = concepts.mean(axis=0, keepdims=True)  # [1, n_concepts]
+    a_c = activations - a_mean
+    c_c = concepts - c_mean
+
+    cov = (a_c.T @ c_c) / n  # [n_neurons, n_concepts]
+    c_var = (c_c**2).mean(axis=0)  # [n_concepts]
+    a_var = (a_c**2).mean(axis=0)  # [n_neurons]
+
+    eps = 1e-12
+    coef = cov / (c_var[None, :] + eps)
+
+    # SS_res / n = a_var - cov² / c_var (closed-form residual variance)
+    residual_var = a_var[:, None] - cov**2 / (c_var[None, :] + eps)
+
+    # R² = 1 - residual_var / a_var; defined as 0 when a_var == 0.
+    r2_raw = 1.0 - residual_var / (a_var[:, None] + eps)
+    r2 = jnp.where(a_var[:, None] > eps, r2_raw, jnp.zeros_like(r2_raw))
+
+    return {
+        "coef": coef,
+        "r2": r2,
+        "residual_var": residual_var,
+    }
