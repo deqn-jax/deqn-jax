@@ -7,8 +7,10 @@ initialized MLP under a fixed seed.
 
 from __future__ import annotations
 
+import equinox as eqx  # noqa: F401
 import jax
 import jax.numpy as jnp
+import pytest  # noqa: F401
 
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 

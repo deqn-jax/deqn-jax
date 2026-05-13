@@ -14,7 +14,13 @@ Companion narrated notebook: ``examples/interp_brock_mirman.ipynb``.
 
 from __future__ import annotations
 
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple  # noqa: F401
 
+import equinox as eqx  # noqa: F401
+from jax import Array  # noqa: F401
+
+from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP  # noqa: F401
+from deqn_jax.networks.mlp import MLP  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Primitives — populated by subsequent tasks
