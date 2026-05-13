@@ -19,6 +19,8 @@ def _make_fixture_net(
     hidden_sizes=(4,),
     seed: int = 0,
     output_link: str = "linear",
+    policy_lower=None,
+    policy_upper=None,
 ) -> LinearPlusMLP:
     """Build a deterministic LinearPlusMLP for brock_mirman-like shape."""
     key = jax.random.PRNGKey(seed)
@@ -31,9 +33,13 @@ def _make_fixture_net(
         ss_state=jnp.array([1.0, 0.0]),
         ss_policy=jnp.array([0.5]),
         output_links=(output_link,),
-        # Wide bounds so clipping never triggers in tests:
-        policy_lower=jnp.array([-1e6]),
-        policy_upper=jnp.array([1e6]),
+        # Wide bounds so clipping never triggers in tests (overridable):
+        policy_lower=jnp.array([-1e6])
+        if policy_lower is None
+        else jnp.array(policy_lower),
+        policy_upper=jnp.array([1e6])
+        if policy_upper is None
+        else jnp.array(policy_upper),
         key=key,
     )
 
@@ -50,3 +56,48 @@ def test_fixture_builds_and_evaluates():
     out = net(states)
     assert out.shape == (32, 1)
     assert jnp.all(jnp.isfinite(out))
+
+
+from deqn_jax.interp import branch_decompose
+
+
+def test_branch_decompose_shapes_and_keys():
+    net = _make_fixture_net()
+    states = _sample_states()
+    out = branch_decompose(net, states)
+    assert set(out.keys()) == {"bk", "mlp_delta", "policy", "closes_numerically"}
+    assert out["bk"].shape == (32, 1)
+    assert out["mlp_delta"].shape == (32, 1)
+    assert out["policy"].shape == (32, 1)
+    assert isinstance(bool(out["closes_numerically"]), bool)
+
+
+def test_branch_decompose_closes_numerically_linear_link():
+    net = _make_fixture_net(output_link="linear")
+    states = _sample_states()
+    out = branch_decompose(net, states)
+    # bk + mlp_delta should match policy exactly (no clipping)
+    reconstructed = out["bk"] + out["mlp_delta"]
+    assert jnp.allclose(reconstructed, out["policy"], atol=1e-6)
+    assert bool(out["closes_numerically"])
+
+
+def test_branch_decompose_closes_numerically_log_link():
+    # ss_policy > 0 required for log link
+    net = _make_fixture_net(output_link="log")
+    states = _sample_states()
+    out = branch_decompose(net, states)
+    # For log link: policy = ss_policy * exp(bk_corr + delta)
+    # We return bk in *level* space here: bk = ss_policy * exp(bk_corr)
+    # and mlp_delta in *level* space: policy - bk
+    # So bk + mlp_delta == policy by construction.
+    reconstructed = out["bk"] + out["mlp_delta"]
+    assert jnp.allclose(reconstructed, out["policy"], atol=1e-6)
+
+
+def test_branch_decompose_clip_disables_closure():
+    # Tight bounds force clipping; numerical closure should report False.
+    net_tight = _make_fixture_net(policy_lower=[0.49], policy_upper=[0.51])
+    states = _sample_states()
+    out = branch_decompose(net_tight, states)
+    assert not bool(out["closes_numerically"])
