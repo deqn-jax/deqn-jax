@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import pytest  # noqa: F401
 
+from deqn_jax.interp import branch_decompose
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 
 
@@ -58,9 +59,6 @@ def test_fixture_builds_and_evaluates():
     assert jnp.all(jnp.isfinite(out))
 
 
-from deqn_jax.interp import branch_decompose
-
-
 def test_branch_decompose_shapes_and_keys():
     net = _make_fixture_net()
     states = _sample_states()
@@ -83,14 +81,13 @@ def test_branch_decompose_closes_numerically_linear_link():
 
 
 def test_branch_decompose_closes_numerically_log_link():
-    # ss_policy > 0 required for log link
+    # ss_policy > 0 required for log link.
+    # With wide bounds clipping does not fire, so closes_numerically is True;
+    # bk + mlp_delta == policy follows from no-clip-fired (raw == policy).
     net = _make_fixture_net(output_link="log")
     states = _sample_states()
     out = branch_decompose(net, states)
-    # For log link: policy = ss_policy * exp(bk_corr + delta)
-    # We return bk in *level* space here: bk = ss_policy * exp(bk_corr)
-    # and mlp_delta in *level* space: policy - bk
-    # So bk + mlp_delta == policy by construction.
+    assert bool(out["closes_numerically"])
     reconstructed = out["bk"] + out["mlp_delta"]
     assert jnp.allclose(reconstructed, out["policy"], atol=1e-6)
 

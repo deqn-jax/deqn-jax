@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple  # noqa: F401
 
 import equinox as eqx  # noqa: F401
-import jax
 import jax.numpy as jnp
 from jax import Array  # noqa: F401
 
@@ -35,9 +34,11 @@ def branch_decompose(net: LinearPlusMLP, states: Array) -> Dict[str, Any]:
     Returns a dict with arrays for ``bk`` (Blanchard-Kahn baseline in
     level space), ``mlp_delta`` (the residual the MLP contributes,
     in level space), ``policy`` (the final clipped output), and a
-    boolean ``closes_numerically`` that is true iff
-    ``bk + mlp_delta == policy`` to ``1e-6`` everywhere — i.e. no
-    clipping was active.
+    boolean ``closes_numerically`` that is true iff no clipping was
+    active anywhere on the input batch — equivalently, iff the pre-clip
+    output equals the clipped policy to ``atol=1e-6``. When clipping
+    fires somewhere, ``bk + mlp_delta`` equals the pre-clip raw output
+    (not the clipped policy) at those points.
 
     For log-link outputs we deliberately compute ``bk`` as
     ``ss_policy * exp(P @ (s - ss_state))`` (the BK *level* prediction),
@@ -76,8 +77,10 @@ def branch_decompose(net: LinearPlusMLP, states: Array) -> Dict[str, Any]:
     bk_log = ss_policy[None, :] * jnp.exp(bk_corr)
     bk = jnp.where(is_log[None, :], bk_log, bk_linear)
 
-    # MLP delta in the natural link space (same space that _forward_single adds it).
-    delta = jax.vmap(net.mlp)(states)  # [batch, n_policies]
+    # MLP delta — same raw output that _forward_single feeds into the
+    # additive (linear-link) or multiplicative (log-link) composition below.
+    # MLP.__call__ vmaps internally for 2-D input, so no outer vmap needed.
+    delta = net.mlp(states)  # [batch, n_policies]
 
     # Raw (pre-clip) output in level space — mirrors _forward_single logic.
     raw_linear = ss_policy[None, :] + bk_corr + delta
