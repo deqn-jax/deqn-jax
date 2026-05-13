@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 import pytest  # noqa: F401
 
-from deqn_jax.interp import branch_decompose
+from deqn_jax.interp import branch_decompose, forward_with_activations
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 
 
@@ -98,3 +98,30 @@ def test_branch_decompose_clip_disables_closure():
     states = _sample_states()
     out = branch_decompose(net_tight, states)
     assert not bool(out["closes_numerically"])
+
+
+def test_forward_with_activations_keys_and_shapes():
+    net = _make_fixture_net(hidden_sizes=(4,))
+    states = _sample_states()
+    acts = forward_with_activations(net.mlp, states)
+    assert set(acts.keys()) == {"h0", "out"}
+    assert acts["h0"].shape == (32, 4)
+    assert acts["out"].shape == (32, 1)
+
+
+def test_forward_with_activations_two_hidden():
+    net = _make_fixture_net(hidden_sizes=(4, 3))
+    states = _sample_states()
+    acts = forward_with_activations(net.mlp, states)
+    assert set(acts.keys()) == {"h0", "h1", "out"}
+    assert acts["h0"].shape == (32, 4)
+    assert acts["h1"].shape == (32, 3)
+    assert acts["out"].shape == (32, 1)
+
+
+def test_forward_with_activations_out_matches_call():
+    net = _make_fixture_net(hidden_sizes=(4,))
+    states = _sample_states()
+    acts = forward_with_activations(net.mlp, states)
+    direct = net.mlp(states)
+    assert jnp.allclose(acts["out"], direct, atol=1e-6)

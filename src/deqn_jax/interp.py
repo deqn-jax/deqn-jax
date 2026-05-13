@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple  # noqa: F401
 
 import equinox as eqx  # noqa: F401
+import jax
 import jax.numpy as jnp
 from jax import Array  # noqa: F401
 
@@ -26,6 +27,39 @@ from deqn_jax.networks.mlp import MLP  # noqa: F401
 # ---------------------------------------------------------------------------
 # Primitives — populated by subsequent tasks
 # ---------------------------------------------------------------------------
+
+
+def forward_with_activations(mlp: MLP, states: Array) -> Dict[str, Array]:
+    """Run ``mlp`` and capture every post-activation along the way.
+
+    Mirrors ``MLP._forward_single`` but yields each hidden layer's
+    post-activation. Output keys are ``"h{i}"`` for hidden layer ``i``
+    (post-activation) and ``"out"`` for the pre-bounds final output.
+
+    Args:
+        mlp: The MLP module (e.g. ``linear_plus_mlp_net.mlp``).
+        states: Array of shape ``[batch, n_states]``.
+
+    Returns:
+        Dict mapping layer name to activation array. Each hidden layer
+        contributes ``"h{i}"``; the final pre-bounds output is ``"out"``.
+    """
+
+    def _single(state: Array) -> Dict[str, Array]:
+        from deqn_jax.networks.mlp import _normalize_input  # local: tiny helper
+
+        x = _normalize_input(state, mlp.input_shift, mlp.input_scale)
+
+        captures: Dict[str, Array] = {}
+        for i, layer in enumerate(mlp.layers[:-1]):
+            x = mlp.activations[i](layer(x))
+            captures[f"h{i}"] = x
+
+        out = mlp.layers[-1](x)
+        captures["out"] = out  # pre-bounds output
+        return captures
+
+    return jax.vmap(_single)(states)
 
 
 def branch_decompose(net: LinearPlusMLP, states: Array) -> Dict[str, Any]:
