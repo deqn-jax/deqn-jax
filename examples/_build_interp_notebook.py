@@ -210,11 +210,91 @@ print(f"ratio δ/π  = {np.abs(mlp_delta).max() / np.abs(bk).max():.3%}")"""
     ]
 
 
+def chapter_2() -> List[Dict]:
+    return [
+        md(
+            """## Chapter 2 — Per-neuron contributions
+
+The MLP correction is computed by a small network — at this size,
+`(16, 16)` hidden units. Not every neuron does the same amount of work.
+The simplest interp move is to ask, for each neuron in the last hidden
+layer, how much it actually contributes to the output.
+
+Per-neuron contribution to the network's output is
+`W_last[j, i] · h_last[i]` — the weight times the post-activation.
+Summed across `i`, this plus the last-layer bias reconstructs the
+pre-bounds MLP output.
+
+Three archetypes appear in any small MLP:
+- **dead** — near-zero activation everywhere.
+- **generic** — smooth, roughly-linear-in-state; carries a low-order trend.
+- **selective** — strong only in part of state space; the interesting
+  case for interp."""
+        ),
+        code(
+            """contribs = neuron_contributions(net.mlp, states)
+last_layer_idx = max(contribs.keys())  # 1 if hidden=(16,16), 0 if (16,)
+contrib_last = np.asarray(contribs[last_layer_idx])  # [batch, H, 1]
+mean_abs = np.abs(contrib_last[..., 0]).mean(axis=0)
+order = np.argsort(-mean_abs)
+
+fig, ax = plt.subplots(figsize=(6, 3))
+ax.bar(range(len(mean_abs)), mean_abs[order])
+ax.set_xlabel("neuron (ranked)")
+ax.set_ylabel("mean |contribution|")
+ax.set_title(
+    f"Last-hidden-layer (idx {last_layer_idx}) contribution magnitude — γ=2"
+)
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch2_contribution_bar_gamma2.png", dpi=150)
+plt.show()
+print("ranked neuron indices (descending):", order.tolist())"""
+        ),
+        code(
+            """H_last = contrib_last.shape[1]
+picks = list(order[:3]) + list(order[-3:])
+fig, axes = plt.subplots(2, 3, figsize=(12, 6))
+for ax, i in zip(axes.flat, picks):
+    grid = contrib_last[:, i, 0].reshape(K.shape)
+    vmax = max(np.abs(grid).max(), 1e-12)
+    pcm = ax.pcolormesh(
+        K, Z, grid, shading="auto", cmap="RdBu_r", vmin=-vmax, vmax=vmax
+    )
+    ax.set_title(f"neuron {i}  (mean |·| = {mean_abs[i]:.4f})")
+    fig.colorbar(pcm, ax=ax)
+fig.suptitle("Top-3 (top row) and bottom-3 (bottom row) contributors — γ=2")
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch2_contribution_heatmaps_gamma2.png", dpi=150)
+plt.show()"""
+        ),
+        md(
+            """**Sanity check:** for any neuron `i` in the last hidden layer,
+summing its contribution across all neurons + the last-layer bias gives
+back the network's pre-bias MLP output:"""
+        ),
+        code(
+            """acts = forward_with_activations(net.mlp, states)
+summed = contrib_last.sum(axis=1)  # [batch, 1]
+bias = np.asarray(net.mlp.layers[-1].bias)
+out = np.asarray(acts["out"])
+print(f"max |summed + bias - out| = {np.abs(summed + bias - out).max():.2e}")
+assert np.allclose(summed + bias[None, :], out, atol=1e-5)"""
+        ),
+        md(
+            """If the bar chart shows most contribution concentrated in a few
+neurons and the rest near zero, the network learned a sparse solution
+and the analysis ahead has a clear target. If the bar is uniform, the
+network spread the work — more honest probes will be needed."""
+        ),
+    ]
+
+
 def main() -> None:
     chapters = [
         chapter_intro,
         chapter_0,
         chapter_1,
+        chapter_2,
     ]
     cells: List[Dict] = []
     for chapter in chapters:
