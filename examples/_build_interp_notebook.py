@@ -445,6 +445,122 @@ list can't read it. That's the gap where deeper interp earns its money."""
     ]
 
 
+def chapter_5() -> List[Dict]:
+    return [
+        md(
+            """## Chapter 5 — The intensity dial: γ ∈ {1, 2, 5}
+
+Risk aversion γ controls how curved the household's utility is. Higher
+γ means the optimal policy bends more away from the linearization. So γ
+is an *intensity dial* for how much nonlinear correction the MLP branch
+needs to encode.
+
+We rerun Chapters 1–4 compactly on all three networks."""
+        ),
+        code(
+            """fig, axes = plt.subplots(3, 3, figsize=(13, 11))
+
+for row, g in enumerate(GAMMAS):
+    net_g = nets[g]
+    states_g, K_g, Z_g = state_grid(net_g)
+    bd_g = branch_decompose(net_g, states_g)
+    bk_g = np.asarray(bd_g["bk"]).reshape(K_g.shape)
+    delta_g = np.asarray(bd_g["mlp_delta"]).reshape(K_g.shape)
+    policy_g = np.asarray(bd_g["policy"]).reshape(K_g.shape)
+    for ax, arr, title in zip(
+        axes[row],
+        (bk_g, delta_g, policy_g),
+        ("π_BK", "δ_θ", "policy"),
+    ):
+        pcm = ax.pcolormesh(K_g, Z_g, arr, shading="auto", cmap="viridis")
+        ax.set_title(f"γ={g}  {title}")
+        fig.colorbar(pcm, ax=ax)
+        if row == 2:
+            ax.set_xlabel("k")
+        if title == "π_BK":
+            ax.set_ylabel("z")
+fig.suptitle("Branch decomposition across γ", y=1.00)
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch5_decomposition_gamma_sweep.png", dpi=150)
+plt.show()"""
+        ),
+        code(
+            """# Necessity bar charts side-by-side (sorted descending).
+fig, axes = plt.subplots(1, 3, figsize=(13, 3.5))
+for ax, g in zip(axes, GAMMAS):
+    net_g = nets[g]
+    states_g, _, _ = state_grid(net_g, n=30)
+    baseline_g = np.asarray(net_g(states_g))
+    last_idx_g = len(net_g.mlp.layers) - 2
+    H_last_g = net_g.mlp.layers[last_idx_g].weight.shape[0]
+    necessity_g = np.zeros(H_last_g)
+    for i in range(H_last_g):
+        ab = np.asarray(ablate_neuron(net_g, last_idx_g, i, states_g))
+        necessity_g[i] = float(np.linalg.norm(baseline_g - ab))
+    ax.bar(range(H_last_g), np.sort(necessity_g)[::-1])
+    ax.set_title(f"γ={g}  necessity (sorted)")
+    ax.set_xlabel("neuron (rank)")
+    if g == GAMMAS[0]:
+        ax.set_ylabel("‖Δpolicy‖")
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch5_necessity_gamma_sweep.png", dpi=150)
+plt.show()"""
+        ),
+        md(
+            """What to look for:
+- γ=1: small δ_θ in the decomposition panel; necessity bars compressed.
+  The MLP barely needs to fire — close to our "null condition" for what
+  "no signal" looks like.
+- γ=2: a handful of necessary neurons; clear δ_θ pattern.
+- γ=5: more neurons necessary, larger δ_θ in magnitude, more spatial
+  structure to interpret.
+
+If the actual picture diverges from this expectation, *that* is the
+finding worth recording. The notebook doesn't pretend an expected
+pattern was observed when it wasn't."""
+        ),
+    ]
+
+
+def chapter_6() -> List[Dict]:
+    return [
+        md(
+            """## Chapter 6 — Honest limits and pointers
+
+**What we did:**
+- Decomposed the policy into linear (BK) and nonlinear (MLP) components.
+- Mapped per-neuron contribution to the output.
+- Probed neuron activations against a hand-chosen concept basis.
+- Causally ablated each neuron and cross-tabbed with the probe results.
+- Swept γ to see how the picture changes with task difficulty.
+
+**What this *doesn't* cover:**
+- **Superposition.** A neuron can encode a linear combination of two
+  features that no single concept in our basis matches. Linear probes
+  miss this. Sparse autoencoders (SAEs) are the standard fix; the
+  Brock-Mirman MLP is too small to benefit much, but on the disaster
+  model this would be the next step.
+- **Off-manifold ablation.** Zeroing a neuron's activation drives the
+  input to the next layer outside the training distribution. The
+  ablation diff is real but the magnitude can over-state importance.
+  Sharper alternatives: mean-ablation, activation patching across
+  states (= deferred approach B), or training a sparse coding layer.
+- **Disaster regimes.** Disaster has natural regime structure (ZLB
+  binding, disaster shock active, normal). Our tools transfer; the
+  concept basis needs to change. That's the natural sequel.
+
+**Suggested next moves:**
+- Port the probe + ablation toolkit to the disaster model.
+- Replace the concept basis with regime indicators and shock-block scalars.
+- Add an SAE pass on the disaster MLP's last hidden layer.
+
+The spec and plan that produced this notebook live under
+``docs/superpowers/`` in this repo. The supporting primitives are in
+``src/deqn_jax/interp.py`` and their tests in ``tests/test_interp.py``."""
+        ),
+    ]
+
+
 def main() -> None:
     chapters = [
         chapter_intro,
@@ -453,6 +569,8 @@ def main() -> None:
         chapter_2,
         chapter_3,
         chapter_4,
+        chapter_5,
+        chapter_6,
     ]
     cells: List[Dict] = []
     for chapter in chapters:
