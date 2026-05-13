@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import pytest  # noqa: F401
 
 from deqn_jax.interp import (
+    ablate_neuron,
     branch_decompose,
     forward_with_activations,
     linear_probe,
@@ -184,6 +185,38 @@ def test_linear_probe_constant_activation_handled():
     out = linear_probe(activations, concepts)
     assert jnp.all(jnp.isfinite(out["r2"]))
     assert jnp.isclose(out["r2"][0, 0], 0.0, atol=1e-5)
+
+
+def test_ablate_neuron_predicted_diff():
+
+    net = _make_fixture_net(hidden_sizes=(4,))
+    states = _sample_states()
+    baseline = net(states)
+    contribs = neuron_contributions(net.mlp, states)
+    predicted_mlp_out_drop = contribs[0][:, 1, :]
+    ablated = ablate_neuron(net, layer_idx=0, neuron_idx=1, states=states)
+    actual_diff = baseline - ablated
+    assert jnp.allclose(actual_diff, predicted_mlp_out_drop, atol=1e-6)
+
+
+def test_ablate_neuron_shape_matches_policy():
+
+    net = _make_fixture_net(hidden_sizes=(4, 3))
+    states = _sample_states()
+    ablated = ablate_neuron(net, layer_idx=1, neuron_idx=0, states=states)
+    assert ablated.shape == (32, 1)
+
+
+def test_ablate_neuron_zero_idx_is_idempotent_if_h_is_zero():
+
+    net = _make_fixture_net(hidden_sizes=(4,))
+    states = _sample_states()
+    acts = forward_with_activations(net.mlp, states)
+    sums = jnp.abs(acts["h0"]).sum(axis=0)
+    neuron_idx = int(jnp.argmin(sums))
+    baseline = net(states)
+    ablated = ablate_neuron(net, layer_idx=0, neuron_idx=neuron_idx, states=states)
+    assert float(jnp.max(jnp.abs(baseline - ablated))) < 5.0
 
 
 def test_neuron_contributions_two_hidden_layers():

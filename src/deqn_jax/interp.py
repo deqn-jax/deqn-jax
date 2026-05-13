@@ -239,3 +239,76 @@ def linear_probe(activations: Array, concepts: Array) -> Dict[str, Array]:
         "r2": r2,
         "residual_var": residual_var,
     }
+
+
+def ablate_neuron(
+    net: LinearPlusMLP,
+    layer_idx: int,
+    neuron_idx: int,
+    states: Array,
+) -> Array:
+    """Run the network with a chosen post-activation forced to zero.
+
+    Mirrors ``LinearPlusMLP._forward_single`` and ``MLP._forward_single``
+    exactly, except that after computing the post-activation of hidden
+    layer ``layer_idx``, we zero entry ``neuron_idx`` before passing on.
+
+    Args:
+        net: The ``LinearPlusMLP`` to inspect (unchanged).
+        layer_idx: Which hidden layer to ablate in (0-indexed).
+        neuron_idx: Which neuron within that layer to zero.
+        states: Array of shape ``[batch, n_states]``.
+
+    Returns:
+        The policy with the chosen post-activation forced to zero, shape
+        ``[batch, n_policies]``. Full clipping + link-type semantics from
+        ``LinearPlusMLP._forward_single`` are preserved.
+    """
+    from deqn_jax.networks.mlp import _normalize_input
+
+    mlp = net.mlp
+    n_hidden = len(mlp.layers) - 1
+    if not 0 <= layer_idx < n_hidden:
+        raise ValueError(
+            f"layer_idx {layer_idx} out of range for {n_hidden} hidden layer(s)"
+        )
+    hidden_size_at_layer = mlp.layers[layer_idx].weight.shape[0]
+    if not 0 <= neuron_idx < hidden_size_at_layer:
+        raise ValueError(
+            f"neuron_idx {neuron_idx} out of range for layer {layer_idx} "
+            f"with size {hidden_size_at_layer}"
+        )
+
+    def _single(state: Array) -> Array:
+        x = _normalize_input(state, mlp.input_shift, mlp.input_scale)
+        for i, layer in enumerate(mlp.layers[:-1]):
+            x = mlp.activations[i](layer(x))
+            if i == layer_idx:
+                x = x.at[neuron_idx].set(0.0)
+        delta = mlp.layers[-1](x)
+
+        ss_state = jax.lax.stop_gradient(net.ss_state)
+        ss_policy = jax.lax.stop_gradient(net.ss_policy)
+        P = jax.lax.stop_gradient(net.P)
+        bk_corr = P @ (state - ss_state)
+
+        if all(code == 0 for code in net.output_links):
+            raw = ss_policy + bk_corr + delta
+        elif all(code == 1 for code in net.output_links):
+            raw = ss_policy * jnp.exp(bk_corr + delta)
+        else:
+            is_log = jnp.asarray(net.output_links, dtype=jnp.int8) == 1
+            raw_linear = ss_policy + bk_corr + delta
+            raw_log = ss_policy * jnp.exp(bk_corr + delta)
+            raw = jnp.where(is_log, raw_log, raw_linear)
+
+        if net.policy_lower is not None:
+            lower = jax.lax.stop_gradient(jnp.asarray(net.policy_lower))
+            raw = jnp.maximum(raw, lower)
+        if net.policy_upper is not None:
+            upper = jax.lax.stop_gradient(jnp.asarray(net.policy_upper))
+            safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
+            raw = jnp.minimum(raw, safe_upper)
+        return raw
+
+    return jax.vmap(_single)(states)
