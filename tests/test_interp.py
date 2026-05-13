@@ -12,7 +12,11 @@ import jax
 import jax.numpy as jnp
 import pytest  # noqa: F401
 
-from deqn_jax.interp import branch_decompose, forward_with_activations
+from deqn_jax.interp import (
+    branch_decompose,
+    forward_with_activations,
+    neuron_contributions,
+)
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 
 
@@ -125,3 +129,33 @@ def test_forward_with_activations_out_matches_call():
     acts = forward_with_activations(net.mlp, states)
     direct = net.mlp(states)
     assert jnp.allclose(acts["out"], direct, atol=1e-6)
+
+
+def test_neuron_contributions_shapes_one_hidden():
+
+    net = _make_fixture_net(hidden_sizes=(4,))
+    states = _sample_states()
+    contribs = neuron_contributions(net.mlp, states)
+    assert set(contribs.keys()) == {0}
+    assert contribs[0].shape == (32, 4, 1)
+
+
+def test_neuron_contributions_sum_equals_pre_bias():
+
+    net = _make_fixture_net(hidden_sizes=(4,))
+    states = _sample_states()
+    contribs = neuron_contributions(net.mlp, states)
+    summed = contribs[0].sum(axis=1)
+    bias = net.mlp.layers[-1].bias
+    out = forward_with_activations(net.mlp, states)["out"]
+    assert jnp.allclose(summed + bias[None, :], out, atol=1e-6)
+
+
+def test_neuron_contributions_two_hidden_layers():
+
+    net = _make_fixture_net(hidden_sizes=(4, 3))
+    states = _sample_states()
+    contribs = neuron_contributions(net.mlp, states)
+    assert set(contribs.keys()) == {0, 1}
+    assert contribs[0].shape == (32, 4, 3)
+    assert contribs[1].shape == (32, 3, 1)

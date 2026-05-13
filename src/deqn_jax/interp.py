@@ -138,3 +138,39 @@ def branch_decompose(net: LinearPlusMLP, states: Array) -> Dict[str, Any]:
         "policy": policy,
         "closes_numerically": closes,
     }
+
+
+def neuron_contributions(mlp: MLP, states: Array) -> Dict[int, Array]:
+    """Per-neuron contribution to the next layer's pre-activation.
+
+    For hidden layer ``ℓ`` with post-activation ``h_ℓ`` of shape
+    ``[batch, H_ℓ]``, and the next layer's weight ``W_{ℓ+1}`` of shape
+    ``[H_{ℓ+1}, H_ℓ]``, the per-neuron contribution to downstream unit
+    ``j`` from hidden unit ``i`` is ``W_{ℓ+1}[j, i] * h_ℓ[batch, i]``.
+
+    Returns a dict keyed by hidden-layer index ``ℓ ∈ {0, …, L-1}`` (where
+    ``L`` is the number of hidden layers); each value has shape
+    ``[batch, H_ℓ, H_{ℓ+1}]`` (or ``[batch, H_ℓ, n_outputs]`` for the last
+    hidden layer).
+
+    The downstream layer's bias is *not* included; callers can add
+    ``mlp.layers[ℓ+1].bias`` to reconstruct the full pre-activation.
+
+    Args:
+        mlp: The MLP module.
+        states: Array of shape ``[batch, n_states]``.
+
+    Returns:
+        Dict mapping ``layer_idx -> Array[batch, H_layer, H_downstream]``.
+    """
+    acts = forward_with_activations(mlp, states)
+    out: Dict[int, Array] = {}
+    n_hidden = len(mlp.layers) - 1
+    for layer_idx in range(n_hidden):
+        h = acts[f"h{layer_idx}"]  # [batch, H_layer]
+        w = mlp.layers[layer_idx + 1].weight  # [H_downstream, H_layer]
+        # Per (b, i, j): w[j, i] * h[b, i]
+        # Broadcast: h[:, :, None] is [batch, H_layer, 1]
+        #            w.T[None, :, :] is [1, H_layer, H_downstream]
+        out[layer_idx] = h[:, :, None] * w.T[None, :, :]
+    return out
