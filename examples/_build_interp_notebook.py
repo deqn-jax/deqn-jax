@@ -289,12 +289,103 @@ network spread the work — more honest probes will be needed."""
     ]
 
 
+def chapter_3() -> List[Dict]:
+    return [
+        md(
+            """## Chapter 3 — Linear probes
+
+A neuron's post-activation is a scalar function of state. We can ask:
+*is that function "explained" by some interpretable scalar we name*?
+
+The procedure: pick a list of candidate concepts (in state-space units
+that mean something to a domain expert), and for each (neuron, concept)
+pair, fit a 1-D linear regression. The R² of that fit tells us how much
+of the neuron's variation we can read off as a single named quantity.
+
+Caveat — and Chapter 4 will press on this — probes are *correlational*.
+A high R² says "this neuron tracks concept X." It does not say "the
+network uses this neuron to compute X.\""""
+        ),
+        code(
+            """k = states[:, 0]
+z = states[:, 1]
+alpha = 0.36  # brock_mirman capital share
+k_ss = float(net.ss_state[0])
+z_ss = float(net.ss_state[1])
+
+concepts = jnp.stack(
+    [
+        k,
+        z,
+        k * z,
+        k**2,
+        z**2,
+        jnp.log(k),
+        k - k_ss,
+        z - z_ss,
+        z * jnp.power(k, alpha),  # y
+        alpha * z * jnp.power(k, alpha - 1.0),  # mpk
+    ],
+    axis=-1,
+)
+
+concept_names = [
+    "k", "z", "k·z", "k²", "z²", "log k",
+    "k-k_ss", "z-z_ss", "y = z·k^α", "mpk",
+]
+
+last_h = acts[f"h{last_layer_idx}"]
+probe = linear_probe(last_h, concepts)
+r2 = np.asarray(probe["r2"])  # [n_neurons, n_concepts]
+
+fig, ax = plt.subplots(figsize=(9, 6))
+pcm = ax.imshow(r2[order, :], vmin=0.0, vmax=1.0, cmap="magma", aspect="auto")
+ax.set_xticks(range(len(concept_names)))
+ax.set_xticklabels(concept_names, rotation=40, ha="right")
+ax.set_yticks(range(len(order)))
+ax.set_yticklabels([f"n{int(i)}" for i in order])
+ax.set_xlabel("concept")
+ax.set_ylabel("neuron (ranked by mean |contribution|)")
+ax.set_title("Linear-probe R² (per neuron × per concept) — γ=2")
+fig.colorbar(pcm, ax=ax, label="R²")
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch3_probe_r2_gamma2.png", dpi=150)
+plt.show()"""
+        ),
+        md(
+            """Reading the heatmap:
+- A row that's mostly black is a neuron that *no listed concept* explains.
+  It either encodes a nonlinear combination of state we didn't list, or
+  it encodes noise.
+- A row with one bright cell is a neuron well-explained by that single
+  concept. Pick the brightest example and report it as "this neuron
+  tracks X."
+- A row with two-or-three medium cells is a neuron mixing concepts —
+  much harder to read.
+
+Print the cleanest claim:"""
+        ),
+        code(
+            """best_neuron_in_ranked, best_concept = np.unravel_index(
+    np.argmax(r2[order, :]), r2[order, :].shape
+)
+best_neuron = int(order[best_neuron_in_ranked])
+print(f"Highest R² = {r2[best_neuron, best_concept]:.3f}")
+print(
+    f"  neuron {best_neuron} ≈ concept "
+    f"'{concept_names[best_concept]}'"
+)"""
+        ),
+    ]
+
+
 def main() -> None:
     chapters = [
         chapter_intro,
         chapter_0,
         chapter_1,
         chapter_2,
+        chapter_3,
     ]
     cells: List[Dict] = []
     for chapter in chapters:
