@@ -220,10 +220,52 @@ def test_ablate_neuron_zero_idx_is_idempotent_if_h_is_zero():
 
 
 def test_neuron_contributions_two_hidden_layers():
-
     net = _make_fixture_net(hidden_sizes=(4, 3))
     states = _sample_states()
     contribs = neuron_contributions(net.mlp, states)
     assert set(contribs.keys()) == {0, 1}
     assert contribs[0].shape == (32, 4, 3)
     assert contribs[1].shape == (32, 3, 1)
+
+
+@pytest.mark.slow
+def test_end_to_end_wiring_on_trained_brock_mirman():
+    """Train a tiny brock_mirman LinearPlusMLP and run every primitive on it.
+
+    Wiring test only — no correctness claims, just that the primitives compose
+    with real training output.
+    """
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
+    from deqn_jax.training.trainer import train_from_config
+
+    cfg = TrainConfig(
+        model="brock_mirman",
+        episodes=5,
+        episode_length=32,
+        batch_size=16,
+        mc_samples=2,
+        seed=0,
+        network=NetworkConfig(
+            type="linear_plus_mlp",
+            hidden_sizes=(8,),
+            activation="tanh",
+        ),
+        optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+    )
+    trained, _history = train_from_config(cfg)
+
+    states = _sample_states(n=8)
+    bd = branch_decompose(trained, states)
+    assert bd["policy"].shape == (8, 1)
+
+    acts = forward_with_activations(trained.mlp, states)
+    assert acts["out"].shape == (8, 1)
+
+    contribs = neuron_contributions(trained.mlp, states)
+    assert contribs[0].shape == (8, 8, 1)
+
+    probe = linear_probe(acts["h0"], states)
+    assert probe["r2"].shape == (8, 2)
+
+    ablated = ablate_neuron(trained, 0, 0, states)
+    assert ablated.shape == (8, 1)
