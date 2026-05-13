@@ -148,10 +148,73 @@ plt.show()"""
     ]
 
 
+def chapter_1() -> List[Dict]:
+    return [
+        md(
+            """## Chapter 1 — Output decomposition
+
+The first mech-interp move on any model is the same: try to write the
+output as a sum of separately-interpretable components. `LinearPlusMLP`
+gives us this for free.
+
+```
+policy(s) = π_BK(s) + δ_θ(s)   (linear-link case; clipping aside)
+              ↑          ↑
+        perturbation   the only thing
+        theory's       the neural net adds
+        prediction
+```
+
+Macro people: π_BK is what you'd get from a Blanchard-Kahn solver. δ_θ
+is the network's nonlinear correction.
+
+ML people: this is a residual network with a hand-derived skip
+connection."""
+        ),
+        code(
+            """bd = branch_decompose(net, states)
+print(f"Closes numerically on grid: {bool(bd['closes_numerically'])}")
+
+bk = np.asarray(bd["bk"]).reshape(K.shape)
+mlp_delta = np.asarray(bd["mlp_delta"]).reshape(K.shape)
+combined = np.asarray(bd["policy"]).reshape(K.shape)
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+for ax, arr, title in zip(
+    axes,
+    (bk, mlp_delta, combined),
+    ("π_BK (linearization)", "δ_θ (MLP correction)", "policy = clip(π_BK + δ_θ)"),
+):
+    pcm = ax.pcolormesh(K, Z, arr, shading="auto", cmap="viridis")
+    ax.set_xlabel("k")
+    ax.set_ylabel("z")
+    ax.set_title(title)
+    fig.colorbar(pcm, ax=ax)
+fig.tight_layout()
+fig.savefig(f"{FIGDIR}/ch1_decomposition_gamma2.png", dpi=150)
+plt.show()
+
+print(f"|π_BK|_max = {np.abs(bk).max():.4f}")
+print(f"|δ_θ|_max  = {np.abs(mlp_delta).max():.4f}")
+print(f"ratio δ/π  = {np.abs(mlp_delta).max() / np.abs(bk).max():.3%}")"""
+        ),
+        md(
+            """Two things to notice:
+
+- `closes_numerically` is true — `π_BK + δ_θ` reconstructs the policy
+  exactly on the grid. No clipping fires inside the ergodic support.
+- The MLP correction is a small fraction of the BK baseline in
+  magnitude, but its spatial pattern is *structured*. The next chapter
+  opens that pattern up."""
+        ),
+    ]
+
+
 def main() -> None:
     chapters = [
         chapter_intro,
         chapter_0,
+        chapter_1,
     ]
     cells: List[Dict] = []
     for chapter in chapters:
