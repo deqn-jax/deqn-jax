@@ -592,9 +592,17 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
         )
 
     if config.constants:
+        # Surface exactly which calibration constants change (old -> new). A
+        # silent override here shifts the analytical SS / warm-start anchor and
+        # was a source of the historical Brock-Mirman "SS mismatch" confusion
+        # (audit bm-ss-02).
+        prev = {k: model.constants.get(k) for k in config.constants}
         model = model._replace(constants={**model.constants, **config.constants})
         if config.verbose:
-            print(f"  Constants override: {dict(config.constants)}")
+            changes = ", ".join(
+                f"{k}: {prev[k]} -> {v}" for k, v in dict(config.constants).items()
+            )
+            print(f"  Constants override ({model.name}): {changes}")
 
     if model.setup_fn is not None:
         model = model.setup_fn(model, config)

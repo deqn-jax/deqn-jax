@@ -5,6 +5,28 @@ Deterministic steady state (z=0):
     1 = beta * (1 - delta + alpha * k^(alpha - 1))
     => k_ss = ((1/beta - 1 + delta) / alpha) ** (1 / (alpha - 1))
 
+Calibration note (resolves the historical "three-way SS mismatch").
+For the canonical constants here (alpha=0.36, beta=0.99, delta=0.1):
+
+    k_ss   = 6.36684          # the value this function returns
+    sav_ss = delta*k/y = 0.32697
+
+The formula is extremely sensitive to (beta, delta), which is the ENTIRE
+source of the old "sim 4.0 / closed-form 0.18 / partial-delta 14"
+discrepancy recorded in project memory. It was a calibration mixup, not a
+solver bug:
+
+    * delta=1 (full depreciation) collapses the formula to the log-utility
+      closed form k_ss = (alpha*beta)**(1/(1-alpha)) = 0.1995 here -- a
+      DIFFERENT model. That is the "~0.18" figure.
+    * Evaluating the partial-delta formula with an off-canonical beta swings
+      k_ss wildly: beta=0.96 -> 4.29, delta=0.025 -> 37.99. Legacy figures
+      computed against off-calibration constants, or read off an unconverged
+      simulation, are simply not comparable to the canonical 6.367.
+
+See docs/dev/framework_audit_2026-05.md (bm-ss / models-06) and the value
+regression test in tests/test_brock_mirman_ss.py.
+
 Init sampling mirrors the reference notebook's exogenous rect:
 
     k ~ Uniform[K_LB, K_UB]
