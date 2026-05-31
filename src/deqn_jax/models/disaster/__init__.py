@@ -10,7 +10,10 @@ Analytical eliminations (12 original -> 9):
   s (cost min), L (balance sheet), omega_bar (bank participation)
 """
 
-from deqn_jax.models.disaster.composite_aux import composite_aux
+from deqn_jax.models.disaster.composite_aux import (
+    composite_aux,
+    composite_aux_constants,
+)
 from deqn_jax.models.disaster.diagnostics import scalar_diagnostics
 from deqn_jax.models.disaster.dynamics import clip_state, compute_state_barrier, step
 from deqn_jax.models.disaster.equations import EQUATION_NAMES, definitions, equations
@@ -80,6 +83,12 @@ MODEL = ModelSpec(
     definitions_fn=definitions,
     policy_lower=POLICY_LOWER,
     policy_upper=POLICY_UPPER,  # None → softplus bounding (no gradient death)
+    # default_output_links left None: existing disaster.yaml configs use the
+    # legacy additive-linear ansatz unchanged. Opt in to the log ansatz
+    # explicitly via NetworkConfig.output_links: [log, log, ..., log] (see
+    # configs/disaster_log.yaml). All 11 disaster policies are positive so
+    # log-link is mathematically valid; the default is conservative.
+    default_output_links=None,
     clip_state_fn=clip_state,  # Hard clip for eval/irf only
     state_barrier_fn=compute_state_barrier,  # Box penalty for loss
     # Order MUST match dynamics.step()'s shock[:, i] unpacking order.
@@ -87,4 +96,5 @@ MODEL = ModelSpec(
     setup_fn=_setup,
     scalar_diagnostics_fn=scalar_diagnostics,
     composite_aux_fn=composite_aux,
+    composite_aux_constants_fn=composite_aux_constants,
 )

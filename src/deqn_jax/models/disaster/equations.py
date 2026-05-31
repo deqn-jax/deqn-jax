@@ -93,8 +93,16 @@ def solve_omega_bar(
     - Newton converges in ~2 iterations from init to omega_ss (< 1e-8 error)
     - 10 fixed iterations for safety; clip [0.01, 3.0] for robustness
 
+    Implementation note: this is a *projected* Newton (clip in [0.01, 3.0]
+    each iteration so ``log(omega)`` inside ``F_omega``/``G_omega`` stays
+    defined). We tried swapping to ``optimistix.Newton`` (2026-05-08) but
+    its pure-Newton steps diverge into the infeasible region during early
+    training, where ``log(omega ≤ 0)`` blows up and lineax sees NaN.
+    The hand-rolled fixed-iter projected-Newton below is the appropriate
+    primitive for this constrained sub-problem.
+
     JAX compatible: fixed iteration count → unrolled, autodiff works via
-    chain rule through the Newton steps (implicit function theorem).
+    chain rule through the Newton steps.
     """
     omega = jnp.full_like(target, init)
 
@@ -382,8 +390,13 @@ def equations(
     residuals["eq4b_Kw_recursion"] = eq4_rhs / (p.K_w + 1e-8) - 1.0
 
     # Eq 5: Consumption Euler — multiply by habit_now, divide by mu_z
-    habit_now = _soft_floor(p.c * st.mu_z - c["b"] * st.c_lag, 1e-2)
-    habit_next = _soft_floor(p_n.c * st_n.mu_z - c["b"] * p.c, 1e-2)
+    # Sharpness=100: at SS habit≈0.42, eps=0.01 → wedge ~1e-20 (vs ~1.6e-3
+    # at default sharpness=10). Default sharpness was chosen for K_inner
+    # floors where x≈1, eps=0.01 keeps the wedge negligible; for habit
+    # the (x-eps)/eps ratio is ~40 not ~99 and the wedge propagates into
+    # eq5 → λ_z → eq2b → π, shifting SS by ~0.17%.
+    habit_now = _soft_floor(p.c * st.mu_z - c["b"] * st.c_lag, 1e-2, sharpness=100.0)
+    habit_next = _soft_floor(p_n.c * st_n.mu_z - c["b"] * p.c, 1e-2, sharpness=100.0)
     residuals["eq5_consumption_euler"] = (
         (1 + c["tau_c"]) * p.lambda_z * habit_now
         + c["beta"] * c["b"] * habit_now / (habit_next + 1e-8)

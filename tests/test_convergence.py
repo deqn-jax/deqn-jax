@@ -72,6 +72,111 @@ class TestBrockMirmanConvergence:
         assert rel_error[0] < 0.1, f"Policy error at SS: {float(rel_error[0]):.2%}"
 
 
+class TestBrockMirmanLinearPlusMLP:
+    """Sanity check: LinearPlusMLP architecture trains end-to-end on the
+    closed-form Brock-Mirman model.
+
+    BM has no kinks, no Calvo gauge, no constraint cliffs — so the BK linear
+    policy is already a strong starting point. LinearPlusMLP should:
+      (a) start at the exact BK linear policy (init_scale=0.0)
+      (b) converge to a low residual loss
+      (c) end up close to the analytical SS policy
+      (d) keep the MLP correction `delta` bounded (BM is approximately
+          log-linear in log-state; the correction shouldn't need to grow large)
+
+    These are loose smoke-level checks — the architecture's value-add over
+    bare MLP is in *harder* models (disaster). Here we just want "doesn't
+    blow up, doesn't regress, behaves sensibly".
+    """
+
+    def _train(self, episodes: int = 200, kf_names=()):
+        from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
+        from deqn_jax.training.trainer import train_from_config
+
+        config = TrainConfig(
+            model="brock_mirman",
+            episodes=episodes,
+            batch_size=32,
+            episode_length=50,
+            mc_samples=3,
+            seed=42,
+            network=NetworkConfig(
+                type="linear_plus_mlp",
+                hidden_sizes=(32, 32),
+                activation="tanh",
+                init="xavier_normal",
+                init_scale=0.0,
+                kf_names=tuple(kf_names),
+            ),
+            optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+            verbose=False,
+            n_minibatches_per_epoch=1,
+        )
+        return train_from_config(config)
+
+    def test_init_is_exact_bk_policy(self):
+        """At step 0 with init_scale=0.0, the LinearPlusMLP policy must
+        coincide with the BK linearization at SS."""
+        import jax.random as jr
+
+        from deqn_jax.models import load_model
+        from deqn_jax.networks.linear_plus_mlp import create_linear_plus_mlp
+
+        model = load_model("brock_mirman")
+        net = create_linear_plus_mlp(
+            model,
+            hidden_sizes=(32, 32),
+            activation="tanh",
+            init_scale=0.0,
+            key=jr.PRNGKey(0),
+        )
+        ss_state, ss_policy = model.steady_state_fn(model.constants)
+        out = net(ss_state)
+        assert float(jnp.max(jnp.abs(out - ss_policy))) < 1e-10, (
+            "LinearPlusMLP at init should output the SS policy exactly at SS"
+        )
+
+    def test_loss_decreases(self):
+        """Loss should drop at least 2x — same bar as the bare-MLP test."""
+        _params, history = self._train(episodes=200)
+        initial = history["loss"][0]
+        final = history["loss"][-1]
+        assert final < initial / 2, (
+            f"Loss didn't decrease enough: {initial:.4e} -> {final:.4e}"
+        )
+
+    def test_policy_near_steady_state(self):
+        """After training, policy at SS should match analytical SS within 5%
+        (tighter than the bare-MLP test's 10% — LinearPlusMLP starts at
+        exactly the right answer at SS, the MLP correction has no reason to
+        push the network *away* from it)."""
+        from deqn_jax.models.brock_mirman import MODEL, steady_state
+
+        params, _ = self._train(episodes=300)
+        ss_state, ss_policy = steady_state(MODEL.constants)
+        pred = params(ss_state[None, :])
+        rel_error = float(jnp.abs(pred[0, 0] - ss_policy[0]) / ss_policy[0])
+        assert rel_error < 0.05, f"Policy error at SS: {rel_error:.2%}"
+
+    def test_delta_correction_stays_bounded(self):
+        """BM is approximately log-linear; the MLP correction shouldn't need
+        to grow large to fit the residuals. Pin |delta(SS)| < some loose bound
+        as a sanity check that we haven't accidentally landed somewhere weird.
+        """
+        from deqn_jax.models.brock_mirman import MODEL, steady_state
+
+        params, _ = self._train(episodes=300)
+        ss_state, _ = steady_state(MODEL.constants)
+        # The "BK linear" part at SS evaluates to exactly ss_policy. Any
+        # deviation in the trained output is the MLP delta at SS.
+        bk_at_ss = params.ss_policy
+        out = params(ss_state)
+        delta = out - bk_at_ss
+        assert float(jnp.max(jnp.abs(delta))) < 0.05, (
+            f"MLP correction at SS unexpectedly large: {float(jnp.max(jnp.abs(delta))):.4e}"
+        )
+
+
 class TestDisasterTraining:
     """Test that Disaster model can train (convergence is harder)."""
 

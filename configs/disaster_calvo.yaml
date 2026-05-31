@@ -1,0 +1,73 @@
+# disaster + joint Calvo reparam — REJECTED CONFIG, kept for reproducibility.
+#
+# Tested 2026-05-04 with the symmetric price+wage Calvo reparam:
+#   reparam_pi_as_kp_inner=true  → π is internally K_p_inner (§3.1)
+#   reparam_wtilda_as_kw_inner=true → w_tilda is internally K_w_inner (§3.1')
+#
+# Final loss after 500 ep: 4.83e+5 (5+ orders of magnitude worse than
+# baseline disaster.yaml ~1e-3 at the same point). Loss oscillates in
+# 1e+4–1e+5 range, no convergence.
+#
+# Diagnosis: the reparam makes eq2a/eq4a identities by construction, but
+# the actually-stiff Calvo equations are eq2b/eq4b (the *recursions*), not
+# the *definitions*. The recovery formulas additionally make the optimizer's
+# effective control surface (K_p_inner, K_w_inner) → (π, w_tilda) a coupled
+# nonlinear map, which is harder to navigate than baseline (direct output of
+# π, w_tilda). Net: difficulty moved into eq2b/eq4b/eq5/eq6/eq3 with worse
+# loss landscape.
+#
+# Full write-up: docs/dev/disaster_equation_shape_priors.md §3.1 empirical
+# update (2026-05-04 joint).
+#
+# Production-ready disaster recipe: configs/disaster_sqrtw.yaml (sqrt(MSE_BK)
+# per-equation weights, validated). DO NOT use this config for new training
+# runs — it's only kept to reproduce the negative finding.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+  kf_names: [F_p, K_p, F_w, K_w]
+  reparam_pi_as_kp_inner: true
+  reparam_wtilda_as_kw_inner: true
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_calvo
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_calvo

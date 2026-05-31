@@ -11,9 +11,9 @@
 \hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
 
 \title{CMR NK-DSGE with Financial Frictions\\[4pt]
-\large Corrected Model Documentation}
+\large Corrected Model Documentation \& Errata}
 \author{Anna Smirnova}
-\date{February 2026}
+\date{Updated 2026-05-04}
 
 \begin{document}
 \maketitle
@@ -21,8 +21,25 @@
 \noindent This document is the definitive reference for the disaster model as
 implemented in \texttt{deqn-jax}. It incorporates all errata corrections
 (see \texttt{docs/disaster\_model\_errata.md}), all three analytical
-eliminations, and the split Phillips curve formulation. When this document and
-\texttt{disaster.tex} disagree, \emph{this document is correct}.
+eliminations, the split Phillips curve formulation, the effective lower bound
+on the policy rate, and the Bernoulli disaster mechanism. When this document
+and \texttt{disaster.tex} disagree, \emph{this document is correct}.
+
+\bigskip\noindent\textbf{Revision history.}
+\begin{itemize}
+\item \emph{February 2026.} Initial corrected version. Three implementation
+  bugs caught (net worth formula, tautological eq.~12, inconsistent SS),
+  four \texttt{disaster.tex} typos noted.
+\item \emph{April 2026.} Effective lower bound (ELB) on policy rate added
+  (commit \texttt{fdfbf2b}). Bernoulli disaster mechanism with capital
+  destruction added (commit \texttt{1b9cf30}). $K_p/K_w$ recursions
+  re-normalized from log-space to ratio form for Jensen-correct
+  expectations under shock averaging.
+\item \emph{May 2026.} Consumption-Euler habit soft-floor sharpness raised
+  $10 \!\to\! 100$ to eliminate a $0.4\%$ wedge in habit at SS values that
+  was propagating to a $+0.17$pp shift in solved $\pi_{ss}$. Cached
+  \texttt{STEADY\_STATE} dict refreshed against the corrected solver.
+\end{itemize}
 
 \bigskip\noindent
 \textbf{Color code:}
@@ -505,6 +522,143 @@ No output has zero gradient in the loss --- the system is fully determined.
 
 
 %==========================================================================
+\section{Effective Lower Bound on the Policy Rate}
+\label{sec:elb}
+%==========================================================================
+
+The Taylor rule defined in Section~2 (Definitions) prescribes a target
+gross nominal rate $R^{\text{Taylor}}_t$ that can fall arbitrarily far
+below unity in deep recessions or stress states. Empirically central
+banks face a lower bound on the policy rate set by cash-storage costs
+and preferences for deposit holdings; historically the bound has been
+slightly negative in net terms (the SNB held a policy rate of
+${\sim}-0.75\%$ annual for seven years; ECB and BoJ similar) but
+typically not deeply so.
+
+We impose this bound on the realized rate $R_t$ via a high-sharpness
+softplus floor:
+\begin{equation*}
+  \boxed{\textcolor{brown}{R_t}
+    = R^{lb}
+      + \frac{1}{\sharp}\,\log\!\left(
+          1 + \exp\!\bigl(\sharp\,(\textcolor{brown}{R^{\text{Taylor}}_t} - R^{lb})\bigr)
+        \right)}
+\end{equation*}
+where $R^{lb}$ is the floor (default $1.0$, a zero net rate) and
+$\sharp \equiv R^{lb}_{\text{sharpness}}$ is the kink sharpness
+(default $500$).
+
+\paragraph{Properties.}
+\begin{itemize}
+\item $C^{\infty}$ in $R^{\text{Taylor}}_t$ but with a sharp transition
+  near $R^{\text{Taylor}}_t = R^{lb}$. For $R^{\text{Taylor}}_t \gg R^{lb}$,
+  $R_t \approx R^{\text{Taylor}}_t$. For $R^{\text{Taylor}}_t \ll R^{lb}$,
+  $R_t \approx R^{lb}$.
+\item At the steady state, $R^{\text{Taylor}}_{ss} = R_{ss} \approx 1.018 \gg R^{lb}$,
+  so the floor is slack in expectation and the SS distortion from the
+  softplus is ${\sim}10^{-7}$ at $\sharp = 500$.
+\item Under stress shocks (especially monetary policy shocks $m_t^p$
+  combined with disasters), $R^{\text{Taylor}}_t$ can dip below $R^{lb}$
+  and the floor activates.
+\end{itemize}
+
+\paragraph{Replaces.}
+The unfloored bare-Taylor-rule formula in Section~2:
+\begin{equation*}
+  \textcolor{brown}{R^{\text{Taylor}}_t}
+    = R_{\text{ss}} \left(\frac{\textcolor{green!60!black}{R_{t-1}}}{R_{\text{ss}}}\right)^{\!\rho_p}
+      \!\left[
+        \left(\frac{\textcolor{orange!80!black}{\pi_t}}{\pi_{\text{ss}}}\right)^{\!\alpha_\pi}
+        \left(\frac{\textcolor{brown}{y_t^{\text{GDP}}}}{y_{\text{ss}}}\right)^{\!\alpha_y}
+      \right]^{1-\rho_p}
+      \!\exp(\textcolor{green!60!black}{m_t^p})
+\end{equation*}
+is now the unfloored prescription; the realized $R_t$ used in the bond
+Euler is the softplus floor of this expression.
+
+\paragraph{Sharpness calibration.}
+$\sharp = 500$ is the production default. Lower sharpness gives a
+softer transition (more gradient through the kink, but more SS
+distortion); higher sharpness sharpens the kink toward the limiting
+hard $\max(R^{\text{Taylor}}_t,\, R^{lb})$.
+
+
+%==========================================================================
+\section{Disaster Mechanism}
+\label{sec:disaster}
+%==========================================================================
+
+The model admits a Barro-style exogenous disaster shock that destroys a
+fraction of next-period capital. Disaster realizations are i.i.d.\ across
+time and independent of the continuous Gaussian shocks.
+
+\subsection{Specification}
+
+Each period a Bernoulli disaster indicator is realized:
+\begin{equation*}
+  d_t \in \{0, 1\}, \qquad
+  \mathbb{P}(d_t = 1) = p_{\text{disaster}}
+\end{equation*}
+with default $p_{\text{disaster}} = 0$ (baseline CMR; mechanism
+inactive) and stress calibration $p_{\text{disaster}} = 0.10$
+(per-quarter probability).
+
+When $d_t = 1$, the capital entering next period is destroyed by
+log-fraction $\theta_{\text{disaster}}$:
+\begin{equation*}
+  \boxed{\textcolor{brown}{k_t}\bigm|_{d_t}
+    = \textcolor{brown}{k_t^{\text{raw}}}
+      \cdot \exp(-\theta_{\text{disaster}}\, d_t)}
+\end{equation*}
+where $k_t^{\text{raw}}$ is the capital implied by the standard law of
+motion (Section~2) and $k_t\bigm|_{d_t}$ is the disaster-adjusted
+capital that becomes the next-period state.
+
+For the default $\theta_{\text{disaster}} = 0.05$, a disaster destroys
+${\sim}4.9\%$ of the capital stock in a single period.
+
+\subsection{Mixture expectation}
+
+All conditional expectations $\mathbb{E}_t[\,\cdot\,]$ in the
+forward-looking equilibrium equations (Eq.~1, 2b, 3, 4b, 5, 6, 7, 8 in
+Section~3) become mixtures over the disaster indicator:
+\begin{equation*}
+  \boxed{\mathbb{E}_t[X_{t+1}]
+    = (1 - p_{\text{disaster}})\,
+      \mathbb{E}_t\!\left[X_{t+1} \,\big|\, d_{t+1} = 0\right]
+    + p_{\text{disaster}}\,
+      \mathbb{E}_t\!\left[X_{t+1} \,\big|\, d_{t+1} = 1\right]}
+\end{equation*}
+
+The two conditional branches differ only through the next-period
+state: in the disaster branch ($d_{t+1} = 1$), $k_{t+1}$ is replaced by
+$k_{t+1} \cdot e^{-\theta_{\text{disaster}}}$ before the next-period
+quantities (definitions, controls, residuals) are computed. The
+continuous shocks $\xi_{t+1}$ and exogenous AR(1) transitions are
+identical across the two branches.
+
+When $p_{\text{disaster}} = 0$, the mixture reduces to the no-disaster
+branch and the model is exactly baseline CMR.
+
+\paragraph{Scope.}
+The disaster shock affects only the physical capital stock. It does not
+shift the financial-friction parameters ($\sigma_\omega, \mu_{\text{mon}},
+\gamma_e, w^e$), the productivity processes, or the monetary/fiscal
+parameters. The financial accelerator (Section~2) responds endogenously
+to the lower next-period $k_{t+1}$ via $R^k_{t+1}$, $\bar\omega_{t+1}$,
+and $L_{t+1}$ in the disaster branch.
+
+\paragraph{Numerical handling.}
+Computing the mixture exactly requires evaluating each forward-looking
+residual at both disaster realizations and combining with weights
+$(1 - p_{\text{disaster}}, p_{\text{disaster}})$. This doubles the
+forward-pass cost relative to baseline. When $p_{\text{disaster}} = 0$
+the trainer detects the degenerate mixture and falls back to a single
+\texttt{step\_fn} call without the disaster branch, recovering baseline
+performance.
+
+
+%==========================================================================
 \section{Analytical Eliminations}
 \label{sec:eliminations}
 %==========================================================================
@@ -534,9 +688,19 @@ See Section~1.2 (policy variables).
 \section{Laws of Motion}
 %==========================================================================
 
-\subsection{Exogenous states}
+This section is split into the model-level statement (\S6.1--6.3) and
+implementation-level provenance (\S6.4). Readers reproducing the model
+analytically need only \S6.1--6.3; readers porting the JAX code or
+auditing it against a different solver want \S6.4 as well.
+
+\subsection{Exogenous AR(1) processes}
+
+Four of the five exogenous state variables follow stationary AR(1) processes
+in logs, with i.i.d.\ standard-normal innovations
+$e_t = (e_t^\epsilon, e_t^{\mu_\Upsilon}, e_t^{\mu_z}, e_t^g)$:
 \begin{align*}
-  \log\epsilon_t &= \rho_\epsilon \log\epsilon_{t-1} + \sigma_\epsilon\,e_t^\epsilon
+  \log\epsilon_t &= \rho_\epsilon \log\epsilon_{t-1}
+    + \sigma_\epsilon\,e_t^\epsilon
   \\
   \log\mu_{\Upsilon,t} &= \rho_{\mu_\Upsilon} \log\mu_{\Upsilon,t-1}
     + \sigma_{\mu_\Upsilon}\,e_t^{\mu_\Upsilon}
@@ -547,22 +711,24 @@ See Section~1.2 (policy variables).
   \\
   \log g_t &= \rho_g \log g_{t-1} + (1-\rho_g)\log g_{\text{ss}}
     + \sigma_g\,e_t^g
-  \\
-  m_t^p &= \sigma_p\,e_t^p
 \end{align*}
+Stationary mean is zero in logs for $\epsilon_t$ and $\mu_{\Upsilon,t}$
+(no drift), and $\log\mu_{z,\text{ss}}$ / $\log g_{\text{ss}}$ for the
+two drifting processes.
 
-\subsection{Endogenous state updates}
+\subsection{Monetary policy innovation}
 
-States are updated via soft clipping (softplus-based, gradient $\approx 1$ in
-valid range, decays smoothly outside):
+The monetary shock is i.i.d., \emph{not} an AR(1):
 \begin{equation*}
-  x_{\text{next}} = \ell + \frac{1}{s}\log(1+e^{s(x-\ell)})
-  \quad\text{(lower clip)},\qquad
-  x_{\text{next}} = u - \frac{1}{s}\log(1+e^{s(u-x)})
-  \quad\text{(upper clip)}
+  m_t^p = \sigma_p\,e_t^p, \qquad e_t^p \sim \mathcal{N}(0,1)
 \end{equation*}
-with $s=5$. Applied to endogenous states only; exogenous states (AR(1)
-processes) are not clipped.
+It enters the Taylor rule (Section~2) multiplicatively as $\exp(m_t^p)$
+and decays in one period.
+
+\subsection{Endogenous lag transitions}
+
+Each of the eight endogenous state slots is the previous-period value of
+its corresponding equilibrium quantity:
 \begin{equation*}
   \pi_{t-1} \leftarrow \pi_t, \quad
   k_{t-1} \leftarrow k_t, \quad
@@ -573,6 +739,84 @@ processes) are not clipped.
   \tilde{w}_{t-1} \leftarrow \tilde{w}_t, \quad
   L_{t-1} \leftarrow L_t
 \end{equation*}
+These are not dynamic equations but bookkeeping identities: each lag slot
+is, by definition, the previous period's value of the corresponding
+equilibrium quantity. The values $\pi_t, k_t, c_t, q_t, i_t, R_t,
+\tilde{w}_t, L_t$ are pinned down by the equilibrium block (Sections~2
+and~3 jointly): for example $k_t$ by the capital accumulation relation
+\[
+  k_t = (1-\delta)\,k_{t-1}/\mu_{z,t} + (1 - S(i_t\mu_{z,t}/i_{t-1}))\,i_t
+\]
+(Section~2), $L_t$ by the balance-sheet identity $L_t = q_t k_t / n_t$
+(Section~2), and $R_t$ by the Taylor rule with effective lower bound
+(Sections~2 and~4). Disaster realisations modify $k_t$ as specified in
+Section~5.
+
+\subsection{Implementation: per-variable provenance}
+
+The DEQN port has to commit to a single computational path for each
+$x_t$. The choices are \emph{equivalent} to the model spec (the
+equilibrium equations are unchanged) but matter for code review and for
+porting to other solvers.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Variable & Pinned by & Implementation slot \\
+\midrule
+$\pi_t$         & Phillips curve (Eq.~2a/2b) & network output \\
+$q_t$           & Investment Euler (Eq.~3) & network output \\
+$i_t$           & Investment FOC (Eq.~6) & network output \\
+$\tilde{w}_t$   & Wage Phillips (Eq.~4a/4b) & network output \\
+$c_t$           & Consumption Euler (Eq.~1, with Eq.~9 enforcing identity) & network output \\
+$k_t$           & Capital accumulation (Section~2) & definition from $(k_{t-1}, i_t, \mu_{z,t})$ \\
+$R_t$           & Taylor rule with ELB (Sections~2, 4) & definition from $(R_{t-1}, \pi_t, y_t^{\text{GDP}}, m_t^p)$ \\
+$L_t$           & Balance-sheet identity (Eq.~12) & definition from $(q_t, k_t, n_t)$, after $\bar\omega_t$ Newton solve \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Disaster modifier on capital lag.}\;
+When $d_t = 1$, the value written into the next-period $k_{t-1}$ slot is
+the disaster-adjusted $k_t \cdot \exp(-\theta_{\text{disaster}})$ from
+Section~5, not the raw definitional $k_t$. All other lag slots are
+unaffected by $d_t$.
+
+\subsection{Numerical state clipping}
+
+After the next state is assembled, the full 13-dimensional state vector
+is passed through a chained softplus soft-clip:
+\begin{equation*}
+  x_{\text{next}} = \ell + \frac{1}{s}\log(1+e^{s(x-\ell)})
+  \quad\text{(lower)},\qquad
+  x_{\text{next}} = u - \frac{1}{s}\log(1+e^{s(u-x)})
+  \quad\text{(upper)}
+\end{equation*}
+with sharpness $s=5$ and per-variable bounds $(\ell, u)$ at margins
+$\geq 2.0$ from the steady state for every slot. The clip serves the
+endogenous slots, where an absurd policy in early training can otherwise
+drive the equilibrium definitions (capital, $R$, leverage) through their
+nonlinearities and inject $\inf$/NaN into the rollout buffer; the
+softplus gives gradient $\approx 1$ inside the band and asymptotes
+outside, so a single bad mini-batch does not poison the trajectory.
+
+For the five exogenous slots the bounds sit at ${\sim}100$ stationary
+standard deviations from steady state, so the softplus is numerically
+identity (distortion ${<}10^{-6}$ per slot per step) and the AR(1) /
+i.i.d.\ structure of \S6.1--6.2 is preserved to that precision. We
+nonetheless apply the clip uniformly across all 13 slots rather than
+masking out the exogenous block: the disaster training trajectory at
+\texttt{learning\_rate=1e-2} is chaotic enough that even a $10^{-6}$
+last-bit perturbation in the rollout bifurcates the loss curve over
+${\sim}300$ episodes. Symmetric clipping keeps experimental results
+reproducible bit-for-bit against checkpoints saved before this part of
+the spec was tightened.
+
+The soft-clip is part of the rollout dynamics, not of the equilibrium
+model itself: the equations of \S3 are evaluated on unclipped
+trajectories during loss computation; the clip applies only to the
+state that becomes next period's lag. The implementation is in
+\texttt{src/deqn\_jax/models/disaster/dynamics.py:soft\_clip\_state}.
 
 
 %==========================================================================
@@ -623,10 +867,28 @@ $\rho_\epsilon$ / $\sigma_\epsilon$ & & 0.809 / 0.0046 & CMR estimation \\
 $\rho_{\mu_\Upsilon}$ / $\sigma_{\mu_\Upsilon}$ & & 0.987 / 0.004 & CMR estimation \\
 $\rho_{\mu_z}$ / $\sigma_{\mu_z}$ & & 0.146 / 0.00715 & CMR estimation \\
 $\rho_g$ / $\sigma_g$ & & 0.94 / 0.023 & CMR estimation \\
-$\sigma_p$ & & 0.0049 & CMR estimation \\
+$\sigma_p$ & & 0.0049 & CMR estimation \\[3pt]
+ELB on gross policy rate & $R^{lb}$ & 1.0 & Configuration default \\
+ELB softplus sharpness & $R^{lb}_{\text{sharpness}}$ & 500 & Calibration default \\
+Disaster probability per period & $p_{\text{disaster}}$ & 0.0--0.10 & 0 baseline; 0.10 stress \\
+Disaster magnitude (log-fraction) & $\theta_{\text{disaster}}$ & 0.05 & Calibration default \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\paragraph{Notes on the new parameters.}
+\begin{itemize}
+\item $R^{lb} = 1.0$ corresponds to a zero net nominal rate. Lowering
+  $R^{lb}$ to $\sim 0.998$ would approximate the SNB's $-0.75\%$ annual
+  policy rate at quarterly frequency.
+\item $R^{lb}_{\text{sharpness}} = 500$ keeps the SS distortion from
+  the softplus floor at ${\sim}10^{-7}$ while still producing a tight
+  kink near the floor.
+\item $p_{\text{disaster}} = 0$ is the production default; the
+  mechanism is inert and the model is exactly baseline CMR.
+\item $\theta_{\text{disaster}} = 0.05$ corresponds to a ${\sim}4.9\%$
+  capital destruction per disaster realization.
+\end{itemize}
 
 
 %==========================================================================
@@ -655,8 +917,8 @@ $F_w$        & 0.8853 & softplus \\
 $F_p$        & 4.7359 & softplus \\
 $q$          & 1.0000 & softplus \\
 $c$          & 1.5937 & softplus \\
-$K_p$        & 4.8308 & softplus \\
-$K_w$        & 2.2071 & softplus \\
+$K_p$        & 4.7774 & softplus \\
+$K_w$        & 2.1825 & softplus \\
 \midrule
 $\bar\omega$ & 0.4885 & Newton \\
 $s$          & 0.8330 & analytical \\
@@ -689,11 +951,151 @@ $m_t^p$            & 0.0000 \\
 \end{tabular}
 \bigskip
 
-\textbf{Note:} $\pi_{\text{SS}} = 1.012 \neq \pi_{\text{ss}} = 1.006$.
-The Taylor rule with $\alpha_y > 0$ and financial frictions shifts
-the equilibrium inflation above the target.
+\textbf{Note on the target/solved gap.}
+The CMR calibration targets $\pi_{ss} = 1.006$, but the nonlinear solver
+lands at $\pi = 1.0123$, a $+0.6$pp gap. CMR's structural parameters
+($\Phi$, $\psi_L$, $b$, etc.) were estimated against a \emph{linearized}
+model that takes the SS as given; the nonlinear equations have to find
+a self-consistent SS, and small inconsistencies that linearization
+smooths over compound through the financial-friction block (eq.~8) into
+the observed shift. The SS at $1.0123$ is internally consistent (all 11
+residuals $< 6\times 10^{-8}$); it is just not the SS at the calibration
+target.
+
+\emph{Independent issue (May 2026, fixed):} between February and May
+the consumption-Euler habit floor (Eq.~5) used a low softplus sharpness
+($\sharp = 10$ at $\varepsilon = 10^{-2}$). At SS values
+$\text{habit} \approx 0.42$ the soft-floor produced a $+0.4\%$ wedge
+that propagated through eq.~5 $\to \lambda_z \to$ eq.~2b $\to \pi$,
+adding a further $+0.17$pp shift on top of the calibration gap
+(solved $\pi = 1.0140$ rather than $1.0123$). Sharpness raised to
+$\sharp = 100$ makes the soft-floor wedge negligible at SS values, and
+the cached \texttt{STEADY\_STATE} dict was refreshed to the corrected
+solver output. See errata items~9 and~10.
 \end{minipage}
 \end{table}
+
+
+%==========================================================================
+\section{Solution Method}
+\label{sec:method}
+%==========================================================================
+
+The model is a system of forward-looking stochastic equations that,
+jointly, determine an unknown decision rule
+$\pi: \mathcal{S} \to \mathcal{P}$ mapping the 13-dimensional state to
+the 11-dimensional control. We solve for $\pi$ by parameterizing it as
+a neural network $\pi_\theta$ and minimizing an empirical residual
+against the equations.
+
+\subsection{The fixed-point problem}
+
+Stack the eleven equilibrium conditions of Section~\ref{sec:eliminations}
+into a single vector-valued residual
+\[
+F\big(s,\, \pi(s),\, s',\, \pi(s');\, \xi\big) \in \mathbb{R}^{11},
+\qquad
+s' = T\big(s,\, \pi(s),\, \xi\big),
+\]
+where $s, s' \in \mathcal{S}$ are consecutive states, $T$ is the known
+law of motion (Section~\ref{sec:eliminations} extended), and $\xi$ are
+the exogenous Gaussian shocks. We seek $\pi^*$ such that
+\[
+\mathbb{E}_\xi\Big[F\big(s,\, \pi^*(s),\, T(s, \pi^*(s), \xi),\, \pi^*(T(s, \pi^*(s), \xi));\, \xi\big)\Big] = 0
+\qquad \text{for all } s \in \mathrm{supp}(\mu_{\pi^*})
+\]
+where $\mu_{\pi^*}$ is the ergodic distribution of the Markov chain
+induced by $\pi^*$. The fixed point couples two requirements: $\pi^*$
+must satisfy $F = 0$ in expectation \emph{and} only on its own ergodic
+support, which itself depends on $\pi^*$.
+
+\subsection{Why standard methods are insufficient}
+
+Closed-form solution exists only inside an $\varepsilon$-ball around the
+deterministic SS, where the Blanchard-Kahn linearization solves the
+system to first order. Past first order, the equations are nonlinear,
+contain singularities (Calvo asymptote, BGG threshold, capital-quality
+sign-flip), and their forward-looking expectations admit no symbolic
+treatment.
+
+Standard nonlinear projection methods (Chebyshev, finite-element,
+sparse-grid collocation) require a basis over a bounded domain and a
+priori knowledge of the support. Here the state space is
+$\mathbb{R}^{13}$, the support is unknown a priori, and tensor-product
+bases hit the curse of dimensionality at $n_\text{state} \approx 5$.
+
+\subsection{Iterative scheme}
+
+Approximate $\pi^*$ by a feedforward network
+$\pi_\theta : \mathbb{R}^{13} \to \mathbb{R}^{11}$ with $\sim\!2\times
+10^{4}$ parameters. At iteration $k$, holding $\theta_k$ fixed:
+
+\begin{enumerate}
+\item \textbf{Generate states.} Simulate $B$ trajectories of length
+  $H$ under $\pi_{\theta_k}$, starting from the previous iteration's
+  endpoints (or from the SS at $k = 0$). The resulting sample
+  $\{s_i\}_{i=1}^{BH}$ approximates draws from $\mu_{\pi_{\theta_k}}$.
+\item \textbf{Sample shocks.} For each $s_i$, draw $M$ shock
+  realizations $\xi_i^{(m)} \sim \mathcal{N}(0, I)$ to estimate the
+  inner expectation by Monte Carlo, with antithetic pairing
+  ($\xi$ paired with $-\xi$) for variance reduction.
+\item \textbf{Evaluate residuals.}
+  $r_i^{(m)} = F(s_i, \pi_{\theta_k}(s_i), s_i'^{(m)}, \pi_{\theta_k}(s_i'^{(m)}); \xi_i^{(m)})$
+  where $s_i'^{(m)} = T(s_i, \pi_{\theta_k}(s_i), \xi_i^{(m)})$.
+\item \textbf{Form loss.}
+  \[
+    L(\theta) = \frac{1}{BHM}\sum_{i,m}\,\big\|\,r_i^{(m)}\,\big\|_W^2,
+  \]
+  with $W$ a per-equation weight matrix (default uniform; in some
+  configurations $W = \mathrm{diag}\!\big(\sqrt{\,\mathrm{MSE}_{\text{BK}}}\,\big)^{-1}$).
+\item \textbf{Update.} Compute $\nabla_\theta L$ by reverse-mode
+  differentiation through both copies of $\pi_\theta$ in $F$, the
+  network parameters appearing twice per residual (current and
+  next state). Take one Adam step on $\theta$.
+\end{enumerate}
+
+The iteration is the discrete-time analog of
+$\dot\theta = -\nabla_\theta L_{\mu_{\pi_\theta}}(\theta)$ where the
+measure $\mu$ shifts as $\theta$ changes.
+
+\subsection{Two distinguishing features}
+
+\paragraph{Training distribution depends on the unknowns.}
+In standard supervised learning the data distribution is fixed; here,
+$\mu_{\pi_\theta}$ is a function of $\theta$ and shifts between
+iterations. This is the source of most training pathologies: the
+network may converge well on regions of $\mathcal{S}$ the current
+iterate visits and fail on regions a different iterate would visit. The
+``correct'' decision rule may require evaluation at states the iterate
+never reaches; the iterate has no learning signal there.
+
+\paragraph{Objective itself is stochastic.}
+The expectation $\mathbb{E}_\xi$ is approximated by an $M$-sample Monte
+Carlo at every $s_i$. With $M = 2$ (production setting), the residual
+estimate has substantial variance; antithetic pairing eliminates the
+first-moment bias from the symmetric Gaussian but not higher-moment
+contributions. The loss surface is correspondingly noisy in a way
+deterministic nonlinear regression is not.
+
+\subsection{Verification, and what we cannot verify}
+
+A genuine fixed-point check would assert that
+$\mathbb{E}_\xi[F(s, \pi_\theta(s), s', \pi_\theta(s'); \xi)] \approx 0$
+uniformly over $s \in \mathrm{supp}(\mu_{\pi_\theta})$ at convergence.
+In practice we report a single scalar --- the ergodic mean of
+$\|r\|_2$ on a held-out sample, denoted $|\!\operatorname{errREE}\!|$
+in $\log_{10}$ units --- as the headline metric.
+
+For a model with a known reference solution (e.g.\ the analytical
+Brock--Mirman RBC), $|\!\operatorname{errREE}\!| \lesssim -3$ is
+considered acceptable. For the disaster model there is no reference
+solution: no Dynare-global, no time-iteration, no published nonlinear
+solver result. Whether the trained $\pi_\theta$ approximates the
+``true'' $\pi^*$, a different fixed point of $F$, or no fixed point
+at all (in the smooth function class an MLP can represent) cannot be
+determined from inside this framework. The model is unsolved in the
+sense that we have no external way to certify whether what we have is
+the answer.
 
 
 %==========================================================================
@@ -734,6 +1136,90 @@ the original code translation (the code has always been correct):
 \item \textbf{$G'(\bar\omega)$ in tex}: wrong sign ($+\sigma^2/2$
   instead of $-\sigma^2/2$) and missing $1/\bar\omega$ in denominator.
 \end{enumerate}
+
+\bigskip\noindent
+The following extensions were added to the model (and hence the errata
+sheet) after the original February 2026 cut.
+
+\begin{enumerate}
+\setcounter{enumi}{6}
+\item \textbf{Effective lower bound on $R_t$} (Section~\ref{sec:elb}).
+  The bare Taylor-rule prescription is replaced by a softplus-floored
+  realized rate. The unfloored prescription $R^{\text{Taylor}}_t$ is
+  computed first; the realized $R_t$ used in the bond Euler is the
+  softplus floor of that. Default $R^{lb} = 1.0$,
+  $R^{lb}_{\text{sharpness}} = 500$. Commit \texttt{fdfbf2b}.
+
+\item \textbf{Bernoulli disaster mechanism}
+  (Section~\ref{sec:disaster}). An i.i.d.\ disaster shock destroys a
+  fraction $1 - e^{-\theta}$ of next-period capital with probability
+  $p_{\text{disaster}}$. All forward-looking equilibrium expectations
+  become mixtures over the disaster indicator. Default
+  $p_{\text{disaster}} = 0$ recovers baseline CMR exactly. Commit
+  \texttt{1b9cf30}.
+
+\item \textbf{$K_p$ and $K_w$ recursion forms re-normalized}
+  (eq.~2b, eq.~4b). Originally written in log-space residual form
+  $\log(\text{RHS}) - \log(K)$. Under shock-averaged Monte Carlo
+  expectations this enforces $\mathbb{E}[\log(\text{RHS})] = \log(K)$
+  (geometric mean) instead of the intended $K = \mathbb{E}[\text{RHS}]$
+  (arithmetic mean), which differ by a Jensen-inequality term that does
+  not vanish under stochastic shocks. Replaced with linear ratio form
+  $\text{RHS}/K - 1$, which is linear in next-period terms (after
+  dividing by current-period $K$, which is outside the expectation),
+  so linear MC averaging correctly computes the arithmetic-mean
+  expectation. Commit \texttt{1b9cf30}.
+
+\item \textbf{Habit soft-floor sharpness}
+  (eq.~5, May 2026). The consumption-Euler habit term
+  $\text{habit} = c_t \mu_{z,t} - b\, c_{t-1}$ is soft-floored at
+  $\varepsilon = 10^{-2}$ to avoid a singularity when $c$ approaches
+  $b\,c_{t-1}/\mu_z$. The soft-floor is implemented as
+  $\varepsilon + \sharp^{-1} \log(1 + e^{\sharp(x-\varepsilon)})$. The
+  original $\sharp = 10$ produces a $+1.6\times 10^{-3}$ wedge at SS
+  values ($\text{habit} \approx 0.42$, ratio $(x-\varepsilon)/\varepsilon
+  \approx 41$), which propagates through eq.~5 $\to \lambda_z \to$
+  eq.~2b $\to \pi$ to a $+0.17$pp shift in solved $\pi_{ss}$
+  ($1.0123 \to 1.0140$). Sharpness raised to $\sharp = 100$ reduces the
+  wedge to ${\sim}10^{-20}$ while keeping the gradient transition
+  manageable near the floor. The price- and wage-Calvo
+  $K_p^{\text{inner}}, K_w^{\text{inner}}$ floors (also at
+  $\varepsilon = 10^{-2}$) keep the original $\sharp = 10$: at SS those
+  are at $\sim\!1$, ratio $\sim\!99$, wedge ${\sim}5\times 10^{-6}$,
+  negligible.
+
+\item \textbf{Cached \texttt{STEADY\_STATE} dict refreshed} (May 2026).
+  The values in \texttt{src/deqn\_jax/models/disaster/variables.py} had
+  drifted from the runtime solver output across multiple equation
+  refactors (eq elimination/un-elimination cycles, log $\to$ ratio
+  rewrites, the eq.~5 sharpness fix above). Cached values were stale
+  by up to $\sim\!1\%$ on $K_p, K_w$ and contributed ${\sim}10^{-2}$
+  residuals when the dict was used as initial-guess seed for the
+  solver. Refreshed to match the post-fix runtime SS exactly
+  (all residuals $\leq 2\times 10^{-15}$).
+\end{enumerate}
+
+\bigskip\noindent\textbf{Negative findings} (tested, not adopted; see
+\texttt{docs/dev/disaster\_equation\_shape\_priors.md} for derivations
+and run logs):
+
+\begin{itemize}
+\item \emph{Investment-bracket reparam} ($q$ as $M = q\,\mathcal{B}(x)$):
+  tested, training stable but no measurable improvement.
+\item \emph{Calvo $K_p^{\text{inner}}$ reparam}, price side only: tested,
+  $4.3\times$ worse total MSE than baseline. Asymmetric application leaks
+  residual energy into the wage block (eq.~4a).
+\item \emph{Joint Calvo $K_p^{\text{inner}}$ + $K_w^{\text{inner}}$
+  reparam}: tested, $5+$ orders of magnitude worse than baseline. The
+  reparams turn definition equations (eq.~2a, eq.~4a) into identities
+  but make the recursions (eq.~2b, eq.~4b) and the resource block
+  ill-conditioned through compounded nonlinear recovery formulas.
+\item \emph{Log-output ansatz} ($\pi_i = \pi_{i,ss}\,\exp(\delta_\theta)$
+  for all 11 policies): tested, $\sim\!10\%$ better final loss than
+  baseline at 500~ep on disaster, but with a catastrophic ep-100
+  transient (loss spikes to $\sim\!10^5$ before recovering). Not yet
+  productionized; needs soft-cap on log-delta to be robust.
+\end{itemize}
 
 
 \end{document}

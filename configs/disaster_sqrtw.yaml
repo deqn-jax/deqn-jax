@@ -1,0 +1,87 @@
+# disaster + linear_plus_mlp_kfmask + sqrt(MSE_BK) per-equation loss weights
+#
+# Same architecture as disaster.yaml, but with per-equation residual
+# weights derived from a one-time BK-init diagnostic. Empirically (see
+# `docs/dev/disaster_equation_shape_priors.md` §3 and the per-equation
+# residual diagnostic in `scripts/diagnostic_per_equation_residuals.py`):
+#
+#   - Uniform MSE rewards the optimizer for fitting the algebraic
+#     definition equations (eq2a, eq4a) to noise floor while leaving
+#     the dominant Calvo/Euler residuals (eq2b, eq4b, eq7) plateaued.
+#   - Weights ∝ sqrt(MSE_BK) rebalance: stiffer equations get larger
+#     weights, easier ones get smaller. Empirically gives a 5-10%
+#     reduction on dominant residuals at LR=1e-3 (mild instability
+#     late in training; tighter LR/cosine schedule fixes it).
+#
+# To regenerate these weights:
+#   uv run python scripts/compute_sqrt_bk_weights.py --model disaster
+#
+# The values below are illustrative; values at training time may shift
+# slightly with MC seed / mc_per_state. Differences <5% don't matter.
+#
+# Wall-clock and convergence behavior should be similar to disaster.yaml
+# at the same LR. If divergence is observed late in training, lower
+# learning_rate to 5e-4 or tighten grad_clip to 0.25.
+
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+  kf_names: [F_p, K_p, F_w, K_w]
+
+optimizer:
+  name: adam
+  learning_rate: 1e-3
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+# Per-equation loss weights ∝ sqrt(MSE_BK), normalized so sum = 11.
+# Order matches disaster's EQUATION_NAMES.
+loss_weights:
+  - 1.249127   # eq1_price_phillips_F
+  - 1.134834   # eq2a_Kp_definition
+  - 1.823700   # eq2b_Kp_recursion        ← largest weight (stiffest)
+  - 0.790027   # eq3_wage_phillips_F
+  - 1.782362   # eq4a_Kw_definition
+  - 1.911111   # eq4b_Kw_recursion        ← largest weight (stiffest)
+  - 0.208527   # eq5_consumption_euler    ← smallest (already easy)
+  - 0.391620   # eq6_bond_euler
+  - 1.002359   # eq7_investment_euler
+  - 0.514117   # eq8_entrepreneur_contract
+  - 0.192217   # eq9_resource_constraint  ← smallest (already easy)
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_sqrtw
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_sqrtw

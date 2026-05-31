@@ -57,6 +57,7 @@ scripts/*
 dynare/
 PLAN.md
 docs/session_log.md
+docs/session_state_*.md
 docs/design_notes.md
 irf_results/
 
@@ -87,3 +88,13 @@ docs/*.pdf
 # Figures written by model cycle_hooks during training (regenerated)
 /figures/
 examples/figures/
+
+# JetBrains Junie local AI state (tool-local, like .idea/)
+.junie/
+
+# LaTeX build artifacts (keep .tex; .pdf already ignored above)
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.synctex.gz

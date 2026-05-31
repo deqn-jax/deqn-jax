@@ -1,0 +1,223 @@
+%==========================================================================
+% Addendum to disaster_corrected.tex
+%
+% Covers three extensions to the canonical model that were added to the
+% codebase after disaster_corrected.tex (Feb 2026) was written:
+%
+%   D1. Effective lower bound (ELB) on the gross policy rate, applied as
+%       a high-sharpness softplus floor on the Taylor-rule output.
+%   D2. The R_lb_sharpness calibration parameter that controls the kink.
+%   D3. Bernoulli disaster mechanism: per-period capital destruction with
+%       probability p_disaster, magnitude theta_disaster.
+%
+% Drop-in: insert these sections after Section 3 (Equilibrium Equations)
+% and before Section 4 (Analytical Eliminations) in disaster_corrected.tex.
+% Update the calibration table in Section 5 to include the four new
+% parameters listed at the end.
+%
+% Style matches disaster_corrected.tex: color macros for variables, boxed
+% canonical formulas, paragraph-level subdivision.
+%==========================================================================
+
+%==========================================================================
+\section{Effective Lower Bound on the Policy Rate}
+\label{sec:elb}
+%==========================================================================
+
+The Taylor rule defined in Section~2 (Definitions) prescribes a target
+gross nominal rate $R^{\text{Taylor}}_t$ that can fall arbitrarily far
+below unity in deep recessions or stress states. Empirically central
+banks face a lower bound on the policy rate set by cash-storage costs
+and preferences for deposit holdings; historically the bound has been
+slightly negative in net terms (the SNB held a policy rate of
+${\sim}-0.75\%$ annual for seven years; ECB and BoJ similar) but
+typically not deeply so.
+
+We impose this bound on the realized rate $R_t$ via a high-sharpness
+softplus floor:
+\begin{equation*}
+  \boxed{\textcolor{brown}{R_t}
+    = R^{lb}
+      + \frac{1}{\sharp}\,\log\!\left(
+          1 + \exp\!\bigl(\sharp\,(\textcolor{brown}{R^{\text{Taylor}}_t} - R^{lb})\bigr)
+        \right)}
+\end{equation*}
+where $R^{lb}$ is the floor (default $1.0$, a zero net rate) and
+$\sharp \equiv R^{lb}_{\text{sharpness}}$ is the kink sharpness
+(default $500$).
+
+\paragraph{Properties.}
+\begin{itemize}
+\item $C^{\infty}$ in $R^{\text{Taylor}}_t$ but with a sharp transition
+  near $R^{\text{Taylor}}_t = R^{lb}$. For $R^{\text{Taylor}}_t \gg R^{lb}$,
+  $R_t \approx R^{\text{Taylor}}_t$. For $R^{\text{Taylor}}_t \ll R^{lb}$,
+  $R_t \approx R^{lb}$.
+\item At the steady state, $R^{\text{Taylor}}_{ss} = R_{ss} = 1.018 \gg R^{lb}$,
+  so the floor is slack in expectation and the SS distortion from the
+  softplus is ${\sim}10^{-7}$.
+\item Under stress shocks (especially monetary policy shocks $m_t^p$
+  combined with disasters), $R^{\text{Taylor}}_t$ can dip below $R^{lb}$
+  and the floor activates.
+\end{itemize}
+
+\paragraph{Replaces.}
+The unfloored bare-Taylor-rule formula in Section~2:
+\begin{equation*}
+  \textcolor{brown}{R_t}
+    = R_{\text{ss}} \left(\frac{\textcolor{green!60!black}{R_{t-1}}}{R_{\text{ss}}}\right)^{\!\rho_p}
+      \!\left[
+        \left(\frac{\textcolor{orange!80!black}{\pi_t}}{\pi_{\text{ss}}}\right)^{\!\alpha_\pi}
+        \left(\frac{\textcolor{brown}{y_t^{\text{GDP}}}}{y_{\text{ss}}}\right)^{\!\alpha_y}
+      \right]^{1-\rho_p}
+      \!\exp(\textcolor{green!60!black}{m_t^p})
+\end{equation*}
+should be renamed to $R^{\text{Taylor}}_t$ (the unfloored prescription)
+and the realized $R_t$ defined as above via the softplus floor. The bond
+Euler (Eq.~6) and the Taylor-rule definition continue to use $R_t$
+unchanged.
+
+\paragraph{Sharpness calibration.}
+$\sharp = 500$ is the production default. Lower sharpness gives a
+softer transition (more gradient through the kink, but more SS
+distortion); higher sharpness sharpens the kink toward the limiting
+hard $\max(R^{\text{Taylor}}_t,\, R^{lb})$.
+
+\medskip
+\noindent\emph{Implementation note.} The softplus is applied via the
+helper $\lfloor x \rfloor_\varepsilon^{\sharp} = \varepsilon +
+\frac{1}{\sharp}\log(1 + e^{\sharp(x - \varepsilon)})$ already used for
+the Calvo inner terms (Section~2), with $\varepsilon = R^{lb}$ and
+$\sharp$ set by configuration.
+
+
+%==========================================================================
+\section{Disaster Mechanism}
+\label{sec:disaster}
+%==========================================================================
+
+The model admits a Barro-style exogenous disaster shock that destroys a
+fraction of next-period capital. Disaster realizations are i.i.d.\ across
+time and independent of the continuous Gaussian shocks.
+
+\subsection{Specification}
+
+Each period a Bernoulli disaster indicator is realized:
+\begin{equation*}
+  d_t \in \{0, 1\}, \qquad
+  \mathbb{P}(d_t = 1) = p_{\text{disaster}}
+\end{equation*}
+with default $p_{\text{disaster}} = 0$ (baseline CMR; mechanism
+inactive) and stress calibration $p_{\text{disaster}} = 0.10$
+(per-quarter probability).
+
+When $d_t = 1$, the capital entering next period is destroyed by
+log-fraction $\theta_{\text{disaster}}$:
+\begin{equation*}
+  \boxed{\textcolor{brown}{k_t}\bigm|_{d_t}
+    = \textcolor{brown}{k_t^{\text{raw}}}
+      \cdot \exp(-\theta_{\text{disaster}}\, d_t)}
+\end{equation*}
+where $k_t^{\text{raw}}$ is the capital implied by the standard law of
+motion (Section~2) and $k_t\bigm|_{d_t}$ is the disaster-adjusted
+capital that becomes the next-period state.
+
+For the default $\theta_{\text{disaster}} = 0.05$, a disaster destroys
+${\sim}4.9\%$ of the capital stock in a single period.
+
+\subsection{Mixture expectation}
+
+All conditional expectations $\mathbb{E}_t[\,\cdot\,]$ in the
+forward-looking equilibrium equations (Eq.~1, 2b, 3, 4b, 5, 6, 7, 8 in
+Section~3) become mixtures over the disaster indicator:
+\begin{equation*}
+  \boxed{\mathds{E}_t[X_{t+1}]
+    = (1 - p_{\text{disaster}})\,
+      \mathds{E}_t\!\left[X_{t+1} \,\big|\, d_{t+1} = 0\right]
+    + p_{\text{disaster}}\,
+      \mathds{E}_t\!\left[X_{t+1} \,\big|\, d_{t+1} = 1\right]}
+\end{equation*}
+
+The two conditional branches differ only through the next-period
+state: in the disaster branch ($d_{t+1} = 1$), $k_{t+1}$ is replaced by
+$k_{t+1} \cdot e^{-\theta_{\text{disaster}}}$ before the next-period
+quantities (definitions, controls, residuals) are computed. The
+continuous shocks $\xi_{t+1}$ and exogenous AR(1) transitions are
+identical across the two branches.
+
+When $p_{\text{disaster}} = 0$, the mixture reduces to the no-disaster
+branch and the model is exactly baseline CMR.
+
+\paragraph{Scope.}
+The disaster shock affects only the physical capital stock. It does not
+shift the financial-friction parameters ($\sigma_\omega, \mu_{\text{mon}},
+\gamma_e, w^e$), the productivity processes, or the monetary/fiscal
+parameters. The financial accelerator (Section~2) responds endogenously
+to the lower next-period $k_{t+1}$ via $R^k_{t+1}$, $\bar\omega_{t+1}$,
+and $L_{t+1}$ in the disaster branch.
+
+\paragraph{Numerical handling.}
+Computing the mixture exactly requires evaluating each forward-looking
+residual at both disaster realizations and combining with weights
+$(1 - p_{\text{disaster}}, p_{\text{disaster}})$. This doubles the
+forward-pass cost relative to baseline.
+
+
+%==========================================================================
+\section*{Calibration table additions}
+%==========================================================================
+
+The following four parameters should be appended to Table~1 in
+Section~5 (Calibration):
+
+\begin{center}
+\begin{tabular}{lcll}
+\toprule
+Parameter & Symbol & Value & Source \\
+\midrule
+Effective lower bound on gross rate & $R^{lb}$ & $1.0$ & Configuration default \\
+ELB softplus sharpness & $R^{lb}_{\text{sharpness}}$ & $500$ & Calibration default \\
+Per-period disaster probability & $p_{\text{disaster}}$ & $0.0$--$0.10$ & $0$ baseline; $0.10$ stress \\
+Disaster magnitude (log-fraction) & $\theta_{\text{disaster}}$ & $0.05$ & Calibration default \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Notes.}
+\begin{itemize}
+\item $R^{lb} = 1.0$ corresponds to a zero net nominal rate. Lowering
+  $R^{lb}$ to $\sim 0.998$ would approximate the SNB's $-0.75\%$ annual
+  policy rate at quarterly frequency.
+\item $R^{lb}_{\text{sharpness}} = 500$ keeps the SS distortion from
+  the softplus floor at ${\sim}10^{-7}$ while still producing a tight
+  kink near the floor. Lower sharpness ($\sim 100$) gives more
+  gradient through the kink; higher sharpness approaches a hard
+  $\max(\cdot, R^{lb})$.
+\item $p_{\text{disaster}} = 0$ is the production default; the
+  mechanism is inert and the model is exactly baseline CMR. Stress
+  experiments use $p_{\text{disaster}} = 0.10$.
+\item $\theta_{\text{disaster}} = 0.05$ corresponds to a ${\sim}4.9\%$
+  capital destruction per disaster realization.
+\end{itemize}
+
+
+%==========================================================================
+\section*{Errata addendum}
+%==========================================================================
+
+The following extensions should be added to Section~7 (Errata Summary)
+of disaster\_corrected.tex:
+
+\begin{enumerate}
+\setcounter{enumi}{6}
+\item \textbf{ELB floor on $R_t$} (Section~D1 above): the bare Taylor
+  rule in the original Section~2 (Definitions) is replaced by a
+  softplus-floored realized rate. The unfloored prescription
+  $R^{\text{Taylor}}_t$ is computed first; the realized $R_t$ used in
+  the bond Euler is the softplus floor of that.
+\item \textbf{Disaster mechanism} (Section~D2 above): an i.i.d.\
+  Bernoulli disaster shock destroys a fraction $1 - e^{-\theta}$ of
+  next-period capital with probability $p_{\text{disaster}}$. All
+  forward-looking equilibrium expectations become mixtures over the
+  disaster indicator. Default $p_{\text{disaster}} = 0$ recovers
+  baseline CMR exactly.
+\end{enumerate}

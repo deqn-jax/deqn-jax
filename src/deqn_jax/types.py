@@ -75,6 +75,26 @@ class ModelSpec(NamedTuple):
     policy_lower: Optional[Array] = None
     policy_upper: Optional[Array] = None
 
+    # Per-policy default output parameterization for residual networks (e.g.
+    # ``LinearPlusMLP``, ``DisasterPolicyNet``). Each entry "linear" or "log".
+    # ``"log"`` means the network outputs π_i = ss_i * exp(BK_log + MLP),
+    # baking in positivity. Length must equal len(policy_names). When None,
+    # networks default to all-linear (legacy behavior). User-supplied
+    # ``network.output_links`` in YAML overrides this.
+    default_output_links: Optional[Tuple[str, ...]] = None
+
+    # Discrete Markov-chain shock support. When set, the trainer:
+    #   - rollout: samples next z-index from Multinomial(transition_matrix[z_t]),
+    #   - residual expectation: enumerates over all K next-z values, weighting
+    #     residuals by transition_matrix[z_t, z_{t+1}].
+    # Activated by ``TrainConfig.expectation_type='discrete'``. Models that
+    # encode a finite-cardinality exogenous chain (e.g. discrete TFP, OLG
+    # depreciation states) should provide both fields below; the shock passed
+    # to ``step_fn`` is then a categorical index in [0, K), not a continuous
+    # noise. Models without these fields use Gaussian shocks as before.
+    transition_matrix: Optional[Array] = None  # [K, K], rows sum to 1
+    z_state_idx: Optional[int] = None  # which entry of state holds current z-index
+
     # Optional: clip states for simulation safety (eval/irf only, NOT training)
     # clip_state_fn(state) -> state
     clip_state_fn: Optional[Callable[..., Array]] = None
@@ -169,6 +189,16 @@ class ModelSpec(NamedTuple):
     #       weights: Dict[str, float],  # subset of CompositeLossConfig weights
     #   ) -> Tuple[Dict[str, Array], Array]
     composite_aux_fn: Optional[Callable[..., Tuple[Dict[str, Array], Array]]] = None
+
+    # Optional: precompute model-specific constants for the composite-loss
+    # aux hook (e.g. SS leverage for the disaster barrier threshold). Called
+    # once at trainer setup, OUTSIDE jit; the returned dict lands in
+    # ``CompositeData.aux_constants`` and is read by ``composite_aux_fn`` at
+    # loss-evaluation time. Default ``None`` means no aux constants needed.
+    #
+    # Signature:
+    #   composite_aux_constants_fn(model: ModelSpec) -> Dict[str, Any]
+    composite_aux_constants_fn: Optional[Callable[..., Dict[str, Any]]] = None
 
 
 class ReweightState(NamedTuple):

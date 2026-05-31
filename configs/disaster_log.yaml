@@ -1,0 +1,67 @@
+# Disaster + LinearPlusMLP-with-log-output ansatz.
+#
+# Same as disaster.yaml but with all 11 policies parameterized as
+# π_i(s) = ss_i · exp(BK_log_i + δ_θ_i(s)) instead of the additive
+# linear form. Bakes in positivity and uses log-deviation as the
+# natural unit (standard DSGE convention; matches Dynare's log-policy
+# linearization for log-policies).
+#
+# Hypothesis: this is a closer fit to the model's natural geometry
+# (multiplicative percentage deviations around SS) than the additive
+# linear+residual ansatz, which fights the geometry for a model with
+# severe nonlinearity (capital destruction, BGG default thresholds,
+# habit-driven consumption Euler). Test: does log-output reduce final
+# loss / ergodic |errREE| vs disaster.yaml at matched seeds?
+#
+# All other settings identical to disaster.yaml.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+  # All 11 disaster policies are positive: log link bakes in positivity
+  # and reparameterizes BK in log-deviation space (P_log = P_level / ss).
+  # Note: this is the model's default_output_links; this YAML setting is
+  # explicit so it survives any future change to the model default.
+  output_links: [log, log, log, log, log, log, log, log, log, log, log]
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 0.1
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_log
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_log

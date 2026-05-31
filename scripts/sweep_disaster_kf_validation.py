@@ -1,11 +1,19 @@
 """Validation sweep: K/F-anchor + moment-matching vs vanilla MLP on disaster.
 
-Grid (15 cells):
+Grid (21 cells):
     mlp_baseline                     × seeds {0, 1, 2}    = 3
     kf_anchor_no_moment              × seeds {0, 1, 2}    = 3
     kf_anchor_moment_w0.01           × seeds {0, 1, 2}    = 3
     kf_anchor_moment_w0.05           × seeds {0, 1, 2}    = 3
     kf_anchor_moment_w0.10           × seeds {0, 1, 2}    = 3
+    linear_plus_mlp                  × seeds {0, 1, 2}    = 3
+    linear_plus_mlp_kfmask           × seeds {0, 1, 2}    = 3
+
+The linear_plus_mlp arms are the missing baselines from the original
+2026-04-27 run: residual ansatz π = π_BK + δ_θ with δ_θ zero-init.
+The kfmask variant additionally pins the four Calvo Phillips-curve
+auxiliaries (F_p, K_p, F_w, K_w) to the BK linearization (subsumes
+the kf_anchored_mlp arm with a stronger prior on the 7 free outputs).
 
 Each run trains 5000 episodes on disaster (adam, lr=1e-3) under
 ``configs/sweeps/disaster_kf_validation.yaml``. After training, the
@@ -15,7 +23,8 @@ launcher loads the best checkpoint and runs the full Dynare comparison
 artifact per cell that the analysis step can consume directly — no
 separate eval pass needed.
 
-Wall-clock target on GB10: ~30 min/cell post-JIT, ~7-8 hr total.
+Wall-clock target on GB10: ~30 min/cell post-JIT, ~10-11 hr total
+for the full 21-cell grid.
 
 Idempotent (skips cells with an existing ``result.json``). Same
 scripts/run_sweep_in_container.sh wrapper reuses the NGC JAX container.
@@ -84,6 +93,33 @@ def _build_grid() -> List[Tuple[str, Dict[str, object]]]:
                     },
                 )
             )
+        # Pure residual ansatz (no kf mask): π = π_BK + δ_θ on every output.
+        # network.kf_names=[] explicitly overrides the NetworkConfig default
+        # which would otherwise enable the K/F mask.
+        grid.append(
+            (
+                f"linear_plus_mlp_seed{seed}",
+                {
+                    "seed": seed,
+                    "network.type": "linear_plus_mlp",
+                    "network.kf_names": [],
+                    "moment_matching.enabled": False,
+                },
+            )
+        )
+        # Residual ansatz + K/F mask: π = π_BK + δ_θ everywhere except
+        # F_p, K_p, F_w, K_w which stay exactly π_BK forever.
+        grid.append(
+            (
+                f"linear_plus_mlp_kfmask_seed{seed}",
+                {
+                    "seed": seed,
+                    "network.type": "linear_plus_mlp",
+                    "network.kf_names": ["F_p", "K_p", "F_w", "K_w"],
+                    "moment_matching.enabled": False,
+                },
+            )
+        )
     return grid
 
 

@@ -19,7 +19,7 @@ constants:
 use_risky_steady_state: false   # force deterministic SS as anchor
 
 network:
-  type: linear_plus_mlp
+  type: disaster_policy_net
   hidden_sizes: [128, 128]
   activation: tanh
   init: xavier_normal

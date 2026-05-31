@@ -1,8 +1,23 @@
-"""Composite loss for disaster model: anchor + Jacobian + barrier + Newton terms.
+"""Composite loss: anchor + Jacobian + Sobolev-anchor + model-supplied aux.
 
 Drop-in replacement for compute_loss() — returns the same (total_loss, eq_losses_dict)
 signature, with auxiliary losses keyed with "aux_" prefix so adaptive reweighting
 and per-equation gradient surgery only see the base equilibrium residuals.
+
+The generic terms here are MODEL-AGNOSTIC:
+
+- ``aux_anchor``      = ||π_θ(s) − π_BK(s)||² at sampled-near-SS points
+- ``aux_jac``         = ||J_π_θ(s_ss) − P||²_F
+- ``aux_jac_anchor``  = same as aux_jac but at every anchor point (Sobolev)
+
+Per-model auxiliary terms (e.g. economic-feasibility barriers, Newton-solver
+diagnostics) flow through ``ModelSpec.composite_aux_fn``. The hook receives
+the per-batch ``defs`` dict, the precomputed ``CompositeData``, and a
+``weights`` dict containing every weight knob the trainer was given (so the
+hook can pick the ones it cares about, e.g. ``barrier_weight``,
+``leverage_mult``, ``newton_weight``). See ``models/disaster/composite_aux.py``
+for the canonical pattern (BGG net-worth barrier, leverage barrier,
+consumption barrier, Newton-conditioning diagnostics).
 
 Usage:
     data = prepare_composite_data(model, P, Q)
@@ -10,7 +25,7 @@ Usage:
     # loss_fn has the same signature as compute_loss
 """
 
-from typing import Callable, Dict, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -28,20 +43,23 @@ class CompositeData(NamedTuple):
         ss_state: Steady state [n_states]
         ss_policy: Steady state policy [n_policies]
         ergodic_cov_chol: Cholesky of ergodic covariance [n_states, n_states]
-        ss_leverage: Steady-state leverage scalar
         anchor_points: Pre-sampled states near SS [n_anchor, n_states]
         anchor_deviations: anchor_points - ss_state [n_anchor, n_states]
         anchor_lin_policy: Linear policy at anchor points [n_anchor, n_policies]
+        aux_constants: Generic dict for model-specific precomputed constants
+            (e.g. disaster's ss_leverage). Populated by the model's
+            ``composite_aux_fn`` (or left empty when the model declares no
+            aux terms). Read by the same hook at loss-evaluation time.
     """
 
     P: Array
     ss_state: Array
     ss_policy: Array
     ergodic_cov_chol: Array
-    ss_leverage: float
     anchor_points: Array
     anchor_deviations: Array
     anchor_lin_policy: Array
+    aux_constants: Dict[str, Any]
 
 
 def prepare_composite_data(
@@ -87,26 +105,28 @@ def prepare_composite_data(
     anchor_points = ss_state + deviations
     anchor_lin_policy = ss_policy + deviations @ P.T
 
-    # Compute SS leverage
-    assert model.definitions_fn is not None, (
-        "composite loss requires a model with definitions_fn defined"
-    )
-    ss_defs = model.definitions_fn(ss_state, ss_policy, model.constants)
-    ss_leverage = float(ss_defs["L"])
+    # Per-model precomputed constants for the aux hook (barrier thresholds,
+    # SS reference values, etc). Models opt in by setting
+    # ``ModelSpec.composite_aux_constants_fn``; default empty.
+    aux_constants: Dict[str, Any] = {}
+    aux_const_fn = getattr(model, "composite_aux_constants_fn", None)
+    if aux_const_fn is not None:
+        aux_constants = dict(aux_const_fn(model))
 
     if verbose:
-        print(f"  Composite loss: SS leverage = {ss_leverage:.4f}")
         print(f"  Anchor: {n_anchor_points} fixed points, sigma={anchor_sigma}")
+        if aux_constants:
+            print(f"  Aux constants: {list(aux_constants.keys())}")
 
     return CompositeData(
         P=P,
         ss_state=ss_state,
         ss_policy=ss_policy,
         ergodic_cov_chol=ergodic_cov_chol,
-        ss_leverage=ss_leverage,
         anchor_points=anchor_points,
         anchor_deviations=deviations,
         anchor_lin_policy=anchor_lin_policy,
+        aux_constants=aux_constants,
     )
 
 
@@ -186,39 +206,6 @@ def _sobolev_anchor_loss(
     # Jacobians at every anchor: [n_anchor, n_policies, n_states]
     J_all = jax.vmap(jac_single)(data.anchor_points)
     return jnp.mean((J_all - data.P[None, :, :]) ** 2)
-
-
-def _barrier_losses(
-    defs: Dict[str, Array],
-    data: CompositeData,
-    leverage_mult: float,
-) -> Dict[str, Array]:
-    """Log-barrier and penalty losses for economic feasibility.
-
-    Prevents the optimizer from driving the model into pathological regions
-    (negative net worth, collapsed consumption, divergent leverage).
-    """
-    losses = {}
-
-    # Net worth barrier: max(0, -log(n))^2 — only penalizes n < 1 (approaching zero)
-    n = defs["n"]
-    losses["aux_barrier_n"] = jnp.mean(
-        jnp.maximum(0.0, -jnp.log(jnp.maximum(n, 1e-8))) ** 2
-    )
-
-    # Leverage penalty: (L - L_ss)^2 / L_ss^2 when L > leverage_mult * L_ss
-    L = defs["L"]
-    L_threshold = leverage_mult * data.ss_leverage
-    excess = jnp.maximum(L - L_threshold, 0.0)
-    losses["aux_barrier_L"] = jnp.mean((excess / data.ss_leverage) ** 2)
-
-    # Consumption barrier: max(0, -log(c))^2 — only penalizes c < 1
-    c = defs["c"]
-    losses["aux_barrier_c"] = jnp.mean(
-        jnp.maximum(0.0, -jnp.log(jnp.maximum(c, 1e-8))) ** 2
-    )
-
-    return losses
 
 
 def make_composite_loss(
@@ -307,39 +294,45 @@ def make_composite_loss(
         else:
             jac_anchor = jnp.array(0.0)
 
-        # 4. Barrier + Newton losses from training batch definitions
+        # 4. Per-batch defs for the model-specific aux hook (barriers,
+        # Newton diagnostics, etc.). Only computed when the model declares
+        # an aux hook — generic-only models skip the vmap entirely.
         # TODO: redundant vmap — base loss already evaluates definitions() internally.
         # Fixing this requires changing compute_loss to return intermediate defs.
-        # Extract current states from history window for definitions()
-        current_states = states[:, -1, :] if states.ndim == 3 else states
-        # Bind definitions_fn locally so the lambda body keeps narrowing.
-        assert model_.definitions_fn is not None, (
-            "composite loss requires a model with definitions_fn"
-        )
-        defs_fn_ = model_.definitions_fn
-        defs = jax.vmap(
-            lambda s: defs_fn_(
-                s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants
+        defs = None
+        if model_.composite_aux_fn is not None:
+            current_states = states[:, -1, :] if states.ndim == 3 else states
+            assert model_.definitions_fn is not None, (
+                "composite loss aux hook requires a model with definitions_fn"
             )
-        )(current_states)
+            defs_fn_ = model_.definitions_fn
+            defs = jax.vmap(
+                lambda s: defs_fn_(
+                    s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants
+                )
+            )(current_states)
 
-        barriers = _barrier_losses(defs, data, leverage_mult)
-        eq_losses.update(barriers)
-
-        # 5. Weighted total (anchor/jac decay with curriculum, barriers/aux don't)
+        # 5. Weighted total (anchor/jac decay with curriculum)
         total = base_loss
         total = total + aux_decay * anchor_weight * anchor
         total = total + aux_decay * jac_weight * jac
         if jac_anchor_weight > 0.0:
             total = total + aux_decay * jac_anchor_weight * jac_anchor
-        for k, v in barriers.items():
-            total = total + barrier_weight * v
 
-        # Model-specific auxiliary terms (e.g. disaster's Newton solver
-        # diagnostics). Hook applies its own weighting via ``weights``.
+        # Model-specific auxiliary terms (barriers, Newton diagnostics, etc).
+        # Hook applies its own weighting via ``weights``; generic side just
+        # threads every weight through so models can opt in to whichever it
+        # cares about.
         if model_.composite_aux_fn is not None:
             aux_entries, aux_total = model_.composite_aux_fn(
-                model_, defs, data, {"newton_weight": newton_weight}
+                model_,
+                defs,
+                data,
+                {
+                    "newton_weight": newton_weight,
+                    "barrier_weight": barrier_weight,
+                    "leverage_mult": leverage_mult,
+                },
             )
             eq_losses.update(aux_entries)
             total = total + aux_total

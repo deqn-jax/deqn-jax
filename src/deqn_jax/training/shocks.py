@@ -73,6 +73,37 @@ def draw_training_shocks(
     return shock
 
 
+def draw_discrete_shocks(
+    key: Array,
+    current_z: Array,
+    transition_matrix: Array,
+) -> Array:
+    """Sample next-z categorical indices from a finite Markov chain.
+
+    For each batch element b, draws ``z_{t+1}[b] ~ Multinomial(Π[z_t[b]])``
+    using ``jax.random.categorical`` on log-probabilities of the row of Π
+    indexed by the current z-state.
+
+    Args:
+        key: PRNG key.
+        current_z: Current z-state indices, shape ``[batch]`` int32.
+        transition_matrix: Π of shape ``[K, K]``, rows must sum to 1.
+
+    Returns:
+        ``[batch]`` int32 of next-z indices in ``[0, K)``.
+
+    The shock returned is the *next-period* z (what step_fn embeds into
+    state, conventionally at ``state[z_state_idx]``). Curriculum scale
+    and shock_mask are not applied — discrete chains have no continuous
+    magnitude to ramp; curriculum on a discrete chain would mean
+    something model-specific (e.g. concentrating mass on the central
+    state) and is left to the caller.
+    """
+    log_probs = jnp.log(transition_matrix + 1e-30)  # [K, K]
+    rows = log_probs[current_z]  # [batch, K]
+    return jax.random.categorical(key, rows, axis=-1).astype(jnp.int32)
+
+
 def maybe_draw_disaster(
     key: Array,
     batch_size: int,
@@ -113,21 +144,37 @@ def simulation_step(
 ) -> Tuple[Array, Array]:
     """One rollout step under training-time shock conventions.
 
-    Returns ``(next_state, shock)``. Disaster indicator is drawn and
-    passed to step_fn only if the model supports it; otherwise step_fn
-    is called positionally. The signature inspection is done at trace
-    time (a compile-time constant), so there is no per-step cost.
+    Returns ``(next_state, shock)``. Dispatches on the model:
+
+    - If ``model.transition_matrix is not None``: sample next-z categorical
+      from ``Π[z_t]`` and pass that integer index as the shock. The model's
+      ``step_fn`` is responsible for embedding the index into next-state
+      (e.g. ``state[z_state_idx] = shock`` and looking up any continuous
+      realisations from a model-side table).
+    - Else: sample ``[batch, n_shocks]`` Gaussian shocks (legacy path).
+
+    Disaster indicator is drawn and passed to step_fn only if the model
+    supports it; otherwise step_fn is called positionally. The signature
+    inspection is done at trace time (a compile-time constant), so there
+    is no per-step cost.
     """
     batch_size = state.shape[0]
     shock_key, disaster_key = jax.random.split(key)
 
-    shock = draw_training_shocks(
-        shock_key,
-        batch_size,
-        model.n_shocks,
-        shock_scale,
-        shock_mask,
-    )
+    if getattr(model, "transition_matrix", None) is not None:
+        z_idx = int(model.z_state_idx)
+        current_z = state[:, z_idx].astype(jnp.int32)
+        shock = draw_discrete_shocks(
+            shock_key, current_z, jnp.asarray(model.transition_matrix)
+        )
+    else:
+        shock = draw_training_shocks(
+            shock_key,
+            batch_size,
+            model.n_shocks,
+            shock_scale,
+            shock_mask,
+        )
     policy = policy_fn(state)
 
     d_disaster = maybe_draw_disaster(disaster_key, batch_size, model)

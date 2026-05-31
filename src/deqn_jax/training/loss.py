@@ -296,8 +296,31 @@ def compute_loss(
     """
     batch_size = states.shape[0]
     use_quadrature = quad_nodes is not None and quad_weights is not None
+    transition_matrix = getattr(model, "transition_matrix", None)
+    z_state_idx = getattr(model, "z_state_idx", None)
+    use_discrete = transition_matrix is not None and z_state_idx is not None
 
-    if use_quadrature:
+    # Sample weights are always [n_samples, batch] post-construction so the
+    # discrete branch's per-batch weights and the GH/MC branches' broadcast
+    # weights share the same einsum aggregation downstream.
+    if use_discrete:
+        Π = jnp.asarray(transition_matrix)
+        K = Π.shape[0]
+        # Read current z-index per batch element from state (works for both
+        # MLP states [batch, n_states] and history windows [batch, H,
+        # n_states] — for the latter, the policy is evaluated against the
+        # most-recent slice).
+        cur = states[:, -1, :] if states.ndim == 3 else states
+        current_z = cur[:, int(z_state_idx)].astype(jnp.int32)  # [batch]
+        # Enumerate next-z values: shocks[k, b] = k for all b. step_fn
+        # treats the integer shock as the next-period categorical index.
+        shocks = jnp.broadcast_to(
+            jnp.arange(K, dtype=jnp.int32)[:, None], (K, batch_size)
+        )
+        # Per-batch weights: weights[k, b] = Π[current_z[b], k]
+        sample_weights = Π[current_z, :].T  # [K, batch]
+        n_samples = K
+    elif use_quadrature:
         n_nodes = quad_nodes.shape[0]
         # Broadcast nodes to [n_nodes, batch_size, shock_dim] and apply curriculum
         shocks = (
@@ -307,7 +330,10 @@ def compute_loss(
             )
             * shock_scale
         )
-        sample_weights = quad_weights  # [n_nodes]
+        # Lift uniform-over-batch weights to [n_nodes, batch] via broadcast.
+        sample_weights = jnp.broadcast_to(
+            quad_weights[:, None], (n_nodes, batch_size)
+        )
     else:
         shocks = sample_antithetic_shocks(
             key,
@@ -317,7 +343,9 @@ def compute_loss(
             shock_scale,
         )
         n_samples = shocks.shape[0]
-        sample_weights = jnp.ones(n_samples) / n_samples  # uniform
+        sample_weights = jnp.broadcast_to(
+            (jnp.ones(n_samples) / n_samples)[:, None], (n_samples, batch_size)
+        )
 
     # Compute residuals for each shock/node
     def compute_sample_residuals(shock):
@@ -333,9 +361,9 @@ def compute_loss(
     total_loss = 0.0
 
     for i, (eq_name, residuals) in enumerate(all_residuals.items()):
-        # residuals: [n_samples, batch]
+        # residuals: [n_samples, batch], sample_weights: [n_samples, batch]
         # Weighted mean over samples: E[r] for each batch element
-        mean_residual = jnp.einsum("s,sb->b", sample_weights, residuals)  # [batch]
+        mean_residual = jnp.einsum("sb,sb->b", sample_weights, residuals)  # [batch]
         # Aggregate per-state mean residual over batch. Huber is safe HERE
         # (after the shock expectation) because it only reshapes the
         # batch-level contribution. Applying it per-shock would break the

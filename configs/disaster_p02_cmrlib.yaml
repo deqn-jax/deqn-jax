@@ -32,7 +32,7 @@ constants:
   lambda_w: 1.05
 
 network:
-  type: linear_plus_mlp
+  type: disaster_policy_net
   hidden_sizes: [128, 128]
   activation: tanh
   init: xavier_normal

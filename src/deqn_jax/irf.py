@@ -51,6 +51,23 @@ def run_irf(
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
 
+    # Discrete-chain models: a Gaussian "1σ shock" doesn't apply because
+    # the shock support is categorical. Refuse cleanly with a pointer to
+    # the planned target_z extension; users wanting impulse-response-like
+    # diagnostics on a discrete model should hand-roll a forced-z trajectory.
+    if (
+        getattr(model, "transition_matrix", None) is not None
+        and getattr(model, "z_state_idx", None) is not None
+    ):
+        raise NotImplementedError(
+            "run_irf does not support discrete-chain models (model.transition_matrix "
+            "is set). Continuous-shock IRFs do not apply when the shock is a "
+            "categorical index. To diagnose impulse responses on a discrete model, "
+            "hand-roll a trajectory that forces the desired z-state for one period "
+            "and then evolves freely under the chain. A target_z= argument may be "
+            "added in a future release."
+        )
+
     # State is [1, n_states] for batched dynamics
     state = ss_state[None, :] if ss_state.ndim == 1 else ss_state
     n_shocks = model.n_shocks

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 from difflib import get_close_matches
-from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple
 
 from pydantic import (
     BaseModel,
@@ -616,7 +616,14 @@ class NetworkConfig(_ConfigBase):
     model_config = ConfigDict(extra="forbid")
 
     VALID_TYPES: ClassVar[frozenset] = frozenset(
-        {"mlp", "lstm", "transformer", "linear_plus_mlp", "kf_anchored_mlp"}
+        {
+            "mlp",
+            "lstm",
+            "transformer",
+            "linear_plus_mlp",
+            "kf_anchored_mlp",
+            "disaster_policy_net",
+        }
     )
     VALID_ACTIVATIONS: ClassVar[frozenset] = frozenset(
         {"tanh", "relu", "gelu", "silu", "softplus"}
@@ -634,7 +641,7 @@ class NetworkConfig(_ConfigBase):
 
     type: str = Field(
         default="mlp",
-        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp`, or `kf_anchored_mlp` (CMR-class K/F gauge elimination via Blanchard-Kahn linearization anchor).",
+        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), or `kf_anchored_mlp` (legacy K/F gauge elimination).",
     )
     hidden_sizes: Tuple[int, ...] = Field(
         default=(64, 64),
@@ -672,18 +679,64 @@ class NetworkConfig(_ConfigBase):
     )
     init_scale: float = Field(
         default=0.0,
-        description="`linear_plus_mlp` only: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution.",
+        description="`linear_plus_mlp` and `disaster_policy_net`: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution.",
     )
 
     use_zlb_feature: bool = Field(
         default=False,
-        description="`linear_plus_mlp` + disaster only: prepend `(R_lag - R_lb)` as an extra feature for the delta MLP. Experimental.",
+        description="`disaster_policy_net` only: prepend `(R_lag - R_lb)` as an extra MLP input feature.",
+    )
+
+    zlb_feature_kind: Literal["raw", "kink"] = Field(
+        default="raw",
+        description="`disaster_policy_net` only, when use_zlb_feature=true: 'raw' = signed distance R_lag - R_lb; 'kink' = max(R_lag - R_lb, 0), PINN-style explicit kink at the floor.",
     )
 
     kf_names: Tuple[str, ...] = Field(
         default=("F_p", "K_p", "F_w", "K_w"),
-        description="`kf_anchored_mlp` only: policy names to pin to the linearization anchor. Default targets the four CMR Calvo Phillips-curve auxiliaries.",
+        description="`kf_anchored_mlp` and `disaster_policy_net`: policy names whose MLP delta is masked to zero (gauge fix). Default targets the four CMR Calvo Phillips-curve auxiliaries.",
     )
+
+    reparam_q_as_m: bool = Field(
+        default=False,
+        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP. Eliminates the eq 7 sign-flip pathology by parameterization. (§3.3 of disaster_equation_shape_priors.md)",
+    )
+
+    reparam_pi_as_kp_inner: bool = Field(
+        default=False,
+        description="`disaster_policy_net` only: treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner. (§3.1 of disaster_equation_shape_priors.md)",
+    )
+
+    reparam_wtilda_as_kw_inner: bool = Field(
+        default=False,
+        description="`disaster_policy_net` only: treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam. (§3.1' of disaster_equation_shape_priors.md)",
+    )
+
+    output_links: Optional[Tuple[str, ...]] = Field(
+        default=None,
+        description="Per-policy output parameterization for residual networks. Each entry must be 'linear' (additive: π_i = ss_i + BK + MLP) or 'log' (multiplicative: π_i = ss_i·exp(BK_log + MLP), bakes in positivity). Length must equal n_policies. None = use the model's default_output_links (or all-linear if model doesn't specify).",
+    )
+
+    @field_validator("output_links", mode="before")
+    @classmethod
+    def _coerce_output_links(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            v = tuple(v)
+        if not isinstance(v, tuple):
+            raise TypeError(
+                f"NetworkConfig.output_links: expected list/tuple of str, "
+                f"got {type(v).__name__} ({v!r})"
+            )
+        valid = {"linear", "log"}
+        for entry in v:
+            if entry not in valid:
+                raise ValueError(
+                    f"NetworkConfig.output_links: each entry must be 'linear' "
+                    f"or 'log', got {entry!r}"
+                )
+        return v
 
     @field_validator("hidden_sizes", mode="before")
     @classmethod
@@ -972,7 +1025,11 @@ class TrainConfig(_ConfigBase):
         description=(
             "How to integrate over shocks in the residual: `mc` (antithetic "
             "Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` "
-            "(deterministic tensor-product grid, uses `n_quadrature_points`)."
+            "(deterministic tensor-product grid, uses `n_quadrature_points`) "
+            "or `discrete` (exact enumeration over a finite-state Markov chain; "
+            "requires `model.transition_matrix` and `model.z_state_idx`). "
+            "Trajectory rollout uses Gaussian draws for `mc`/`quadrature` and "
+            "categorical draws from `Π[z_t]` for `discrete`."
         ),
     )
     n_quadrature_points: int = Field(
@@ -1069,7 +1126,7 @@ class TrainConfig(_ConfigBase):
     )
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
     VALID_EXPECTATION_TYPES: ClassVar[frozenset] = frozenset(
-        {"mc", "quadrature", "gh", "gauss_hermite"}
+        {"mc", "quadrature", "gh", "gauss_hermite", "discrete"}
     )
 
     # -- before-mode validators for type coercion --
@@ -1414,6 +1471,8 @@ class TrainConfig(_ConfigBase):
             d["network"]["activations"] = list(d["network"]["activations"])
         if "network" in d and d["network"].get("kf_names") is not None:
             d["network"]["kf_names"] = list(d["network"]["kf_names"])
+        if "network" in d and d["network"].get("output_links") is not None:
+            d["network"]["output_links"] = list(d["network"]["output_links"])
 
         with open(path, "w") as f:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)

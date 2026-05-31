@@ -165,5 +165,116 @@ def test_bm_labor_autodiff_registers_and_loads():
     assert model.equation_names == ("euler", "labor_foc")
 
 
+# ---------------------------------------------------------------------------
+# Envelope theorem regression: the autodiff Euler residual must be
+# insensitive (in the autograd sense) to next_policy. The forward value
+# depends on next_policy's value (via K_{t+2} reconstruction and the policy
+# slot of Π), but the gradient of the residual wrt next_policy must be
+# exactly zero — otherwise backprop ‖residual‖² → θ would pick up the
+# spurious ∂Π/∂c_{t+1} · ∂π/∂s_{t+1} term that envelope theorem zeros.
+#
+# These tests will FAIL if anyone removes the jax.lax.stop_gradient on
+# next_policy in src/deqn_jax/training/autodiff.py. They are the regression
+# guard the contract has been missing since the file was written.
+# ---------------------------------------------------------------------------
+
+
+def _envelope_grad_wrt_next_policy(model, state, policy, next_state, next_policy):
+    """Helper: return ∂(euler residual at row 0)/∂next_policy.
+
+    With the envelope freeze in place this is exactly zero. Without it,
+    the gradient picks up at least the K_{t+2}-reconstruction leak and,
+    for models with Π depending on policy directly, the slot-3 leak too.
+    """
+
+    def euler_scalar(np_arr):
+        out = model.equations_fn(state, policy, next_state, np_arr, model.constants)
+        return out["euler"][0]
+
+    return jax.grad(euler_scalar)(next_policy)
+
+
+def test_envelope_freeze_brock_mirman(models):
+    """BM-style model: next_policy must not contribute to residual gradient.
+
+    In Brock-Mirman (Path A), K_{t+2} = next_policy[..., 0]. Without
+    stop_gradient, ∂euler/∂next_policy is nonzero through the K_{t+2} path.
+    Π itself does not read policy, so this is the *only* leak — but it is
+    enough on its own.
+    """
+    _MODEL_HAND, MODEL_AD = models
+    # Off-SS state so the residual carries non-trivial second-order content.
+    state = jnp.array([[1.5, 0.1]])
+    policy = jnp.array([[0.3]])
+    shock = jnp.zeros((1, 1))
+    next_state = MODEL_AD.step_fn(state, policy, shock, MODEL_AD.constants)
+    next_policy = jnp.array([[0.4]])
+
+    grad_np = _envelope_grad_wrt_next_policy(
+        MODEL_AD, state, policy, next_state, next_policy
+    )
+    max_abs = float(jnp.max(jnp.abs(grad_np)))
+    assert max_abs < 1e-12, (
+        f"Envelope freeze missing in brock_mirman_autodiff: "
+        f"|∂euler/∂next_policy|_max = {max_abs:.3e} (should be 0). "
+        f"stop_gradient on next_policy must be applied where it feeds "
+        f"K_{{t+2}} reconstruction and dPi2."
+    )
+
+
+def test_envelope_freeze_bm_labor(labor_models):
+    """bm_labor_autodiff: BOTH leak paths are live (Path A K_{t+2} chain
+    AND direct slot-3 dependence — Π reads labor for the disutility term).
+    Either gives a nonzero gradient if stop_gradient is removed.
+    """
+    _MODEL_HAND, MODEL_AD = labor_models
+    ss_state, ss_policy = MODEL_AD.steady_state_fn(MODEL_AD.constants)
+    # Off-SS state and a deliberately mismatched next_policy so Π's labor
+    # slot meaningfully differs from SS.
+    state = ss_state[None, :].at[0, 0].add(0.5)
+    policy = ss_policy[None, :]
+    shock = jnp.zeros((1, 1))
+    next_state = MODEL_AD.step_fn(state, policy, shock, MODEL_AD.constants)
+    next_policy = ss_policy[None, :].at[0, 1].set(float(ss_policy[1]) * 1.1)
+
+    grad_np = _envelope_grad_wrt_next_policy(
+        MODEL_AD, state, policy, next_state, next_policy
+    )
+    max_abs = float(jnp.max(jnp.abs(grad_np)))
+    assert max_abs < 1e-12, (
+        f"Envelope freeze missing in bm_labor_autodiff: "
+        f"|∂euler/∂next_policy|_max = {max_abs:.3e} (should be 0). "
+        f"Π reads policy directly here, so removing stop_gradient also "
+        f"opens the slot-3 leak in addition to the K_{{t+2}} one."
+    )
+
+
+def test_envelope_freeze_does_not_zero_t_period_policy(models):
+    """Sanity check: the envelope freeze is on next_policy, NOT on policy.
+    The t-period control must remain in the autograd graph so backprop
+    drives θ via the LHS ∂Π/∂c term. ∂euler/∂policy must be nonzero.
+    """
+    _MODEL_HAND, MODEL_AD = models
+    state = jnp.array([[1.5, 0.1]])
+    policy = jnp.array([[0.3]])
+    shock = jnp.zeros((1, 1))
+    next_policy = jnp.array([[0.4]])
+
+    def euler_scalar(p_arr):
+        # Recompute next_state from the test policy so backprop sees the
+        # full chain through policy_t → next_state → euler.
+        ns = MODEL_AD.step_fn(state, p_arr, shock, MODEL_AD.constants)
+        out = MODEL_AD.equations_fn(state, p_arr, ns, next_policy, MODEL_AD.constants)
+        return out["euler"][0]
+
+    grad_p = jax.grad(euler_scalar)(policy)
+    max_abs = float(jnp.max(jnp.abs(grad_p)))
+    assert max_abs > 1e-6, (
+        f"t-period policy gradient unexpectedly zero ({max_abs:.3e}); "
+        f"the envelope freeze should NOT extend to policy at time t — "
+        f"that would block backprop from driving θ via the LHS ∂Π/∂c term."
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -11,6 +11,7 @@ Three step variants dispatched at construction time (before JIT):
 import math
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import equinox as eqx
@@ -185,14 +186,19 @@ def create_train_state(
             key=net_key,
         )
     elif net_type == "linear_plus_mlp":
-        # Residual parameterization: policy = linear(state) + mlp(state).
-        # Requires model.steady_state_fn to compute linearization.
+        # Generic residual parameterization: policy = linear(state) + mlp(state).
+        # Model-agnostic; for disaster-specific shape priors (K/F mask, ELB
+        # feature, q-as-M reparam) use network.type='disaster_policy_net'.
         if model.steady_state_fn is None:
             raise ValueError(
                 "network.type='linear_plus_mlp' requires model.steady_state_fn"
             )
         init_scale = getattr(network_config, "init_scale", 0.0)
-        use_zlb_feature = getattr(network_config, "use_zlb_feature", False)
+        # output_links: explicit YAML setting wins, then model.default_output_links,
+        # then None (factory defaults to all-linear, legacy behavior).
+        output_links = getattr(network_config, "output_links", None)
+        if output_links is None:
+            output_links = getattr(model, "default_output_links", None)
         policy_net = create_linear_plus_mlp(
             model=model,
             hidden_sizes=hidden_sizes,
@@ -201,7 +207,48 @@ def create_train_state(
             init_scale=init_scale,
             input_shift=input_shift,
             input_scale=input_scale,
+            output_links=output_links,
+            key=net_key,
+        )
+    elif net_type == "disaster_policy_net":
+        # Disaster-specific residual ansatz: linear_plus_mlp + the three
+        # disaster shape priors (K/F gauge mask, ELB feature, q-as-M reparam).
+        # Each prior is independently toggleable via NetworkConfig fields.
+        from deqn_jax.models.disaster.network import create_disaster_policy_net
+
+        if model.steady_state_fn is None:
+            raise ValueError(
+                "network.type='disaster_policy_net' requires model.steady_state_fn"
+            )
+        init_scale = getattr(network_config, "init_scale", 0.0)
+        use_zlb_feature = getattr(network_config, "use_zlb_feature", False)
+        zlb_feature_kind = getattr(network_config, "zlb_feature_kind", "raw")
+        kf_names = getattr(network_config, "kf_names", ())
+        reparam_q_as_m = getattr(network_config, "reparam_q_as_m", False)
+        reparam_pi_as_kp_inner = getattr(
+            network_config, "reparam_pi_as_kp_inner", False
+        )
+        reparam_wtilda_as_kw_inner = getattr(
+            network_config, "reparam_wtilda_as_kw_inner", False
+        )
+        output_links = getattr(network_config, "output_links", None)
+        if output_links is None:
+            output_links = getattr(model, "default_output_links", None)
+        policy_net = create_disaster_policy_net(
+            model=model,
+            hidden_sizes=hidden_sizes,
+            activation=activation,
+            init=init,
+            init_scale=init_scale,
+            input_shift=input_shift,
+            input_scale=input_scale,
+            kf_names=kf_names,
             use_zlb_feature=use_zlb_feature,
+            zlb_feature_kind=zlb_feature_kind,
+            reparam_q_as_m=reparam_q_as_m,
+            reparam_pi_as_kp_inner=reparam_pi_as_kp_inner,
+            reparam_wtilda_as_kw_inner=reparam_wtilda_as_kw_inner,
+            output_links=output_links,
             key=net_key,
         )
     elif net_type == "kf_anchored_mlp":
@@ -827,6 +874,508 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
     return custom_loss_fn
 
 
+# ---------------------------------------------------------------------------
+# Per-episode phase helpers for _run_training_loop
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _OptimizerRuntime:
+    """Optimizer state that can be swapped mid-training.
+
+    Mutated in place by ``_maybe_switch_optimizer``; everything else
+    reads from it. Lives separately from ``TrainState`` because the
+    optimizer object itself, the train_step closure, and the schedule
+    function are Python-side (not part of the JIT-traced state).
+    """
+
+    opt: Any
+    kind: OptimizerKind
+    train_step: Callable
+    lr_schedule_fn: Optional[Callable]
+    switched: bool = False
+
+
+@dataclass
+class _NanRollback:
+    """NaN recovery counters + last-known-good snapshot.
+
+    ``last_good_state`` is refreshed at every periodic checkpoint and
+    consumed by ``_handle_nan`` (roll-back path) and the end-of-training
+    fallback save-best.
+    """
+
+    enabled: bool
+    lr_scale: float = 1.0
+    count: int = 0
+    max_rollbacks: int = 10
+    lr_reduction: float = 0.75
+    last_good_state: Optional[TrainState] = None
+    last_good_episode: int = 0
+
+
+@dataclass
+class _SaveBestTracker:
+    best_loss: float = float("inf")
+    best_episode: int = 0
+    grace: int = 0
+
+
+def _maybe_switch_optimizer(
+    config,
+    model: ModelSpec,
+    n_equations: int,
+    history_len: int,
+    gradient_surgery: str,
+    quad_nodes_jax: Optional[Array],
+    quad_weights_jax: Optional[Array],
+    custom_loss_fn: Optional[Callable],
+    use_target: bool,
+    state: TrainState,
+    runtime: _OptimizerRuntime,
+    ep_num: int,
+) -> Tuple[TrainState, bool]:
+    """Swap optimizer + train_step at config.switch_episode.
+
+    Returns ``(state, did_switch)``. Mutates ``runtime`` in place. The
+    caller resets early-stop counters when did_switch is True.
+    """
+    from deqn_jax.config import OptimizerConfig
+
+    if (
+        runtime.switched
+        or config.switch_optimizer is None
+        or config.switch_episode is None
+        or ep_num != config.switch_episode
+    ):
+        return state, False
+
+    switch_lr = config.switch_lr or config.optimizer.learning_rate
+    switch_cfg = OptimizerConfig(
+        name=config.switch_optimizer,
+        learning_rate=switch_lr,
+        grad_clip=config.optimizer.grad_clip,
+    )
+    new_opt, new_kind = create_optimizer(switch_cfg)
+    if new_kind == OptimizerKind.MAO and hasattr(new_opt, "with_num_tasks"):
+        new_opt = new_opt.with_num_tasks(n_equations)
+    new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
+    state = state._replace(opt_state=new_opt_state)
+
+    runtime.opt = new_opt
+    runtime.kind = new_kind
+    # Disable schedule after mid-training switch (uses constant LR).
+    runtime.lr_schedule_fn = None
+    runtime.train_step = make_train_step(
+        model,
+        new_opt,
+        config.episode_length,
+        config.mc_samples,
+        config.batch_size,
+        loss_reweight=config.loss_reweight,
+        reweight_alpha=config.reweight_alpha,
+        kind=new_kind,
+        gradient_surgery=gradient_surgery,
+        grad_clip=config.optimizer.grad_clip,
+        quad_nodes=quad_nodes_jax,
+        quad_weights=quad_weights_jax,
+        history_len=history_len,
+        compute_loss_fn=custom_loss_fn,
+        ss_reset_frac=config.ss_reset_frac,
+        use_target_network=use_target,
+        n_epochs_per_rollout=config.n_epochs_per_rollout,
+        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
+        initialize_each_episode=config.initialize_each_episode,
+        sorted_within_batch=config.sorted_within_batch,
+        replay_cfg=config.replay_buffer,
+    )
+    runtime.switched = True
+    if config.verbose:
+        print(
+            f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}"
+        )
+    return state, True
+
+
+def _episode_lr_scale(
+    config,
+    lr_schedule_fn: Optional[Callable],
+    history: Dict[str, list],
+    nan: _NanRollback,
+    ep_num: int,
+) -> Tuple[Array, float]:
+    """Return ``(lr_scale jnp scalar, current_lr float for logging)``.
+
+    Stateful schedules (ReduceLROnPlateau) consume the most recent loss;
+    stateless schedules accept but ignore it. NaN-rollback LR reduction
+    is folded in via ``nan.lr_scale``.
+    """
+    if lr_schedule_fn is not None:
+        last_loss = history["loss"][-1] if history["loss"] else None
+        try:
+            current_lr = float(lr_schedule_fn(ep_num, last_loss)) * nan.lr_scale
+        except TypeError:
+            # optax schedules accept a single positional arg; fall back.
+            current_lr = float(lr_schedule_fn(ep_num)) * nan.lr_scale
+        return jnp.array(current_lr), current_lr
+    current_lr = config.optimizer.learning_rate * nan.lr_scale
+    return jnp.array(nan.lr_scale), current_lr
+
+
+def _episode_shock_scale(config, ep_num: int) -> Array:
+    """Curriculum ramp + per-shock mask, fused into one shock_scale array.
+
+    Returns a scalar when shock_mask is None, otherwise a vector
+    [n_shocks]. Broadcasting in loss.py handles either shape.
+    """
+    if config.curriculum_episodes > 0 and ep_num < config.curriculum_episodes:
+        t = ep_num / config.curriculum_episodes
+        scale = config.curriculum_start + (1.0 - config.curriculum_start) * t
+    else:
+        scale = 1.0
+    if config.shock_mask is not None:
+        return jnp.array(scale) * jnp.array(config.shock_mask)
+    return jnp.array(scale)
+
+
+def _maybe_update_target(
+    config, state: TrainState, ep_num: int, use_target: bool
+) -> TrainState:
+    if not use_target or ep_num % config.target_update_every != 0:
+        return state
+    if config.target_tau >= 1.0:
+        return state._replace(target_params=state.params)
+    tau = config.target_tau
+    new_target = jax.tree.map(
+        lambda p, t: tau * p + (1 - tau) * t,
+        eqx.filter(state.params, eqx.is_array),
+        eqx.filter(state.target_params, eqx.is_array),
+    )
+    return state._replace(target_params=eqx.combine(new_target, state.params))
+
+
+def _handle_nan(
+    config,
+    state: TrainState,
+    nan: _NanRollback,
+    ep_num: int,
+    loss_val: float,
+) -> Tuple[TrainState, str]:
+    """Detect NaN/Inf loss and decide rollback vs stop vs proceed.
+
+    Returns ``(state, action)`` where action is one of
+    ``"rollback" | "stop" | "proceed"``. State is the rolled-back snapshot
+    on rollback, otherwise unchanged. ``nan`` is mutated in place.
+    """
+    if not (math.isnan(loss_val) or math.isinf(loss_val)):
+        return state, "proceed"
+    if (
+        nan.enabled
+        and nan.last_good_state is not None
+        and nan.count < nan.max_rollbacks
+    ):
+        nan.count += 1
+        nan.lr_scale *= nan.lr_reduction
+        if config.verbose:
+            effective_lr = config.optimizer.learning_rate * nan.lr_scale
+            print(
+                f"  >> NaN at episode {ep_num}! "
+                f"Rolling back to ep {nan.last_good_episode}, "
+                f"reducing LR to {effective_lr:.1e} "
+                f"(rollback {nan.count}/{nan.max_rollbacks})"
+            )
+        return nan.last_good_state, "rollback"
+    if nan.count >= nan.max_rollbacks:
+        if config.verbose:
+            print(
+                f"  >> NaN at episode {ep_num} after {nan.max_rollbacks} rollbacks. Stopping."
+            )
+        return state, "stop"
+    # No checkpoint to roll back to — just proceed (NaN will propagate).
+    return state, "proceed"
+
+
+def _check_early_stop(
+    config,
+    switched: bool,
+    best_loss: float,
+    patience: int,
+    loss_val: float,
+    ep_num: int,
+) -> Tuple[float, int, bool]:
+    """Update early-stop counters; return ``(best_loss, patience, should_break)``.
+
+    Only active after a configured optimizer switch has fired, or when
+    no switch is configured.
+    """
+    active = config.early_stop_patience is not None and (
+        switched or config.switch_optimizer is None
+    )
+    if not active or math.isnan(loss_val):
+        return best_loss, patience, False
+    if loss_val < best_loss - config.early_stop_min_delta:
+        return loss_val, 0, False
+    patience += 1
+    if patience >= config.early_stop_patience:
+        if config.verbose:
+            print(
+                f"  >> Early stopping at episode {ep_num}: "
+                f"no improvement for {config.early_stop_patience} episodes "
+                f"(best={best_loss:.2e})"
+            )
+        return best_loss, patience, True
+    return best_loss, patience, False
+
+
+def _log_episode(
+    config,
+    model: ModelSpec,
+    state: TrainState,
+    metrics,
+    ep_num: int,
+    total_episodes: int,
+    start_episode: int,
+    t_start: float,
+    current_lr: float,
+    history_len: int,
+    logger,
+) -> None:
+    """Emit scalar + histogram logs and run cycle/scalar_diagnostics hooks.
+
+    Computes ``policy_out`` once for both policy and derived histograms
+    so the JIT-eval cost is paid once per logging episode.
+    """
+    import numpy as np
+
+    elapsed = time.perf_counter() - t_start
+    eps_done = ep_num - start_episode
+    ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
+    loss_val = float(metrics.loss)
+    grad_val = float(metrics.grad_norm)
+
+    param_norm = float(optax.global_norm(eqx.filter(state.params, eqx.is_array)))
+
+    log_dict: Dict[str, Any] = {
+        "train/loss": loss_val,
+        "train/grad_norm": grad_val,
+        "train/param_norm": param_norm,
+        "train/ep_per_sec": ep_per_sec,
+        "train/lr": current_lr,
+    }
+    if metrics.residuals:
+        for k, v in metrics.residuals.items():
+            if k.startswith("aux_"):
+                log_dict[f"aux/{k[4:]}"] = float(v)
+            else:
+                log_dict[f"eq/{k}"] = float(v)
+    if config.loss_reweight != "none" and model.equation_names:
+        for i, name in enumerate(model.equation_names):
+            log_dict[f"weights/{name}"] = float(state.loss_weights[i])
+
+    hist_dict: Dict[str, Any] = {}
+    ep_states = state.episode_state  # [batch, n_states]
+
+    if model.state_names:
+        for i, name in enumerate(model.state_names):
+            hist_dict[f"state/{name}"] = np.asarray(ep_states[:, i])
+
+    # For sequence nets, approximate with constant history at current state.
+    if history_len > 1:
+        ep_history = make_constant_history(ep_states, history_len)
+        policy_out = jax.vmap(state.params)(ep_history)
+    else:
+        policy_out = jax.vmap(state.params)(ep_states)
+    if model.policy_names:
+        for i, name in enumerate(model.policy_names):
+            hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
+
+    if model.definitions_fn is not None:
+        # Bind to local to keep narrowing inside the lambda body.
+        defs_fn = model.definitions_fn
+        defs = jax.vmap(lambda s, p: defs_fn(s, p, model.constants))(
+            ep_states, policy_out
+        )
+        for name, vals in defs.items():
+            hist_dict[f"derived/{name}"] = np.asarray(vals)
+
+        if model.scalar_diagnostics_fn is not None:
+            if history_len > 1:
+                _diag_policy_fn = lambda s: state.params(
+                    make_constant_history(s[None], history_len)[0]
+                )
+            else:
+                _diag_policy_fn = state.params
+            try:
+                diag = model.scalar_diagnostics_fn(
+                    model,
+                    _diag_policy_fn,
+                    ep_states,
+                    policy_out,
+                    defs,
+                )
+                for dk, dv in diag.items():
+                    log_dict[dk] = float(dv)
+            except Exception as exc:
+                import warnings
+
+                warnings.warn(f"scalar_diagnostics_fn raised at ep {ep_num}: {exc}")
+
+    logger.log_scalars(log_dict, step=ep_num)
+
+    # Filter out arrays with NaN/Inf (early training can produce these).
+    hist_dict = {
+        k: v for k, v in hist_dict.items() if np.isfinite(v).all() and v.size > 0
+    }
+    if hist_dict:
+        logger.log_histograms(hist_dict, step=ep_num)
+
+    # Model-provided cycle hook (plots, custom diagnostics). Errors are
+    # swallowed so a bad plot doesn't kill training.
+    if model.cycle_hook is not None:
+        try:
+            model.cycle_hook(state, model, ep_num)
+        except Exception as exc:
+            import warnings
+
+            warnings.warn(f"cycle_hook raised at ep {ep_num}: {exc}")
+
+
+def _print_episode_progress(
+    metrics,
+    ep_num: int,
+    total_episodes: int,
+    ep_width: int,
+    start_episode: int,
+    t_start: float,
+) -> None:
+    """Console summary line + residual table (verbose path)."""
+    elapsed = time.perf_counter() - t_start
+    eps_done = ep_num - start_episode
+    ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
+    loss_val = float(metrics.loss)
+    grad_val = float(metrics.grad_norm)
+    residuals = metrics.residuals or {}
+
+    print(
+        f"  [{ep_num:>{ep_width}}/{total_episodes}] "
+        f"loss={loss_val:.2e} | grad={grad_val:.2e} | {ep_per_sec:.0f} ep/s"
+    )
+
+    if residuals:
+        eq_items = [
+            (_strip_eq_prefix(k), float(v))
+            for k, v in residuals.items()
+            if not k.startswith("aux_")
+        ]
+        aux_items = [
+            (k[4:], float(v)) for k, v in residuals.items() if k.startswith("aux_")
+        ]
+        if len(eq_items) <= 3:
+            print("    " + "  ".join(f"{n}={v:.2e}" for n, v in eq_items))
+        else:
+            _print_residual_table(eq_items)
+        if aux_items:
+            print("    aux: " + "  ".join(f"{n}={v:.2e}" for n, v in aux_items))
+
+
+def _maybe_checkpoint(
+    config,
+    state: TrainState,
+    nan: _NanRollback,
+    ep_num: int,
+) -> None:
+    """Periodic checkpoint write + refresh of NaN-rollback snapshot."""
+    if (
+        config.checkpoint_dir is None
+        or config.checkpoint_every is None
+        or ep_num % config.checkpoint_every != 0
+    ):
+        return
+    _save_checkpoint(state, config.checkpoint_dir, ep_num, config=config)
+    if config.max_checkpoints is not None:
+        _prune_checkpoints(config.checkpoint_dir, config.max_checkpoints)
+    nan.last_good_state = state
+    nan.last_good_episode = ep_num
+
+
+def _maybe_save_best(
+    config,
+    state: TrainState,
+    tracker: _SaveBestTracker,
+    loss_val: float,
+    ep_num: int,
+) -> None:
+    """Save best-so-far checkpoint on improvement, after grace period."""
+    if not (
+        config.save_best_checkpoint
+        and config.checkpoint_dir is not None
+        and ep_num > tracker.grace
+        and not math.isnan(loss_val)
+        and loss_val < tracker.best_loss
+    ):
+        return
+    tracker.best_loss = loss_val
+    tracker.best_episode = ep_num
+    _save_best_checkpoint(state, config.checkpoint_dir, ep_num, loss_val, config=config)
+
+
+def _final_save_best_fallback(
+    config,
+    state: TrainState,
+    nan: _NanRollback,
+    tracker: _SaveBestTracker,
+    history: Dict[str, list],
+) -> None:
+    """End-of-training fallback when the in-loop save-best gate never fired.
+
+    The save-best gate (``ep_num > grace AND loss_val < best_save_loss``)
+    is correct for STANDARD training: the curriculum-ramp grace prevents
+    artificially-low ramp losses from being labelled "best". But for a
+    run whose post-grace losses are all NaN (curvature methods at
+    aggressive lr/damping settle into NaN-update regions once shocks
+    reach full magnitude), the gate never fires and no
+    ``checkpoint_best.eqx`` is written even though we have a perfectly
+    good ``last_good_state`` from the periodic-checkpoint NaN-rollback
+    path. Without this fallback, eval tooling can't load anything from
+    such runs.
+    """
+    if not (
+        config.save_best_checkpoint
+        and config.checkpoint_dir is not None
+        and tracker.best_loss == float("inf")
+    ):
+        return
+    fallback_state = nan.last_good_state if nan.last_good_state is not None else state
+    # Synthesize a best-loss for meta from history if we have one;
+    # otherwise leave NaN so post-hoc eval can detect it's a fallback.
+    finite_losses = [v for v in history.get("loss", []) if not math.isnan(v)]
+    fallback_loss = min(finite_losses) if finite_losses else float("nan")
+    fallback_episode = (
+        nan.last_good_episode if nan.last_good_state is not None else config.episodes
+    )
+    _save_best_checkpoint(
+        fallback_state,
+        config.checkpoint_dir,
+        fallback_episode,
+        fallback_loss,
+        config=config,
+    )
+    # Annotate fallback so downstream eval can distinguish from a real
+    # in-loop save-best. Append rather than overwrite so the canonical
+    # episode/loss line stays first.
+    meta_path = os.path.join(config.checkpoint_dir, "checkpoint_best.meta")
+    with open(meta_path, "a") as f:
+        f.write(
+            "fallback true  # save-best gate never fired during loop "
+            "(post-grace losses all NaN); persisted last_good_state\n"
+        )
+    if config.verbose:
+        print(
+            f"Best checkpoint: FALLBACK save (post-grace losses all NaN) "
+            f"→ {_best_checkpoint_path(config.checkpoint_dir)}"
+        )
+
+
 def _run_training_loop(
     config,
     model: ModelSpec,
@@ -845,457 +1394,135 @@ def _run_training_loop(
     start_episode: int,
     logger,
 ) -> Optional[Tuple[Any, Dict[str, list]]]:
-    """Run the per-episode train loop with all the runtime knobs.
+    """Run the per-episode train loop.
 
-    Encapsulates: mid-training optimizer switching, LR scheduling
-    (stateful + stateless), curriculum and shock-mask scaling, NaN
-    detection + checkpoint rollback, early stopping, grouped logging
-    (scalars / histograms / model cycle_hook + scalar_diagnostics),
-    and periodic + best-checkpoint persistence.
+    Orchestrates the per-episode phase helpers (mid-training switch,
+    LR/curriculum scaling, train_step, target-net update, NaN rollback,
+    early stop, logging, periodic + best-checkpoint writes). Each
+    concern lives in its own helper above; this body is the algorithm
+    in order.
     """
-    # Local imports kept inside the helper so trainer.py's top-level imports
-    # don't grow further; these are only needed during training.
-    from deqn_jax.config import OptimizerConfig
-
-    # ---- Mid-training optimizer switch setup ----
-    switch_episode = config.switch_episode
-    switched = False
     if config.switch_optimizer and config.switch_episode is None:
         raise ValueError("--switch-optimizer requires --switch-episode")
 
-    # ---- LR schedule: dynamic scaling via train_step argument ----
-    # All train_step variants accept (state, lr_scale). The optimizer uses
-    # lr=1.0 when a schedule is active; lr_scale carries the actual LR.
-    # When no schedule, lr_scale=1.0 (no-op, XLA optimizes it away).
-    current_lr = config.optimizer.learning_rate
-
-    # ---- NaN recovery setup ----
-    nan_rollback_enabled = (
-        config.checkpoint_dir is not None and config.checkpoint_every is not None
-    )
-    nan_lr_reduction = 0.75  # reduce LR by 25% on NaN
-    max_nan_rollbacks = 10  # max rollbacks before giving up
-    nan_rollback_count = 0
-    nan_lr_scale = 1.0  # cumulative LR reduction from NaN rollbacks
-    last_good_state = None  # snapshot for rollback (updated at checkpoints)
-    last_good_episode = start_episode
-
-    # ---- Training loop ----
     total_episodes = config.episodes
     if start_episode >= total_episodes:
         print(
             f"WARNING: checkpoint episode {start_episode} >= config.episodes {total_episodes}. Nothing to do."
         )
         return None
-    ep_width = len(str(total_episodes))
+
+    runtime = _OptimizerRuntime(
+        opt=opt,
+        kind=kind,
+        train_step=train_step,
+        lr_schedule_fn=lr_schedule_fn,
+    )
+    nan = _NanRollback(
+        enabled=(
+            config.checkpoint_dir is not None and config.checkpoint_every is not None
+        ),
+        last_good_episode=start_episode,
+    )
+    save_best = _SaveBestTracker(
+        # Don't save as "best" during curriculum ramp (shocks are reduced
+        # → loss is artificially low). Falls back to log_every when no
+        # curriculum is configured.
+        grace=max(config.curriculum_episodes, config.log_every),
+        best_episode=start_episode,
+    )
+    # Early-stop state is reset by mid-training switch, so kept as locals
+    # rather than a third dataclass.
+    es_best = float("inf")
+    es_patience = 0
 
     history: Dict[str, list] = {"loss": [], "grad_norm": []}
     t_start = time.perf_counter()
     last_metrics = None
-    best_loss = float("inf")
-    patience_counter = 0
-
-    # Best-checkpoint tracking (separate from early-stop `best_loss` because
-    # we always want to preserve the best snapshot even without early stop).
-    best_save_loss = float("inf")
-    best_save_episode = start_episode
-    # Grace period: don't save as "best" during curriculum ramp (shocks
-    # are reduced → loss is artificially low). Falls back to log_every
-    # when no curriculum is configured.
-    best_save_grace = max(config.curriculum_episodes, config.log_every)
+    ep_width = len(str(total_episodes))
+    current_lr = config.optimizer.learning_rate
 
     for ep_num in range(start_episode + 1, total_episodes + 1):
-        # Mid-training optimizer switch
-        if (
-            not switched
-            and switch_episode is not None
-            and config.switch_optimizer is not None
-            and ep_num == switch_episode
-        ):
-            switch_lr = config.switch_lr or config.optimizer.learning_rate
-            switch_cfg = OptimizerConfig(
-                name=config.switch_optimizer,
-                learning_rate=switch_lr,
-                grad_clip=config.optimizer.grad_clip,
-            )
-            new_opt, new_kind = create_optimizer(switch_cfg)
-            # Disable schedule after mid-training switch (uses constant LR)
-            lr_schedule_fn = None
-            if new_kind == OptimizerKind.MAO and hasattr(new_opt, "with_num_tasks"):
-                new_opt = new_opt.with_num_tasks(n_equations)
-            new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
-            state = state._replace(opt_state=new_opt_state)
-            opt, kind = new_opt, new_kind
-            train_step = make_train_step(
-                model,
-                opt,
-                config.episode_length,
-                config.mc_samples,
-                config.batch_size,
-                loss_reweight=config.loss_reweight,
-                reweight_alpha=config.reweight_alpha,
-                kind=kind,
-                gradient_surgery=gradient_surgery,
-                grad_clip=config.optimizer.grad_clip,
-                quad_nodes=quad_nodes_jax,
-                quad_weights=quad_weights_jax,
-                history_len=history_len,
-                compute_loss_fn=custom_loss_fn,
-                ss_reset_frac=config.ss_reset_frac,
-                use_target_network=use_target,
-                n_epochs_per_rollout=config.n_epochs_per_rollout,
-                n_minibatches_per_epoch=config.n_minibatches_per_epoch,
-                initialize_each_episode=config.initialize_each_episode,
-                sorted_within_batch=config.sorted_within_batch,
-                replay_cfg=config.replay_buffer,
-            )
-            switched = True
-            # Reset early stopping after optimizer switch
-            best_loss = float("inf")
-            patience_counter = 0
-            if config.verbose:
-                print(
-                    f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}"
-                )
+        state, did_switch = _maybe_switch_optimizer(
+            config,
+            model,
+            n_equations,
+            history_len,
+            gradient_surgery,
+            quad_nodes_jax,
+            quad_weights_jax,
+            custom_loss_fn,
+            use_target,
+            state,
+            runtime,
+            ep_num,
+        )
+        if did_switch:
+            es_best, es_patience = float("inf"), 0
 
-        # Compute LR scale for this episode (Python-side, passed as dynamic arg).
-        # Stateful schedules (ReduceLROnPlateau) consume the most recent loss;
-        # stateless schedules (cosine) accept but ignore it.
-        if lr_schedule_fn is not None:
-            last_loss = history["loss"][-1] if history["loss"] else None
-            try:
-                current_lr = float(lr_schedule_fn(ep_num, last_loss)) * nan_lr_scale
-            except TypeError:
-                # optax schedules accept a single positional arg; fall back.
-                current_lr = float(lr_schedule_fn(ep_num)) * nan_lr_scale
-            lr_scale = jnp.array(current_lr)
-        else:
-            current_lr = config.optimizer.learning_rate * nan_lr_scale
-            lr_scale = jnp.array(nan_lr_scale)
+        lr_scale, current_lr = _episode_lr_scale(
+            config, runtime.lr_schedule_fn, history, nan, ep_num
+        )
+        shock_scale = _episode_shock_scale(config, ep_num)
 
-        # Curriculum: ramp shock_scale from start to 1.0
-        if config.curriculum_episodes > 0 and ep_num < config.curriculum_episodes:
-            t = ep_num / config.curriculum_episodes
-            shock_scale_val = (
-                config.curriculum_start + (1.0 - config.curriculum_start) * t
-            )
-        else:
-            shock_scale_val = 1.0
-
-        # Per-shock masking: shock_mask=[1,0,1,1,1] zeros shock 1.
-        # Multiply into shock_scale so it becomes a vector [n_shocks].
-        # Broadcasting in loss.py handles scalar vs vector transparently.
-        if config.shock_mask is not None:
-            shock_scale = jnp.array(shock_scale_val) * jnp.array(config.shock_mask)
-        else:
-            shock_scale = jnp.array(shock_scale_val)
-
-        state, metrics = train_step(state, lr_scale, shock_scale)
+        state, metrics = runtime.train_step(state, lr_scale, shock_scale)
         last_metrics = metrics
-
-        # Periodic target network update (Polyak averaging or hard copy)
-        if use_target and ep_num % config.target_update_every == 0:
-            if config.target_tau >= 1.0:
-                # Hard copy
-                state = state._replace(target_params=state.params)
-            else:
-                # Polyak: target = tau * current + (1-tau) * target
-                tau = config.target_tau
-                new_target = jax.tree.map(
-                    lambda p, t: tau * p + (1 - tau) * t,
-                    eqx.filter(state.params, eqx.is_array),
-                    eqx.filter(state.target_params, eqx.is_array),
-                )
-                state = state._replace(
-                    target_params=eqx.combine(new_target, state.params)
-                )
+        state = _maybe_update_target(config, state, ep_num, use_target)
 
         loss_val = float(metrics.loss)
         grad_val = float(metrics.grad_norm)
 
-        # ---- NaN detection + rollback ----
-        if math.isnan(loss_val) or math.isinf(loss_val):
-            if (
-                nan_rollback_enabled
-                and last_good_state is not None
-                and nan_rollback_count < max_nan_rollbacks
-            ):
-                nan_rollback_count += 1
-                nan_lr_scale *= nan_lr_reduction
-                effective_lr = config.optimizer.learning_rate * nan_lr_scale
-                if config.verbose:
-                    print(
-                        f"  >> NaN at episode {ep_num}! "
-                        f"Rolling back to ep {last_good_episode}, "
-                        f"reducing LR to {effective_lr:.1e} "
-                        f"(rollback {nan_rollback_count}/{max_nan_rollbacks})"
-                    )
-                state = last_good_state
-                continue
-            elif nan_rollback_count >= max_nan_rollbacks:
-                if config.verbose:
-                    print(
-                        f"  >> NaN at episode {ep_num} after {max_nan_rollbacks} rollbacks. Stopping."
-                    )
-                break
-            # No checkpoint to roll back to — just continue (NaN will propagate)
+        state, nan_action = _handle_nan(config, state, nan, ep_num, loss_val)
+        if nan_action == "rollback":
+            continue
+        if nan_action == "stop":
+            break
 
-        # ---- Early stopping (only after optimizer switch, or if no switch configured) ----
-        early_stop_active = config.early_stop_patience is not None and (
-            switched or config.switch_optimizer is None
+        es_best, es_patience, stop = _check_early_stop(
+            config, runtime.switched, es_best, es_patience, loss_val, ep_num
         )
-        if early_stop_active and not math.isnan(loss_val):
-            if loss_val < best_loss - config.early_stop_min_delta:
-                best_loss = loss_val
-                patience_counter = 0
-            else:
-                patience_counter += 1
-            if patience_counter >= config.early_stop_patience:
-                if config.verbose:
-                    print(
-                        f"  >> Early stopping at episode {ep_num}: "
-                        f"no improvement for {config.early_stop_patience} episodes "
-                        f"(best={best_loss:.2e})"
-                    )
-                break
+        if stop:
+            break
 
         history["loss"].append(loss_val)
         history["grad_norm"].append(grad_val)
 
-        # ---- Grouped logging ----
         if ep_num % config.log_every == 0 or ep_num == total_episodes:
-            elapsed = time.perf_counter() - t_start
-            eps_done = ep_num - start_episode
-            ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
-
-            param_norm = float(
-                optax.global_norm(eqx.filter(state.params, eqx.is_array))
-            )
-
-            log_dict = {
-                "train/loss": loss_val,
-                "train/grad_norm": grad_val,
-                "train/param_norm": param_norm,
-                "train/ep_per_sec": ep_per_sec,
-            }
-            log_dict["train/lr"] = current_lr
-            if metrics.residuals:
-                for k, v in metrics.residuals.items():
-                    if k.startswith("aux_"):
-                        log_dict[f"aux/{k[4:]}"] = float(v)
-                    else:
-                        log_dict[f"eq/{k}"] = float(v)
-            # Log per-equation weights when adaptive reweighting is active
-            if config.loss_reweight != "none" and model.equation_names:
-                for i, name in enumerate(model.equation_names):
-                    log_dict[f"weights/{name}"] = float(state.loss_weights[i])
-
-            # State, policy, and definition histograms
-            import numpy as np
-
-            hist_dict: Dict[str, Any] = {}
-            ep_states = state.episode_state  # [batch, n_states]
-
-            # State variable histograms
-            if model.state_names:
-                for i, name in enumerate(model.state_names):
-                    hist_dict[f"state/{name}"] = np.asarray(ep_states[:, i])
-
-            # Policy output histograms
-            # For sequence nets, approximate with constant history at current state
-            if history_len > 1:
-                ep_history = make_constant_history(ep_states, history_len)
-                policy_out = jax.vmap(state.params)(ep_history)
-            else:
-                policy_out = jax.vmap(state.params)(ep_states)  # [batch, n_policies]
-            if model.policy_names:
-                for i, name in enumerate(model.policy_names):
-                    hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
-
-            # Definition histograms (derived economic quantities)
-            if model.definitions_fn is not None:
-                # Bind to local to keep narrowing inside the lambda body.
-                defs_fn = model.definitions_fn
-                defs = jax.vmap(lambda s, p: defs_fn(s, p, model.constants))(
-                    ep_states, policy_out
-                )
-                for name, vals in defs.items():
-                    hist_dict[f"derived/{name}"] = np.asarray(vals)
-
-                # Model-supplied scalar diagnostics (e.g. disaster's
-                # eq2_diag / eq4_diag Phillips-curve decompositions).
-                # Generic hook: any model can declare a
-                # ``scalar_diagnostics_fn`` on its ModelSpec returning
-                # a dict of pre-namespaced scalars to log. Failure is
-                # tolerated to avoid killing training over a bad
-                # diagnostic.
-                if model.scalar_diagnostics_fn is not None:
-                    if history_len > 1:
-                        _diag_policy_fn = lambda s: state.params(
-                            make_constant_history(s[None], history_len)[0]
-                        )
-                    else:
-                        _diag_policy_fn = state.params
-                    try:
-                        diag = model.scalar_diagnostics_fn(
-                            model,
-                            _diag_policy_fn,
-                            ep_states,
-                            policy_out,
-                            defs,
-                        )
-                        for dk, dv in diag.items():
-                            log_dict[dk] = float(dv)
-                    except Exception as exc:
-                        import warnings
-
-                        warnings.warn(
-                            f"scalar_diagnostics_fn raised at ep {ep_num}: {exc}"
-                        )
-
-            logger.log_scalars(log_dict, step=ep_num)
-
-            # Filter out arrays with NaN/Inf (early training can produce these)
-            hist_dict = {
-                k: v
-                for k, v in hist_dict.items()
-                if np.isfinite(v).all() and v.size > 0
-            }
-            if hist_dict:
-                logger.log_histograms(hist_dict, step=ep_num)
-
-            # Model-provided cycle hook (plots, custom diagnostics).
-            # Runs outside JIT in the Python-level log path; errors are
-            # caught so training isn't killed by a bad plot.
-            if model.cycle_hook is not None:
-                try:
-                    model.cycle_hook(state, model, ep_num)
-                except Exception as exc:
-                    import warnings
-
-                    warnings.warn(f"cycle_hook raised at ep {ep_num}: {exc}")
-
-        if config.verbose and ep_num % config.log_every == 0:
-            elapsed = time.perf_counter() - t_start
-            eps_done = ep_num - start_episode
-            ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
-            residuals = metrics.residuals or {}
-
-            # Summary line
-            print(
-                f"  [{ep_num:>{ep_width}}/{total_episodes}] "
-                f"loss={loss_val:.2e} | grad={grad_val:.2e} | {ep_per_sec:.0f} ep/s"
-            )
-
-            # Residuals: inline for <=3 equations, columnar table for more
-            if residuals:
-                eq_items = [
-                    (_strip_eq_prefix(k), float(v))
-                    for k, v in residuals.items()
-                    if not k.startswith("aux_")
-                ]
-                aux_items = [
-                    (k[4:], float(v))
-                    for k, v in residuals.items()
-                    if k.startswith("aux_")
-                ]
-                if len(eq_items) <= 3:
-                    print("    " + "  ".join(f"{n}={v:.2e}" for n, v in eq_items))
-                else:
-                    _print_residual_table(eq_items)
-                if aux_items:
-                    print("    aux: " + "  ".join(f"{n}={v:.2e}" for n, v in aux_items))
-
-        # ---- Checkpointing with config snapshot + pruning ----
-        if (
-            config.checkpoint_dir is not None
-            and config.checkpoint_every is not None
-            and ep_num % config.checkpoint_every == 0
-        ):
-            _save_checkpoint(state, config.checkpoint_dir, ep_num, config=config)
-            if config.max_checkpoints is not None:
-                _prune_checkpoints(config.checkpoint_dir, config.max_checkpoints)
-            # Snapshot for NaN rollback
-            last_good_state = state
-            last_good_episode = ep_num
-
-        # ---- Save-best tracking ----
-        # Always writes the best-so-far checkpoint on improvement (after
-        # grace period). Independent of early_stop and of
-        # checkpoint_every. The on-disk path is owned by
-        # ``training.checkpointing``.
-        if (
-            config.save_best_checkpoint
-            and config.checkpoint_dir is not None
-            and ep_num > best_save_grace
-            and not math.isnan(loss_val)
-            and loss_val < best_save_loss
-        ):
-            best_save_loss = loss_val
-            best_save_episode = ep_num
-            _save_best_checkpoint(
+            _log_episode(
+                config,
+                model,
                 state,
-                config.checkpoint_dir,
+                metrics,
                 ep_num,
-                loss_val,
-                config=config,
+                total_episodes,
+                start_episode,
+                t_start,
+                current_lr,
+                history_len,
+                logger,
+            )
+        if config.verbose and ep_num % config.log_every == 0:
+            _print_episode_progress(
+                metrics, ep_num, total_episodes, ep_width, start_episode, t_start
             )
 
-    elapsed = time.perf_counter() - t_start
+        _maybe_checkpoint(config, state, nan, ep_num)
+        _maybe_save_best(config, state, save_best, loss_val, ep_num)
 
-    # End-of-training save-best fallback. The save-best gate (line 1173) is
-    # `ep_num > best_save_grace AND loss_val < best_save_loss`, which is the
-    # right policy for STANDARD training: the curriculum-ramp grace prevents
-    # artificially-low ramp losses from being labelled "best." But for a
-    # run whose post-grace losses are ALL NaN (curvature methods at
-    # aggressive lr/damping settle into NaN-update regions once shocks
-    # reach full magnitude), the gate never fires and no checkpoint_best.eqx
-    # is written even though we have a perfectly good `last_good_state` from
-    # the periodic-checkpoint NaN-rollback path. Without this fallback, eval
-    # tooling can't load *anything* from such runs.
-    if (
-        config.save_best_checkpoint
-        and config.checkpoint_dir is not None
-        and best_save_loss == float("inf")
-    ):
-        fallback_state = last_good_state if last_good_state is not None else state
-        # Synthesize a best-loss for meta from history if we have one;
-        # otherwise leave NaN so post-hoc eval can detect it's a fallback.
-        finite_losses = [v for v in history.get("loss", []) if not math.isnan(v)]
-        fallback_loss = min(finite_losses) if finite_losses else float("nan")
-        _save_best_checkpoint(
-            fallback_state,
-            config.checkpoint_dir,
-            last_good_episode if last_good_state is not None else config.episodes,
-            fallback_loss,
-            config=config,
-        )
-        # Annotate fallback so downstream eval can distinguish from a real
-        # in-loop save-best. We append rather than overwrite so the canonical
-        # episode/loss line stays first.
-        meta_path = os.path.join(config.checkpoint_dir, "checkpoint_best.meta")
-        with open(meta_path, "a") as f:
-            f.write(
-                "fallback true  # save-best gate never fired during loop "
-                "(post-grace losses all NaN); persisted last_good_state\n"
-            )
-        if config.verbose:
-            print(
-                f"Best checkpoint: FALLBACK save (post-grace losses all NaN) "
-                f"→ {_best_checkpoint_path(config.checkpoint_dir)}"
-            )
+    _final_save_best_fallback(config, state, nan, save_best, history)
 
     if config.verbose and last_metrics is not None:
+        elapsed = time.perf_counter() - t_start
         _print_final(
             elapsed=elapsed,
             episodes=config.episodes,
             final_loss=float(last_metrics.loss),
             final_residuals=last_metrics.residuals,
         )
-        if best_save_loss < float("inf"):
+        if save_best.best_loss < float("inf"):
             print(
-                f"Best checkpoint: {best_save_loss:.2e} at episode "
-                f"{best_save_episode} → {_best_checkpoint_path(config.checkpoint_dir)}"
+                f"Best checkpoint: {save_best.best_loss:.2e} at episode "
+                f"{save_best.best_episode} → {_best_checkpoint_path(config.checkpoint_dir)}"
             )
 
     logger.close()

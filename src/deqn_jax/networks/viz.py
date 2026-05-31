@@ -445,7 +445,9 @@ def _render_linear_plus_mlp(model, b: _DotBuilder) -> None:
     b.edge(inp, linear, label=f"[{n_states}]")
 
     mlp_label_lines = ["MLP correction (delta)"]
-    if model.use_zlb_feature:
+    # use_zlb_feature, r_lag_idx, r_lb only exist on DisasterPolicyNet, not on
+    # the generic LinearPlusMLP. getattr keeps this renderer compatible with both.
+    if getattr(model, "use_zlb_feature", False):
         mlp_label_lines.append(
             f"input augmented with (R_lag - R_lb)\nat idx {model.r_lag_idx}, R_lb={model.r_lb}"
         )
@@ -479,6 +481,7 @@ _RENDERERS: List[Tuple[str, Callable]] = []
 def _register_renderers() -> None:
     if _RENDERERS:
         return
+    from deqn_jax.models.disaster.network import DisasterPolicyNet
     from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
     from deqn_jax.networks.lstm import LSTMPolicy
     from deqn_jax.networks.mlp import MLP, MultiHeadMLP, ResMLP
@@ -494,6 +497,13 @@ def _register_renderers() -> None:
             (
                 LinearPlusMLP.__name__,
                 lambda m, b: (isinstance(m, LinearPlusMLP), _render_linear_plus_mlp),
+            ),
+            (
+                DisasterPolicyNet.__name__,
+                lambda m, b: (
+                    isinstance(m, DisasterPolicyNet),
+                    _render_linear_plus_mlp,
+                ),
             ),
             (MLP.__name__, lambda m, b: (isinstance(m, MLP), _render_mlp)),
             (

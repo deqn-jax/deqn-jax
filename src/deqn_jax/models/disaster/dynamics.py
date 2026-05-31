@@ -99,6 +99,15 @@ _SIM_UPPER = jnp.array(
 # With k=5 softplus, margin=2.0 gives distortion < 5e-5 at SS.
 # Negative lower bounds are OK for positive quantities — the dynamics keep
 # states positive via exp(), so the lower softplus never activates in practice.
+#
+# NOTE: applied to the *full* 13-dim state including exogenous slots. The
+# exogenous bounds (slots 8..12) are ~100 stationary-stdev wide at default
+# calibration, so the softplus is identity to within ~1e-6 there, but the
+# clip is not a strict no-op: cleaning it to endogenous-only is enough of a
+# last-bit perturbation to bifurcate the chaotic disaster training run at
+# LR=1e-2 over 300 episodes (test_convergence::test_loss_decreases trips).
+# Kept full-13 for trajectory reproducibility; doc §6.5 reflects this.
+#
 #              pi     k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
 # SS values: 1.014  27.35  1.59  1.00  0.79  1.02  1.92  1.97  1.00  1.00  0.62  1.00  0.00
 _SOFT_LOWER = jnp.array(

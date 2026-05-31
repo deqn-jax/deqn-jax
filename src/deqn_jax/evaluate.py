@@ -25,6 +25,44 @@ import yaml
 from deqn_jax.irf import load_policy_from_checkpoint
 
 # ---------------------------------------------------------------------------
+# Eval-time shock dispatcher (shared by all eval primitives)
+# ---------------------------------------------------------------------------
+
+
+def _model_uses_discrete_chain(model) -> bool:
+    """True iff the model declares a discrete Markov-chain shock.
+
+    Mirrors the trainer-side check in ``training/loss.py`` and
+    ``training/shocks.py`` so the verifier visits the same support the
+    trainer trained on.
+    """
+    return (
+        getattr(model, "transition_matrix", None) is not None
+        and getattr(model, "z_state_idx", None) is not None
+    )
+
+
+def _draw_eval_shock(model, key, state):
+    """Draw one shock for a single-batch eval step.
+
+    Continuous case: ``[1, n_shocks]`` Gaussian (legacy behavior).
+    Discrete case:   ``[1]`` int32 sampled from ``Π[z_t]``, where
+    ``z_t = state[:, z_state_idx]``. The shock IS the next-period
+    categorical index — ``step_fn`` is responsible for embedding it
+    into next-state.
+    """
+    if _model_uses_discrete_chain(model):
+        from deqn_jax.training.shocks import draw_discrete_shocks
+
+        z_idx = int(model.z_state_idx)
+        current_z = state[:, z_idx].astype(jnp.int32)
+        return draw_discrete_shocks(
+            key, current_z, jnp.asarray(model.transition_matrix)
+        )
+    return jax.random.normal(key, (1, model.n_shocks))
+
+
+# ---------------------------------------------------------------------------
 # 1. Euler Equation Errors
 # ---------------------------------------------------------------------------
 
@@ -81,6 +119,16 @@ def euler_equation_errors(
     supports_disaster = step_accepts_disaster(model.step_fn)
     p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
 
+    # Detect discrete-chain support once. When set, residual reporting uses
+    # exact enumeration over Π row at each visited state (not the single-
+    # sample residual the Gaussian path produces) so the verifier's
+    # expectation matches the trainer's.
+    use_discrete = _model_uses_discrete_chain(model)
+    if use_discrete:
+        Π = jnp.asarray(model.transition_matrix)
+        K = Π.shape[0]
+        z_idx = int(model.z_state_idx)
+
     # JIT-compile the simulation step for speed
     @eqx.filter_jit
     def _sim_step_no_d(state, shock):
@@ -124,11 +172,49 @@ def euler_equation_errors(
         )
         return next_state, row, state[0]
 
+    @eqx.filter_jit
+    def _sim_step_discrete(state, advance_shock):
+        """Discrete-chain step.
+
+        ``advance_shock`` is the categorical next-z used to roll trajectory
+        forward. Residual is the *exact expectation* over the K possible
+        next-z values weighted by Π[z_t]. Returned ``next_state`` is the
+        rollout step (using ``advance_shock``).
+        """
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        # Trajectory rollout: one categorical step
+        next_state = model.step_fn(state, policy, advance_shock, constants)
+        # Residual expectation: enumerate over all K candidate next-z
+        current_z = state[:, z_idx].astype(jnp.int32)  # [1]
+
+        def _residual_at_k(k):
+            shock_k = jnp.array([k], dtype=jnp.int32)
+            ns_k = model.step_fn(state, policy, shock_k, constants)
+            np_k = policy_net(ns_k)
+            if np_k.ndim == 1:
+                np_k = np_k[None, :]
+            r = model.equations_fn(state, policy, ns_k, np_k, constants)
+            return jnp.stack(
+                [r[name][0] if r[name].ndim > 0 else r[name] for name in eq_names]
+            )
+
+        all_r = jax.vmap(_residual_at_k)(jnp.arange(K, dtype=jnp.int32))  # [K, n_eq]
+        # Π[z_t, :] weighting; current_z has shape [1] so take row 0
+        weights = Π[current_z[0], :]  # [K]
+        row = jnp.einsum("k,kn->n", weights, all_r)  # [n_eq]
+        return next_state, row, state[0]
+
     all_residuals = []
     all_states = []
 
     for t in range(n_periods):
-        if p_disaster > 0.0:
+        if use_discrete:
+            key, shock_key = jax.random.split(key)
+            shock = _draw_eval_shock(model, shock_key, state)
+            next_state, row, st = _sim_step_discrete(state, shock)
+        elif p_disaster > 0.0:
             key, shock_key, d_key = jax.random.split(key, 3)
             shock = jax.random.normal(shock_key, (1, n_shocks))
             d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
@@ -303,13 +389,21 @@ def simulated_moments(
 
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
-    n_shocks = model.n_shocks
 
     state = ss_state[None, :]
     key = jax.random.PRNGKey(seed)
 
     state_names = list(model.state_names)
     policy_names = list(model.policy_names)
+
+    # Disaster support: mirror euler_equation_errors so the ergodic moments
+    # actually visit disaster states. Without this, a disaster-calibrated
+    # model (p_disaster > 0) reports moments from a no-disaster-only path,
+    # silently understating dispersion and tail behaviour.
+    from deqn_jax.training.shocks import step_accepts_disaster
+
+    supports_disaster = step_accepts_disaster(model.step_fn)
+    p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
 
     @eqx.filter_jit
     def _sim_step(state, shock):
@@ -319,14 +413,29 @@ def simulated_moments(
         next_state = model.step_fn(state, policy, shock, constants)
         return next_state, state[0], policy[0]
 
+    @eqx.filter_jit
+    def _sim_step_with_d(state, shock, d_disaster):
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(
+            state, policy, shock, constants, d_disaster=d_disaster
+        )
+        return next_state, state[0], policy[0]
+
     all_states = []
     all_policies = []
 
     for t in range(n_periods):
-        key, shock_key = jax.random.split(key)
-        shock = jax.random.normal(shock_key, (1, n_shocks))
-
-        next_state, st, pol = _sim_step(state, shock)
+        if p_disaster > 0.0:
+            key, shock_key, d_key = jax.random.split(key, 3)
+            shock = jax.random.normal(shock_key, (1, model.n_shocks))
+            d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
+            next_state, st, pol = _sim_step_with_d(state, shock, d_val)
+        else:
+            key, shock_key = jax.random.split(key)
+            shock = _draw_eval_shock(model, shock_key, state)
+            next_state, st, pol = _sim_step(state, shock)
 
         if t >= burn_in:
             all_states.append(st)
@@ -420,7 +529,6 @@ def stability_check(
     """
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
-    n_shocks = model.n_shocks
 
     state = ss_state[None, :]
     key = jax.random.PRNGKey(seed)
@@ -438,6 +546,14 @@ def stability_check(
         margin = None
         finite = None
 
+    # Disaster support: mirror euler_equation_errors / simulated_moments so the
+    # stability check exercises disaster states. A disaster-calibrated model
+    # that is stable only on the no-disaster branch would otherwise pass.
+    from deqn_jax.training.shocks import step_accepts_disaster
+
+    supports_disaster = step_accepts_disaster(model.step_fn)
+    p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
+
     @eqx.filter_jit
     def _sim_step(state, shock):
         policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
@@ -446,15 +562,30 @@ def stability_check(
         next_state = model.step_fn(state, policy, shock, constants)
         return next_state, policy
 
+    @eqx.filter_jit
+    def _sim_step_with_d(state, shock, d_disaster):
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(
+            state, policy, shock, constants, d_disaster=d_disaster
+        )
+        return next_state, policy
+
     bound_hits = 0
     total_outputs = 0
     has_nan = False
 
     for t in range(n_periods):
-        key, shock_key = jax.random.split(key)
-        shock = jax.random.normal(shock_key, (1, n_shocks))
-
-        next_state, policy = _sim_step(state, shock)
+        if p_disaster > 0.0:
+            key, shock_key, d_key = jax.random.split(key, 3)
+            shock = jax.random.normal(shock_key, (1, model.n_shocks))
+            d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
+            next_state, policy = _sim_step_with_d(state, shock, d_val)
+        else:
+            key, shock_key = jax.random.split(key)
+            shock = _draw_eval_shock(model, shock_key, state)
+            next_state, policy = _sim_step(state, shock)
 
         # Check NaN
         if jnp.any(jnp.isnan(policy)) or jnp.any(jnp.isnan(state)):

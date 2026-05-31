@@ -19,7 +19,7 @@ curriculum_start: 0.1
 ss_reset_frac: 0.15
 
 network:
-  type: linear_plus_mlp
+  type: disaster_policy_net
   hidden_sizes: [128, 128]
   activation: tanh
   init: xavier_normal

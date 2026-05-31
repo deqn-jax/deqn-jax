@@ -8,6 +8,19 @@ Key advantage over first-order methods: quadratic convergence near solution.
 This implementation uses JAX autodiff (jacrev/jacfwd) for efficient Jacobian
 computation - much faster than finite differences.
 
+Note on optimistix: optimistix's ``LevenbergMarquardt`` and ``GaussNewton``
+solvers are excellent for *full-convergence* least-squares problems
+(curve fitting, SS solving) and are used in this codebase for those
+cases (see ``models/disaster/equations.py:solve_omega_bar`` and
+``models/disaster/steady_state.py``). They do *not* fit DEQN's
+per-minibatch optimizer contract, where each ``update()`` is called
+once with a fresh residual function (different minibatch's residuals)
+and we want exactly one step. Optimistix's trust-region update is
+conservative on first call (init→step counts as ≥1 step internally,
+returning y0 with max_steps=1; max_steps=2 takes only a half-step) and
+re-initializing per call defeats the purpose. So the classes below
+remain hand-rolled.
+
 Usage:
     opt = gauss_newton(learning_rate=1.0)
     state = opt.init(params)

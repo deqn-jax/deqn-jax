@@ -108,31 +108,35 @@ CONSTANTS = {
 }
 
 STEADY_STATE = {
-    # Numerically solved (max |residual| < 1e-7)
-    "pi_lag": 1.012286,
-    "k_lag": 27.421619,
-    "c_lag": 1.593684,
+    # Numerically solved (max |residual| < 2e-15) at HEAD's equation form.
+    # Refreshed after fixing eq5 habit soft_floor sharpness (10 → 100); see
+    # equations.py:385-389. Pre-fix dict had K_p=4.831/K_w=2.207 (stale
+    # relative to pi_tilda's pi_ss-anchored indexation) and pi=1.012286
+    # (matched pre-soft_floor SS, drifted to 1.013947 with sharpness=10).
+    "pi_lag": 1.012287,
+    "k_lag": 27.421465,
+    "c_lag": 1.593674,
     "q_lag": 1.0,
-    "i_lag": 0.794711,
+    "i_lag": 0.794706,
     "R_lag": 1.017964,
-    "w_tilda_lag": 1.920219,
-    "L_lag": 1.965713,
+    "w_tilda_lag": 1.920213,
+    "L_lag": 1.965712,
     "eps": 1.0,
     "mu_ups": 1.0,
     "g": 0.616,
     "mu_z": 1.0041,
     "m_p": 0.0,
-    "lambda_z": 0.601828,
-    "i": 0.794711,
-    "pi": 1.012286,
-    "c": 1.593684,
-    "w_tilda": 1.920219,
-    "h": 0.944029,
-    "F_w": 0.885310,
-    "F_p": 4.735931,
+    "lambda_z": 0.601832,
+    "i": 0.794706,
+    "pi": 1.012287,
+    "c": 1.593674,
+    "w_tilda": 1.920213,
+    "h": 0.944027,
+    "F_w": 0.885314,
+    "F_p": 4.735946,
     "q": 1.0,
-    "K_p": 4.831129,
-    "K_w": 2.207212,
+    "K_p": 4.777398,
+    "K_w": 2.182547,
 }
 
 # omega_bar SS value (computed analytically from bank participation constraint)

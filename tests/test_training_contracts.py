@@ -79,6 +79,13 @@ def test_composite_loss_barrier_weight_affects_total_loss():
     def step(state, policy, shock, constants):
         return state
 
+    # Barriers are no longer hardcoded in the generic composite_loss; they
+    # come from the model's ``composite_aux_fn`` hook. Reuse disaster's
+    # canonical implementation here so this regression test still pins the
+    # contract "barrier_weight controls the magnitude of the barrier sum"
+    # without re-implementing the formulas.
+    from deqn_jax.models.disaster.composite_aux import composite_aux
+
     model = ModelSpec(
         name="barrier_toy",
         n_states=5,
@@ -89,16 +96,17 @@ def test_composite_loss_barrier_weight_affects_total_loss():
         equations_fn=equations,
         step_fn=step,
         definitions_fn=definitions,
+        composite_aux_fn=composite_aux,
     )
     data = CompositeData(
         P=jnp.zeros((1, 5)),
         ss_state=jnp.zeros(5),
         ss_policy=jnp.zeros(1),
         ergodic_cov_chol=jnp.eye(5),
-        ss_leverage=2.0,
         anchor_points=jnp.zeros((2, 5)),
         anchor_deviations=jnp.zeros((2, 5)),
         anchor_lin_policy=jnp.zeros((2, 1)),
+        aux_constants={"ss_leverage": 2.0},
     )
 
     def policy_fn(states):
