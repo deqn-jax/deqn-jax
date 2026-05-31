@@ -477,11 +477,28 @@ def _render_linear_plus_mlp(model, b: _DotBuilder) -> None:
 
 _RENDERERS: List[Tuple[str, Callable]] = []
 
+# Renderers contributed by model packages (e.g. a model's own policy net),
+# populated via register_network_renderer at the model module's import time.
+# This inverts the old hard dependency where this generic viz module imported
+# a specific model class (audit networks-03).
+_EXTERNAL_RENDERERS: List[Tuple[str, Callable]] = []
+
+
+def register_network_renderer(name, predicate, renderer) -> None:
+    """Register a diagram renderer for a model-specific network type.
+
+    ``predicate(model) -> bool`` selects instances; ``renderer(model, builder)``
+    draws them. A model's network module calls this so this package never has
+    to import model-specific classes. Idempotent per ``name``.
+    """
+    if any(n == name for n, _ in _EXTERNAL_RENDERERS):
+        return
+    _EXTERNAL_RENDERERS.append((name, lambda m, b: (predicate(m), renderer)))
+
 
 def _register_renderers() -> None:
     if _RENDERERS:
         return
-    from deqn_jax.models.disaster.network import DisasterPolicyNet
     from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
     from deqn_jax.networks.lstm import LSTMPolicy
     from deqn_jax.networks.mlp import MLP, MultiHeadMLP, ResMLP
@@ -497,13 +514,6 @@ def _register_renderers() -> None:
             (
                 LinearPlusMLP.__name__,
                 lambda m, b: (isinstance(m, LinearPlusMLP), _render_linear_plus_mlp),
-            ),
-            (
-                DisasterPolicyNet.__name__,
-                lambda m, b: (
-                    isinstance(m, DisasterPolicyNet),
-                    _render_linear_plus_mlp,
-                ),
             ),
             (MLP.__name__, lambda m, b: (isinstance(m, MLP), _render_mlp)),
             (
@@ -527,7 +537,7 @@ def to_dot(model: eqx.Module, name: str = "network") -> str:
     """
     _register_renderers()
     b = _DotBuilder(name=name)
-    for _name, dispatcher in _RENDERERS:
+    for _name, dispatcher in _RENDERERS + _EXTERNAL_RENDERERS:
         matches, renderer = dispatcher(model, b)
         if matches:
             renderer(model, b)

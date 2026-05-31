@@ -921,3 +921,26 @@ def create_disaster_policy_net(
 
 
 __all__ = ["DisasterPolicyNet", "create_disaster_policy_net"]
+
+
+# Register this model's diagram renderer with the generic viz package so that
+# networks/viz.py does not import this model (audit networks-03). A
+# DisasterPolicyNet renders identically to a LinearPlusMLP (same residual
+# ansatz), so it reuses that renderer. Wrapped defensively: a viz import
+# problem must never break loading the disaster model.
+def _register_viz_renderer() -> None:
+    try:
+        from deqn_jax.networks.viz import (
+            _render_linear_plus_mlp,
+            register_network_renderer,
+        )
+    except Exception:
+        return
+    register_network_renderer(
+        "DisasterPolicyNet",
+        lambda m: isinstance(m, DisasterPolicyNet),
+        _render_linear_plus_mlp,
+    )
+
+
+_register_viz_renderer()
