@@ -30,10 +30,10 @@ def _update_weights_lr_annealing(
     n_eq: int,
 ) -> Tuple[Array, ReweightState]:
     """LR annealing: inverse EMA weighting, normalized to sum=n_eq."""
-    new_running = alpha * reweight_state.running_max + (1.0 - alpha) * eq_loss_arr
+    new_running = alpha * reweight_state.running_ema + (1.0 - alpha) * eq_loss_arr
     raw = 1.0 / (new_running + 1e-8)
     weights = raw / jnp.sum(raw) * n_eq
-    new_rw = reweight_state._replace(running_max=new_running, prev_losses=eq_loss_arr)
+    new_rw = reweight_state._replace(running_ema=new_running, prev_losses=eq_loss_arr)
     return weights, new_rw
 
 

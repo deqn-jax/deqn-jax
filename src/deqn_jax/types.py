@@ -208,13 +208,13 @@ class ReweightState(NamedTuple):
     per-equation loss history for dynamic weight adjustment.
 
     Attributes:
-        running_max: EMA of per-equation losses (for lr_annealing)
+        running_ema: EMA of per-equation losses (for lr_annealing)
         prev_losses: Previous step losses (for relobralo)
         init_losses: First step losses (for relobralo)
         initialized: Whether init_losses has been set
     """
 
-    running_max: Array  # [n_eq]
+    running_ema: Array  # [n_eq]
     prev_losses: Array  # [n_eq]
     init_losses: Array  # [n_eq]
     initialized: Array  # scalar bool
@@ -223,7 +223,7 @@ class ReweightState(NamedTuple):
 def make_reweight_state(n_equations: int) -> "ReweightState":
     """Create initial reweight state for n equations."""
     return ReweightState(
-        running_max=jnp.ones(n_equations),
+        running_ema=jnp.ones(n_equations),
         prev_losses=jnp.zeros(n_equations),
         init_losses=jnp.zeros(n_equations),
         initialized=jnp.array(False),

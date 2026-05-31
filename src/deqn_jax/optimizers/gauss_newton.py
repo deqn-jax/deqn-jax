@@ -78,11 +78,9 @@ class GaussNewton:
         self,
         learning_rate: float = 1.0,
         damping: float = 0.0,
-        solve_method: str = "lstsq",
     ):
         self.learning_rate = learning_rate
         self.damping = damping
-        self.solve_method = solve_method
 
     def init(self, params) -> GaussNewtonState:
         # ``count`` must be a JAX scalar from the start; after the first
@@ -290,19 +288,17 @@ def _conjugate_gradient(
 def gauss_newton(
     learning_rate: float = 1.0,
     damping: float = 0.0,
-    solve_method: str = "lstsq",
 ) -> GaussNewton:
     """Create Gauss-Newton optimizer.
 
     Args:
         learning_rate: Step size multiplier (1.0 = full GN step)
         damping: Fixed damping (0 = pure GN, >0 = LM-style regularization)
-        solve_method: How to solve normal equations ("lstsq", "cholesky", "svd")
 
     Returns:
         GaussNewton optimizer instance
     """
-    return GaussNewton(learning_rate, damping, solve_method)
+    return GaussNewton(learning_rate, damping)
 
 
 def implicit_gauss_newton(

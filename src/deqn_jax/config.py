@@ -649,7 +649,7 @@ class NetworkConfig(_ConfigBase):
     )
     activation: str = Field(
         default="tanh",
-        description="Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `sigmoid`, `softplus`.",
+        description="Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `softplus`.",
     )
     activations: Optional[Tuple[str, ...]] = Field(
         default=None,

@@ -560,15 +560,6 @@ def run_train(args):
             update={"loss_weights": [float(x) for x in args.loss_weights.split(",")]}
         )
 
-    # Validate model is set
-    if (
-        config.model is None
-        or config.model == "brock_mirman"
-        and args.model is None
-        and args.config is None
-    ):
-        pass  # default is fine
-
     train_from_config(config)
 
 

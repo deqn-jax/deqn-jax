@@ -103,11 +103,6 @@ from deqn_jax.optimizers.registry import list_optimizers
 # Used by the in-tree *_autodiff models and intended for agent-codegen
 # Path A (planner / autodiff). Stable because three in-tree models
 # already depend on it.
-# --- Autodiff helper (Path-A codegen backbone) ------------------------
-# Synthesizes equations_fn from a scalar period-return Pi via jax.grad.
-# Used by the in-tree *_autodiff models and intended for agent-codegen
-# Path A (planner / autodiff). Stable because three in-tree models
-# already depend on it.
 from deqn_jax.training.autodiff import euler_from_period_return
 
 # --- Numerical steady-state helpers ------------------------------------

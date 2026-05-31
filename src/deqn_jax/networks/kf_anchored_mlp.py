@@ -40,7 +40,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.networks.common import _resolve_activation, _to_tuple
+from deqn_jax.networks.common import _resolve_activation
 from deqn_jax.networks.mlp import MLP
 
 
@@ -230,8 +230,3 @@ def create_kf_anchored_mlp(
 
 
 __all__ = ["KfAnchoredMLP", "create_kf_anchored_mlp"]
-
-
-# Mark unused import so ruff is happy if the auxiliary _to_tuple helper
-# turns out unneeded after final refactoring.
-_ = _to_tuple

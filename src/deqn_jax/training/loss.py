@@ -319,7 +319,6 @@ def compute_loss(
         )
         # Per-batch weights: weights[k, b] = Π[current_z[b], k]
         sample_weights = Π[current_z, :].T  # [K, batch]
-        n_samples = K
     elif use_quadrature:
         n_nodes = quad_nodes.shape[0]
         # Broadcast nodes to [n_nodes, batch_size, shock_dim] and apply curriculum
@@ -331,9 +330,7 @@ def compute_loss(
             * shock_scale
         )
         # Lift uniform-over-batch weights to [n_nodes, batch] via broadcast.
-        sample_weights = jnp.broadcast_to(
-            quad_weights[:, None], (n_nodes, batch_size)
-        )
+        sample_weights = jnp.broadcast_to(quad_weights[:, None], (n_nodes, batch_size))
     else:
         shocks = sample_antithetic_shocks(
             key,
