@@ -460,7 +460,12 @@ def run_irf_cli(args):
     )
 
     # Run IRF for each shock
-    shocks = args.shocks if args.shocks else ["eps", "mu_ups", "mu_z", "g", "m_p"]
+    if args.shocks:
+        shocks = args.shocks
+    elif model.shock_names:
+        shocks = list(model.shock_names)
+    else:
+        shocks = [f"shock_{i}" for i in range(model.n_shocks)]
     outdir = args.output or "irf_results"
     os.makedirs(outdir, exist_ok=True)
 

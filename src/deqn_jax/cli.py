@@ -24,7 +24,7 @@ def main():
         type=str,
         nargs="?",
         default=None,
-        help="Model to train (brock_mirman, disaster)",
+        help="Model to train; see 'deqn-jax list' for available models.",
     )
     train_parser.add_argument(
         "-n",
@@ -254,7 +254,8 @@ def main():
         type=str,
         action="append",
         dest="shocks",
-        help="Shock name (eps, mu_ups, mu_z, g, m_p). Repeatable. Default: all.",
+        help="Shock name; see 'deqn-jax info <model>' for valid names. "
+        "Repeatable. Default: all model shocks.",
     )
     irf_parser.add_argument(
         "--shock-size",
@@ -649,7 +650,9 @@ def run_info(args):
     for name in model.equation_names or []:
         print(f"  {name}")
 
-    print(f"\nShocks: {model.n_shocks}")
+    print(f"\nShocks ({model.n_shocks}):")
+    for name in model.shock_names or []:
+        print(f"  {name}")
     print(f"Steady state: {'yes' if model.steady_state_fn else 'no'}")
 
     print(f"\nConstants ({len(model.constants)}):")
