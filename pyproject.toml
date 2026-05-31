@@ -111,6 +111,9 @@ exclude = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "slow: end-to-end / multi-hundred-episode training tests (deselect with -m 'not slow')",
+]
 
 [tool.ruff]
 line-length = 88

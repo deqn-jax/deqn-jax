@@ -398,6 +398,21 @@ class TestShortTraining:
         assert len(h["loss"]) == 3
         assert all(jnp.isfinite(l) for l in h["loss"])
 
+    def test_muon(self):
+        h = self._train_short("muon")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
+    def test_shampoo(self):
+        h = self._train_short("shampoo")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
+    def test_lbfgs(self):
+        h = self._train_short("lbfgs")
+        assert len(h["loss"]) == 3
+        assert all(jnp.isfinite(l) for l in h["loss"])
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
