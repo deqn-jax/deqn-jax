@@ -96,6 +96,12 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
         x = jnp.array(x_np)
         return np.array(_jac_fn(x))
 
+    # NOTE (audit JAX-SILENT-06): tol=1e-14 is only reachable under fp64
+    # (config fp64=true / jax_enable_x64). Under the DEFAULT fp32, the JAX
+    # residual/Jacobian (via jnp.array above) carry ~1e-7 machine epsilon, so
+    # the solve effectively bottoms out near ~1e-7 regardless of this tol --
+    # which is plenty, because the network anchored to this SS is also fp32.
+    # The 1e-14 becomes meaningful only when x64 is enabled.
     sol = root(residuals, x0, jac=jacobian, method="hybr", tol=1e-14)
     max_resid = np.max(np.abs(sol.fun))
     if not sol.success and max_resid > 1e-6:
