@@ -1,0 +1,20 @@
+# Brock-Mirman with endogenous labor under an upper labor cap (Geneva 2026 Day 2 Ex 3).
+# Same recipe as bm_labor; the labor cap L <= 1.01 is enforced via a
+# Fischer-Burmeister complementarity in the model's equations (see
+# models/bm_labor_constrained/equations.py). The cap binds only in high-TFP
+# regions, so most of the ergodic mass is interior.
+model: bm_labor_constrained
+episodes: 2000
+batch_size: 64
+episode_length: 100
+mc_samples: 5
+seed: 0
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+
+optimizer:
+  name: adam
+  learning_rate: 0.001

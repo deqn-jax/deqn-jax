@@ -20,6 +20,7 @@ from typing import List, Optional, Tuple
 from deqn_jax.models.bm_deterministic import MODEL as _bm_deterministic
 from deqn_jax.models.bm_labor import MODEL as _bm_labor
 from deqn_jax.models.bm_labor_autodiff import MODEL as _bm_labor_autodiff
+from deqn_jax.models.bm_labor_constrained import MODEL as _bm_labor_constrained
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
 from deqn_jax.models.brock_mirman_autodiff import MODEL as _brock_mirman_autodiff
 from deqn_jax.models.disaster import MODEL as _disaster
@@ -33,6 +34,7 @@ _MODELS = {
     "brock_mirman_autodiff": _brock_mirman_autodiff,
     "bm_labor": _bm_labor,
     "bm_labor_autodiff": _bm_labor_autodiff,
+    "bm_labor_constrained": _bm_labor_constrained,
     "olg_analytic_6": _olg_analytic_6,
     "irbc": _irbc,
     "disaster": _disaster,
@@ -44,6 +46,7 @@ _DESCRIPTIONS = {
     "brock_mirman_autodiff": "Brock-Mirman with Euler synthesized from Pi via jax.grad (autodiff POC)",
     "bm_labor": "Brock-Mirman (1972) with endogenous labor supply",
     "bm_labor_autodiff": "Brock-Mirman with labor, both FOCs from Pi via jax.grad (multi-policy autodiff)",
+    "bm_labor_constrained": "Brock-Mirman with endogenous labor and an upper labor cap (Fischer-Burmeister)",
     "olg_analytic_6": "6-agent OLG with closed-form solution (Krueger-Kubler 2004)",
     "irbc": "2-country International RBC with irreversibility (Fischer-Burmeister)",
     "disaster": "NK-DSGE with financial frictions",
