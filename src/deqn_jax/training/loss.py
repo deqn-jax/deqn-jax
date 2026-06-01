@@ -60,15 +60,19 @@ def sample_antithetic_shocks(
         return jnp.zeros((1, batch_size, shock_dim))
 
     half = n_samples // 2
-    base = jax.random.normal(key, (half, batch_size, shock_dim))
+    # Split up front so `base` and the odd "extra" sample draw from independent
+    # subkeys, never the parent key (audit JAX-SILENT-07). Previously `base`
+    # used the parent key and `extra` used a split-child of it; JAX's PRNG
+    # independence guarantee is between split children, not parent-vs-child.
+    base_key, extra_key = jax.random.split(key)
+    base = jax.random.normal(base_key, (half, batch_size, shock_dim))
 
     # Pair each shock with its antithetic twin
     shocks = jnp.concatenate([base, -base], axis=0)
 
     # Handle odd n_samples
     if n_samples % 2 == 1:
-        key, subkey = jax.random.split(key)
-        extra = jax.random.normal(subkey, (1, batch_size, shock_dim))
+        extra = jax.random.normal(extra_key, (1, batch_size, shock_dim))
         shocks = jnp.concatenate([shocks, extra], axis=0)
 
     return shocks * shock_scale
