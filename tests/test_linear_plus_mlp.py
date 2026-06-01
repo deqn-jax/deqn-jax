@@ -18,6 +18,7 @@ Properties pinned here:
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -99,4 +100,41 @@ def test_class_has_no_model_specific_fields():
     assert not leaked, (
         f"LinearPlusMLP has leaked model-specific fields: {leaked}. "
         f"These belong in a model-specific subclass (e.g. DisasterPolicyNet)."
+    )
+
+
+def test_mixed_output_links_gradient_is_finite():
+    """Regression (audit JAX-SILENT-05): mixed linear/log output_links must not
+    feed exp() the linear-linked exponents.
+
+    Here P @ (state - ss) drives the LINEAR output's exponent to 1000. Under the
+    old ``jnp.where(is_log, ss*exp(all), ss+all)`` formulation, exp(1000) = inf
+    (in both fp32 and fp64) in the unselected branch poisoned the reverse pass
+    with NaN even though the forward correctly selected the finite linear value.
+    The fix unrolls statically and only exponentiates log-linked outputs.
+    """
+    net = LinearPlusMLP(
+        n_states=1,
+        n_policies=2,
+        hidden_sizes=(4,),
+        activation="tanh",
+        P=jnp.array([[1000.0], [0.0]]),
+        ss_state=jnp.array([0.0]),
+        ss_policy=jnp.array([1.0, 1.0]),
+        output_links=["linear", "log"],
+        init_scale=0.0,
+        key=jr.PRNGKey(0),
+    )
+    state = jnp.array([1.0])  # bk_corr = [1000, 0] -> linear output's exponent huge
+
+    out = net(state)
+    assert bool(jnp.all(jnp.isfinite(out))), f"forward not finite: {out}"
+
+    def loss_fn(m):
+        return jnp.sum(m(state))
+
+    grads = eqx.filter_grad(loss_fn)(net)
+    leaves = jax.tree.leaves(eqx.filter(grads, eqx.is_array))
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in leaves), (
+        "mixed-links gradient has NaN/Inf — exp() poisoned the reverse pass"
     )

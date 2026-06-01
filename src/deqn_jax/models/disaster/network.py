@@ -561,10 +561,21 @@ class DisasterPolicyNet(eqx.Module):
         elif all(code == 1 for code in self.output_links):
             raw = ss_policy * jnp.exp(bk_corr + delta)
         else:
-            is_log = jnp.asarray(self.output_links, dtype=jnp.int8) == 1
-            raw_linear = ss_policy + bk_corr + delta
-            raw_log = ss_policy * jnp.exp(bk_corr + delta)
-            raw = jnp.where(is_log, raw_log, raw_linear)
+            # Mixed links: apply exp() ONLY to log-linked outputs. output_links
+            # is static, so unroll and never feed exp() the linear-linked
+            # exponents — a large linear (bk_corr+delta) would otherwise overflow
+            # exp() in the unselected branch and poison the reverse pass with NaN
+            # even though the forward correctly selects the linear value
+            # (audit JAX-SILENT-05).
+            add = bk_corr + delta
+            raw = jnp.stack(
+                [
+                    ss_policy[i] * jnp.exp(add[i])
+                    if code == 1
+                    else ss_policy[i] + add[i]
+                    for i, code in enumerate(self.output_links)
+                ]
+            )
 
         # Investment-bracket reparam: recover q_t = M_t / 𝓑(x_t) using the
         # POST-delta i_t to compute x_t. 𝓑 floored at 1e-3 to keep the
