@@ -1,7 +1,33 @@
 """Convergence tests for DEQN-JAX models."""
 
+import jax
 import jax.numpy as jnp
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _production_fp32():
+    """Run convergence tests in fp32 — the production default users actually
+    train in. Many other test modules enable x64 at import (collection-time),
+    leaking float64 into the whole session; under fp64 the aggressive, chaotic
+    disaster smoke run follows a different, divergent trajectory. We also clear
+    disaster's SS cache (it is otherwise populated at import-time precision, so
+    a leaked-fp64 solve would persist into this fp32 run — see audit
+    JAX-SILENT-06), forcing an fp32 re-solve. Pinning fp32 makes these tests
+    reflect production behaviour and be robust to cross-module contamination.
+    """
+    from deqn_jax.models.disaster.steady_state import _risky_ss_cache, _ss_cache
+
+    prev = jax.config.read("jax_enable_x64")
+    jax.config.update("jax_enable_x64", False)
+    _ss_cache.clear()
+    _risky_ss_cache.clear()
+    try:
+        yield
+    finally:
+        jax.config.update("jax_enable_x64", prev)
+        _ss_cache.clear()
+        _risky_ss_cache.clear()
 
 
 class TestBrockMirmanConvergence:
