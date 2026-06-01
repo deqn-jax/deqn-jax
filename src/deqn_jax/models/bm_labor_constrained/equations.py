@@ -56,8 +56,13 @@ def equations(
     euler = u_c - beta * u_c_next * (1.0 + mpk_next - delta)
 
     # KKT for L <= L_max as a Fischer-Burmeister residual.
+    #   slack a = L_max - L  >= 0
+    #   wedge b = w*u_c/(psi*L^theta) - 1  >= 0   (ratio form, matching the Geneva
+    #     Day 2 Ex 3 notebook: interior => labor FOC holds => b = 0; binding =>
+    #     marginal benefit exceeds cost => b > 0). L is bounded >= 1e-6 so the
+    #     denominator is safe.
     slack = L_max - p.L
-    wedge = w * u_c - psi * jnp.power(p.L, theta)
+    wedge = w * u_c / (psi * jnp.power(p.L, theta)) - 1.0
     labor_foc = fischer_burmeister(slack, wedge)
 
     return {"euler": euler, "labor_foc": labor_foc}
