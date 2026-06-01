@@ -143,6 +143,7 @@ def compute_residuals(
     train_batch: Array,
     shock: Array,
     target_policy_fn: Optional[Callable[[Array], Array]] = None,
+    residual_fn: Optional[Callable[..., Dict[str, Array]]] = None,
 ) -> Dict[str, Array]:
     """Compute equilibrium equation residuals for a single shock realization.
 
@@ -170,6 +171,10 @@ def compute_residuals(
     """
     # Choose which function computes next_policy
     next_fn = target_policy_fn if target_policy_fn is not None else policy_fn
+
+    # Two-stage models pass their `inside_fn` here (the shock-dependent terms to
+    # be expectation-averaged); standard models default to `equations_fn`.
+    resid_fn = residual_fn if residual_fn is not None else model.equations_fn
 
     # Disaster probability — discrete mixture over disaster realisation:
     # E_t[x'] = (1-p) E_t[x' | no disaster] + p E_t[x' | disaster]
@@ -212,7 +217,7 @@ def compute_residuals(
             next_policy_local = next_fn(next_state_local)
         if target_policy_fn is not None:
             next_policy_local = jax.lax.stop_gradient(next_policy_local)
-        return model.equations_fn(
+        return resid_fn(
             states_local,
             policy_local,
             next_state_local,
@@ -348,50 +353,75 @@ def compute_loss(
             (jnp.ones(n_samples) / n_samples)[:, None], (n_samples, batch_size)
         )
 
-    # Compute residuals for each shock/node
+    # Two-stage (expectation-inside-residual) models compute their `inside_fn`
+    # terms per shock; standard models compute the residual directly.
+    _two_stage = model.combine_fn is not None
+    _sample_fn = model.inside_fn if _two_stage else None
+
+    # Compute residuals (or inside terms) for each shock/node
     def compute_sample_residuals(shock):
         return compute_residuals(
-            model, policy_fn, states, shock, target_policy_fn=target_policy_fn
+            model,
+            policy_fn,
+            states,
+            shock,
+            target_policy_fn=target_policy_fn,
+            residual_fn=_sample_fn,
         )
 
     # vmap over samples/nodes: Dict[str, [n_samples, batch]]
     all_residuals = jax.vmap(compute_sample_residuals)(shocks)
 
-    # (E[r])² aggregation: weighted mean over samples, then square
-    eq_losses = {}
-    total_loss = 0.0
-
-    for i, (eq_name, residuals) in enumerate(all_residuals.items()):
-        # residuals: [n_samples, batch], sample_weights: [n_samples, batch]
-        # Weighted mean over samples: E[r] for each batch element
-        mean_residual = jnp.einsum("sb,sb->b", sample_weights, residuals)  # [batch]
-        # Aggregate per-state mean residual over batch. Huber is safe HERE
-        # (after the shock expectation) because it only reshapes the
-        # batch-level contribution. Applying it per-shock would break the
-        # stochastic-fixed-point equivalence via Jensen, same as the
-        # log-form rewrite we fixed earlier. Default "mse" matches prior
-        # behaviour exactly.
-        if loss_choice == "huber":
-            eq_loss = jnp.mean(huber(mean_residual, huber_delta))
-        else:
-            eq_loss = jnp.mean(mean_residual**2)
-        eq_losses[eq_name] = eq_loss
-        w = 1.0 if weights is None else weights[i]
-        total_loss = total_loss + w * eq_loss
-
-    # Cross-equation aggregation: mean over equations (DEQN-MAO convention),
-    # not sum. With `sum`, total loss and per-LR gradient scale grow linearly
-    # in equation count, making LR calibrations non-transferable across
-    # models of different sizes (brock_mirman=1, bm_labor=2, olg=5,
-    # disaster=11). `mean` decouples the loss magnitude from equation count
-    # so the same LR is roughly comparable across models. Note: this is a
-    # convention change from an earlier sum-based aggregation; multi-
-    # equation runs calibrated against the old convention may need their
-    # LR multiplied by n_equations to recover the same effective per-eq
-    # gradient magnitude.
-    n_eq = len(all_residuals)
-    if n_eq > 1:
-        total_loss = total_loss / n_eq
+    # Aggregate per equation. Two paths, BRANCHED so the standard path is the
+    # original code verbatim -- identical XLA graph, hence bit-identical results.
+    # (A restructure that merely *looks* equivalent can shift the last bit via
+    # different fusion and bifurcate a chaotic run like disaster.) Cross-equation
+    # aggregation is the mean over equations (DEQN-MAO convention): the loss
+    # magnitude is decoupled from equation count so one LR transfers across
+    # model sizes (brock_mirman=1, bm_labor=2, olg=5, disaster=11).
+    if _two_stage:
+        # Average the inside terms -> E[inside], then apply the nonlinear
+        # combine_fn (the expectation lives INSIDE the residual). MC-correct for
+        # e.g. a Fischer-Burmeister constraint on an intertemporal Euler, where
+        # E[fb(.)] != fb(E[.]).
+        expectations = {
+            k: jnp.einsum("sb,sb->b", sample_weights, v)
+            for k, v in all_residuals.items()
+        }
+        cur_states = states[:, -1, :] if states.ndim == 3 else states
+        residuals_by_eq = model.combine_fn(
+            cur_states, policy_fn(states), expectations, model.constants
+        )
+        eq_losses = {}
+        total_loss = 0.0
+        for i, (eq_name, mean_residual) in enumerate(residuals_by_eq.items()):
+            if loss_choice == "huber":
+                eq_loss = jnp.mean(huber(mean_residual, huber_delta))
+            else:
+                eq_loss = jnp.mean(mean_residual**2)
+            eq_losses[eq_name] = eq_loss
+            w = 1.0 if weights is None else weights[i]
+            total_loss = total_loss + w * eq_loss
+        n_eq = len(residuals_by_eq)
+        if n_eq > 1:
+            total_loss = total_loss / n_eq
+    else:
+        # Standard (E[residual])^2 path -- VERBATIM original code so the XLA
+        # graph (and thus the result to the last bit) is unchanged.
+        eq_losses = {}
+        total_loss = 0.0
+        for i, (eq_name, residuals) in enumerate(all_residuals.items()):
+            mean_residual = jnp.einsum("sb,sb->b", sample_weights, residuals)
+            if loss_choice == "huber":
+                eq_loss = jnp.mean(huber(mean_residual, huber_delta))
+            else:
+                eq_loss = jnp.mean(mean_residual**2)
+            eq_losses[eq_name] = eq_loss
+            w = 1.0 if weights is None else weights[i]
+            total_loss = total_loss + w * eq_loss
+        n_eq = len(all_residuals)
+        if n_eq > 1:
+            total_loss = total_loss / n_eq
 
     # State barrier: penalize next_states outside plausible bounds
     if barrier_weight > 0 and model.state_barrier_fn is not None:

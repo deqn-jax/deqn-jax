@@ -71,6 +71,21 @@ class ModelSpec(NamedTuple):
     # definitions_fn(state, policy, constants) -> Dict[str, Array]
     definitions_fn: Optional[Callable[..., Dict[str, Any]]] = None
 
+    # Optional two-stage residual hooks for models whose residual wraps an
+    # EXPECTATION in a nonlinearity -- e.g. a Fischer-Burmeister borrowing
+    # constraint on an intertemporal Euler, where E[.] must be taken BEFORE the
+    # FB. When ``combine_fn`` is set, the loss:
+    #   1. evaluates ``inside_fn`` per shock and averages it -> E[inside]
+    #      (MC-safe: ``inside`` must be linear in the shock-dependent terms),
+    #   2. applies ``combine_fn`` to produce the final per-equation residuals
+    #      (the nonlinearity, applied AFTER the expectation).
+    # Standard models leave both None and use ``equations_fn``; the existing
+    # ``(E[residual])^2`` path is exactly the special case combine = identity.
+    #   inside_fn(state, policy, next_state, next_policy, constants) -> Dict[str, Array]
+    #   combine_fn(state, policy, E_inside: Dict[str, Array], constants) -> Dict[str, Array]
+    inside_fn: Optional[Callable[..., Dict[str, Array]]] = None
+    combine_fn: Optional[Callable[..., Dict[str, Array]]] = None
+
     # Policy bounds (for output activation)
     policy_lower: Optional[Array] = None
     policy_upper: Optional[Array] = None
