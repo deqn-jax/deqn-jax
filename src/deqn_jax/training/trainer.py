@@ -531,6 +531,39 @@ def _validate_train_config(config) -> None:
                 "variant), or switch to loss_type='mse'."
             )
 
+    # Reject weighting / custom-loss features combined with optimizers whose
+    # update paths only see base, UNWEIGHTED MSE residuals (PCGrad differentiates
+    # the raw per-equation vector; MAO passes weights=None; GN builds a raw
+    # residual vector). These options would appear in logs/config but never
+    # affect parameter updates -- the same silent-correctness class as the
+    # composite gate above (audit JAX-SILENT-02/03).
+    _bad_opts = {"mao", "lm", "gn", "ign", "lbfgs"}
+    _opt_name = config.optimizer.name.lower()
+    _is_pcgrad = config.gradient_surgery == "pcgrad"
+    if _opt_name in _bad_opts or _is_pcgrad:
+        _ignored = []
+        if config.loss_weights is not None and len(set(config.loss_weights)) > 1:
+            _ignored.append("loss_weights (non-uniform)")
+        if config.loss_reweight != "none":
+            _ignored.append(f"loss_reweight='{config.loss_reweight}'")
+        if config.loss_choice != "mse":
+            _ignored.append(f"loss_choice='{config.loss_choice}'")
+        if config.barrier_weight > 0:
+            _ignored.append("barrier_weight>0")
+        if config.moment_matching.enabled:
+            _ignored.append("moment_matching.enabled")
+        if _ignored:
+            _surgery = " + gradient_surgery='pcgrad'" if _is_pcgrad else ""
+            raise ValueError(
+                f"optimizer '{config.optimizer.name}'{_surgery} ignores these "
+                f"configured options on its update path: {', '.join(_ignored)}. "
+                "They appear in logs/config but do NOT affect parameter updates "
+                "(PCGrad/MAO/GN/IGN/LM update from base, unweighted MSE "
+                "residuals). Use a STANDARD optimizer (adam/sgd/adamw/lion/muon/"
+                "ngd/shampoo with gradient_surgery='none') to use these options, "
+                "or remove them."
+            )
+
     if config.episode_length == 1 and not config.initialize_each_episode:
         raise ValueError(
             "episode_length=1 requires initialize_each_episode=True. "

@@ -273,3 +273,64 @@ def test_composite_loss_rejects_update_paths_that_do_not_apply_aux_gradients(
 
     with pytest.raises(ValueError, match="loss_type='composite' is not supported"):
         train_from_config(cfg)
+
+
+@pytest.mark.parametrize(
+    ("optimizer_name", "gradient_surgery"),
+    [
+        ("mao", "none"),
+        ("gn", "none"),
+        ("ign", "none"),
+        ("lm", "none"),
+        ("lbfgs", "none"),
+        ("adam", "pcgrad"),
+    ],
+)
+def test_weighting_and_custom_loss_rejected_for_non_applying_optimizers(
+    optimizer_name,
+    gradient_surgery,
+):
+    """Audit JAX-SILENT-02/03: PCGrad/MAO/GN/IGN/LM update from base, UNWEIGHTED
+    MSE residuals, so loss_weights / reweighting / huber / barrier / moment
+    options are silently ignored on the update path. Config validation must
+    reject the combo (here triggered via loss_choice='huber')."""
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
+    from deqn_jax.training.trainer import train_from_config
+
+    cfg = TrainConfig(
+        model="disaster",
+        loss_choice="huber",
+        episodes=1,
+        batch_size=2,
+        episode_length=1,
+        mc_samples=1,
+        initialize_each_episode=True,
+        network=NetworkConfig(hidden_sizes=(4,)),
+        optimizer=OptimizerConfig(name=optimizer_name, learning_rate=1e-3),
+        gradient_surgery=gradient_surgery,
+        verbose=False,
+    )
+
+    with pytest.raises(ValueError, match="ignores these configured options"):
+        train_from_config(cfg)
+
+
+def test_weighting_and_custom_loss_allowed_for_standard_optimizer():
+    """Flip side: a STANDARD optimizer DOES apply these, so validation must NOT
+    reject them (guards against the new gate over-reaching)."""
+    from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
+    from deqn_jax.training.trainer import _validate_train_config
+
+    cfg = TrainConfig(
+        model="disaster",
+        loss_choice="huber",
+        loss_reweight="lr_annealing",
+        episodes=1,
+        batch_size=2,
+        episode_length=2,
+        mc_samples=1,
+        network=NetworkConfig(hidden_sizes=(4,)),
+        optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
+        verbose=False,
+    )
+    _validate_train_config(cfg)  # must not raise
