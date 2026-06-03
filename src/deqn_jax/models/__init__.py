@@ -26,6 +26,7 @@ from deqn_jax.models.brock_mirman_autodiff import MODEL as _brock_mirman_autodif
 from deqn_jax.models.disaster import MODEL as _disaster
 from deqn_jax.models.irbc import MODEL as _irbc
 from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
+from deqn_jax.models.olg_lifecycle import MODEL as _olg_lifecycle
 from deqn_jax.types import ModelSpec
 
 _MODELS = {
@@ -36,6 +37,7 @@ _MODELS = {
     "bm_labor_autodiff": _bm_labor_autodiff,
     "bm_labor_constrained": _bm_labor_constrained,
     "olg_analytic_6": _olg_analytic_6,
+    "olg_lifecycle": _olg_lifecycle,
     "irbc": _irbc,
     "disaster": _disaster,
 }
@@ -48,6 +50,7 @@ _DESCRIPTIONS = {
     "bm_labor_autodiff": "Brock-Mirman with labor, both FOCs from Pi via jax.grad (multi-policy autodiff)",
     "bm_labor_constrained": "Brock-Mirman with endogenous labor and an upper labor cap (Fischer-Burmeister)",
     "olg_analytic_6": "6-agent OLG with closed-form solution (Krueger-Kubler 2004)",
+    "olg_lifecycle": "6-generation life-cycle OLG with borrowing constraints (Fischer-Burmeister, two-stage loss)",
     "irbc": "2-country International RBC with irreversibility (Fischer-Burmeister)",
     "disaster": "NK-DSGE with financial frictions",
 }
