@@ -17,7 +17,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import optax
 from jax import Array
 
 from deqn_jax.metrics import create_logger
@@ -63,16 +62,16 @@ from deqn_jax.training.reporting import (
     count_params as _count_params,
 )
 from deqn_jax.training.reporting import (
+    log_episode as _log_episode,
+)
+from deqn_jax.training.reporting import (
+    print_episode_progress as _print_episode_progress,
+)
+from deqn_jax.training.reporting import (
     print_final as _print_final,
 )
 from deqn_jax.training.reporting import (
     print_header as _print_header,
-)
-from deqn_jax.training.reporting import (
-    print_residual_table as _print_residual_table,
-)
-from deqn_jax.training.reporting import (
-    strip_eq_prefix as _strip_eq_prefix,
 )
 from deqn_jax.types import ModelSpec, TrainState, make_reweight_state
 
@@ -1168,155 +1167,9 @@ def _check_early_stop(
     return best_loss, patience, False
 
 
-def _log_episode(
-    config,
-    model: ModelSpec,
-    state: TrainState,
-    metrics,
-    ep_num: int,
-    total_episodes: int,
-    start_episode: int,
-    t_start: float,
-    current_lr: float,
-    history_len: int,
-    logger,
-) -> None:
-    """Emit scalar + histogram logs and run cycle/scalar_diagnostics hooks.
-
-    Computes ``policy_out`` once for both policy and derived histograms
-    so the JIT-eval cost is paid once per logging episode.
-    """
-    import numpy as np
-
-    elapsed = time.perf_counter() - t_start
-    eps_done = ep_num - start_episode
-    ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
-    loss_val = float(metrics.loss)
-    grad_val = float(metrics.grad_norm)
-
-    param_norm = float(optax.global_norm(eqx.filter(state.params, eqx.is_array)))
-
-    log_dict: Dict[str, Any] = {
-        "train/loss": loss_val,
-        "train/grad_norm": grad_val,
-        "train/param_norm": param_norm,
-        "train/ep_per_sec": ep_per_sec,
-        "train/lr": current_lr,
-    }
-    if metrics.residuals:
-        for k, v in metrics.residuals.items():
-            if k.startswith("aux_"):
-                log_dict[f"aux/{k[4:]}"] = float(v)
-            else:
-                log_dict[f"eq/{k}"] = float(v)
-    if config.loss_reweight != "none" and model.equation_names:
-        for i, name in enumerate(model.equation_names):
-            log_dict[f"weights/{name}"] = float(state.loss_weights[i])
-
-    hist_dict: Dict[str, Any] = {}
-    ep_states = state.episode_state  # [batch, n_states]
-
-    if model.state_names:
-        for i, name in enumerate(model.state_names):
-            hist_dict[f"state/{name}"] = np.asarray(ep_states[:, i])
-
-    # For sequence nets, approximate with constant history at current state.
-    if history_len > 1:
-        ep_history = make_constant_history(ep_states, history_len)
-        policy_out = jax.vmap(state.params)(ep_history)
-    else:
-        policy_out = jax.vmap(state.params)(ep_states)
-    if model.policy_names:
-        for i, name in enumerate(model.policy_names):
-            hist_dict[f"policy/{name}"] = np.asarray(policy_out[:, i])
-
-    if model.definitions_fn is not None:
-        # Bind to local to keep narrowing inside the lambda body.
-        defs_fn = model.definitions_fn
-        defs = jax.vmap(lambda s, p: defs_fn(s, p, model.constants))(
-            ep_states, policy_out
-        )
-        for name, vals in defs.items():
-            hist_dict[f"derived/{name}"] = np.asarray(vals)
-
-        if model.scalar_diagnostics_fn is not None:
-            if history_len > 1:
-                _diag_policy_fn = lambda s: state.params(
-                    make_constant_history(s[None], history_len)[0]
-                )
-            else:
-                _diag_policy_fn = state.params
-            try:
-                diag = model.scalar_diagnostics_fn(
-                    model,
-                    _diag_policy_fn,
-                    ep_states,
-                    policy_out,
-                    defs,
-                )
-                for dk, dv in diag.items():
-                    log_dict[dk] = float(dv)
-            except Exception as exc:
-                import warnings
-
-                warnings.warn(f"scalar_diagnostics_fn raised at ep {ep_num}: {exc}")
-
-    logger.log_scalars(log_dict, step=ep_num)
-
-    # Filter out arrays with NaN/Inf (early training can produce these).
-    hist_dict = {
-        k: v for k, v in hist_dict.items() if np.isfinite(v).all() and v.size > 0
-    }
-    if hist_dict:
-        logger.log_histograms(hist_dict, step=ep_num)
-
-    # Model-provided cycle hook (plots, custom diagnostics). Errors are
-    # swallowed so a bad plot doesn't kill training.
-    if model.cycle_hook is not None:
-        try:
-            model.cycle_hook(state, model, ep_num)
-        except Exception as exc:
-            import warnings
-
-            warnings.warn(f"cycle_hook raised at ep {ep_num}: {exc}")
-
-
-def _print_episode_progress(
-    metrics,
-    ep_num: int,
-    total_episodes: int,
-    ep_width: int,
-    start_episode: int,
-    t_start: float,
-) -> None:
-    """Console summary line + residual table (verbose path)."""
-    elapsed = time.perf_counter() - t_start
-    eps_done = ep_num - start_episode
-    ep_per_sec = eps_done / elapsed if elapsed > 0 else 0
-    loss_val = float(metrics.loss)
-    grad_val = float(metrics.grad_norm)
-    residuals = metrics.residuals or {}
-
-    print(
-        f"  [{ep_num:>{ep_width}}/{total_episodes}] "
-        f"loss={loss_val:.2e} | grad={grad_val:.2e} | {ep_per_sec:.0f} ep/s"
-    )
-
-    if residuals:
-        eq_items = [
-            (_strip_eq_prefix(k), float(v))
-            for k, v in residuals.items()
-            if not k.startswith("aux_")
-        ]
-        aux_items = [
-            (k[4:], float(v)) for k, v in residuals.items() if k.startswith("aux_")
-        ]
-        if len(eq_items) <= 3:
-            print("    " + "  ".join(f"{n}={v:.2e}" for n, v in eq_items))
-        else:
-            _print_residual_table(eq_items)
-        if aux_items:
-            print("    aux: " + "  ".join(f"{n}={v:.2e}" for n, v in aux_items))
+# _log_episode / _print_episode_progress now live in training/reporting.py
+# (pure logging + console output); imported above under their previous
+# private names so the call sites in _run_training_loop read unchanged.
 
 
 # Checkpoint orchestration helpers (_maybe_checkpoint / _maybe_save_best /
