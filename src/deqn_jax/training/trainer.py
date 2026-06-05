@@ -29,8 +29,31 @@ from deqn_jax.training.checkpointing import (
 from deqn_jax.training.checkpointing import (
     maybe_save_best as _maybe_save_best,
 )
+
+# _build_custom_loss_fn (builds the composite / barrier / huber / moment loss
+# object) now lives in training/composite_loss.py, beside make_composite_loss.
+from deqn_jax.training.composite_loss import (  # noqa: E402  (re-export)
+    _build_custom_loss_fn,
+)
 from deqn_jax.training.history import get_history_len
-from deqn_jax.training.loss import compute_loss, gauss_hermite_nd
+
+# ---------------------------------------------------------------------------
+# Per-episode phase helpers for _run_training_loop
+# ---------------------------------------------------------------------------
+# Per-episode runtime controllers now live in training/loop_control.py.
+# Re-imported under the same names so _run_training_loop reads unchanged.
+from deqn_jax.training.loop_control import (  # noqa: E402  (re-export)
+    _check_early_stop,
+    _episode_lr_scale,
+    _episode_shock_scale,
+    _handle_nan,
+    _maybe_switch_optimizer,
+    _maybe_update_target,
+    _NanRollback,
+    _OptimizerRuntime,
+    _SaveBestTracker,
+)
+from deqn_jax.training.loss import gauss_hermite_nd
 from deqn_jax.training.reporting import (
     count_params as _count_params,
 )
@@ -68,149 +91,6 @@ from deqn_jax.training.state_init import (
     create_train_state as create_train_state,  # re-export (not used internally)
 )
 from deqn_jax.types import ModelSpec, TrainState
-
-
-def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
-    """Build the wrapped loss function for non-default loss configurations.
-
-    Returns the custom loss callable (or None if the default MSE
-    `compute_loss` should be used as-is). Handles three layered cases:
-    composite loss, state-barrier penalty, and Huber loss for the bare
-    path.
-    """
-    from functools import partial
-
-    custom_loss_fn = None
-    if config.loss_type == "composite":
-        from deqn_jax.training.composite_loss import (
-            make_composite_loss,
-            prepare_composite_data,
-        )
-        from deqn_jax.training.linearize import linearize_model
-
-        if config.verbose:
-            print("  Building composite loss (linearize + ergodic cov)...")
-        P, Q = linearize_model(model, verbose=config.verbose)
-
-        comp_cfg = config.composite_loss
-        comp_data = prepare_composite_data(
-            model,
-            P,
-            Q,
-            n_anchor_points=comp_cfg.n_anchor_points,
-            anchor_sigma=comp_cfg.anchor_sigma,
-            seed=config.seed,
-            verbose=config.verbose,
-        )
-        custom_loss_fn = make_composite_loss(
-            model,
-            comp_data,
-            anchor_weight=comp_cfg.anchor_weight,
-            jac_weight=comp_cfg.jac_weight,
-            jac_anchor_weight=comp_cfg.jac_anchor_weight,
-            barrier_weight=comp_cfg.barrier_weight,
-            newton_weight=comp_cfg.newton_weight,
-            leverage_mult=comp_cfg.leverage_mult,
-            aux_decay_floor=comp_cfg.aux_decay_floor,
-            history_len=history_len,
-            loss_choice=config.loss_choice,
-            huber_delta=config.huber_delta,
-        )
-        if config.verbose:
-            extras = []
-            if config.loss_choice != "mse":
-                extras.append(
-                    f"loss_choice={config.loss_choice} (δ={config.huber_delta})"
-                )
-            if comp_cfg.jac_anchor_weight > 0:
-                extras.append(f"sobolev-anchor w={comp_cfg.jac_anchor_weight}")
-            extras_str = " · ".join(extras)
-            print(
-                f"  Composite loss ready.{(' · ' + extras_str) if extras_str else ''}"
-            )
-
-    barrier_weight = config.barrier_weight
-    if (
-        barrier_weight > 0
-        and custom_loss_fn is None
-        and model.state_barrier_fn is not None
-    ):
-        custom_loss_fn = partial(
-            compute_loss,
-            barrier_weight=barrier_weight,
-            loss_choice=config.loss_choice,
-            huber_delta=config.huber_delta,
-        )
-        if config.verbose:
-            print(f"  State barrier: weight={barrier_weight}")
-
-    if custom_loss_fn is None and config.loss_choice != "mse":
-        custom_loss_fn = partial(
-            compute_loss,
-            loss_choice=config.loss_choice,
-            huber_delta=config.huber_delta,
-        )
-        if config.verbose:
-            print(f"  Loss choice: {config.loss_choice} (δ={config.huber_delta})")
-
-    # Moment-matching aux loss layered on top of whatever was chosen above.
-    # Uses Dynare's reference moments as the target. See
-    # training/moment_loss.py for the design rationale.
-    if (
-        getattr(config, "moment_matching", None) is not None
-        and config.moment_matching.enabled
-    ):
-        from deqn_jax.dynare_io import deqn_policy_to_dynare, load_dynare_moments
-        from deqn_jax.training.moment_loss import (
-            _resolve_target_indices,
-            make_moment_matching_wrapper,
-        )
-
-        mom_cfg = config.moment_matching
-        target_moments = load_dynare_moments(mom_cfg.dynare_dir)
-        # DEQN ↔ Dynare name aliases (currently just `i` -> `i_var`); reuse
-        # the canonical mapping from dynare_io.
-        aliases = {p: deqn_policy_to_dynare(p) for p in model.policy_names}
-        target_idx = _resolve_target_indices(
-            policy_names=list(model.policy_names),
-            target_moments=target_moments,
-            name_aliases=aliases,
-        )
-        if config.verbose:
-            print(
-                f"  Moment-matching aux loss: weight={mom_cfg.weight}, "
-                f"matching {len(target_idx)} policies against {mom_cfg.dynare_dir}"
-            )
-        custom_loss_fn = make_moment_matching_wrapper(
-            custom_loss_fn,
-            target_idx_to_moments=target_idx,
-            weight=mom_cfg.weight,
-            mean_weight=mom_cfg.mean_weight,
-            std_weight=mom_cfg.std_weight,
-            scale_eps=mom_cfg.scale_eps,
-        )
-
-    return custom_loss_fn
-
-
-# ---------------------------------------------------------------------------
-# Per-episode phase helpers for _run_training_loop
-# ---------------------------------------------------------------------------
-
-
-# Per-episode runtime controllers now live in training/loop_control.py.
-# Re-imported under the same names so _run_training_loop reads unchanged.
-from deqn_jax.training.loop_control import (  # noqa: E402  (re-export)
-    _check_early_stop,
-    _episode_lr_scale,
-    _episode_shock_scale,
-    _handle_nan,
-    _maybe_switch_optimizer,
-    _maybe_update_target,
-    _NanRollback,
-    _OptimizerRuntime,
-    _SaveBestTracker,
-)
 
 # _log_episode / _print_episode_progress now live in training/reporting.py
 # (pure logging + console output); imported above under their previous
