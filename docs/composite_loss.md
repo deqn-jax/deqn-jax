@@ -98,5 +98,5 @@ composite_loss:
 
 - `src/deqn_jax/training/composite_loss.py` -- `CompositeData`, `prepare_composite_data()`, `make_composite_loss()`
 - `src/deqn_jax/training/linearize.py` -- `linearize_model()`, `compute_ergodic_covariance()`
-- `src/deqn_jax/config.py` -- `CompositeLossConfig` dataclass
+- `src/deqn_jax/config/loss.py` -- `CompositeLossConfig` dataclass
 - `src/deqn_jax/training/trainer.py` -- wiring in `train_from_config()`

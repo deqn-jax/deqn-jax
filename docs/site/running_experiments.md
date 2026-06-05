@@ -308,4 +308,4 @@ See the dedicated section above.
 - [Overview](why.md) — positioning / when to use the framework at all.
 - [Implementing a model](models/implementing.md) — how to add a new model.
 - [Composite loss](training/composite_loss.md) — the composite-loss system in detail.
-- `src/deqn_jax/config.py` — canonical source for every config field's type, default, and validation. (Until the config reference doc lands, this is the ground truth.)
+- `src/deqn_jax/config/` — canonical source for every config field's type, default, and validation (the `config/` package: `TrainConfig` in `train.py`, the nested configs in their own submodules). (Until the config reference doc lands, this is the ground truth.)

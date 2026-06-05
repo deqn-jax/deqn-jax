@@ -55,7 +55,7 @@ The convergence argument is straightforward: if the loss goes to zero, then (mod
 
 Two caveats worth stating up front:
 
-1. **No accuracy guarantees at unsampled states.** A neural network interpolates, but its accuracy away from the training samples is empirical. Rect sampling covers a box but extrapolation outside is unreliable; ergodic sampling concentrates on the attractor but leaves tails undersampled. Ergodic Euler-error diagnostics (in [evaluate.py](running_experiments.md#cli-quickstart)) are the standard post-hoc check.
+1. **No accuracy guarantees at unsampled states.** A neural network interpolates, but its accuracy away from the training samples is empirical. Rect sampling covers a box but extrapolation outside is unreliable; ergodic sampling concentrates on the attractor but leaves tails undersampled. Ergodic Euler-error diagnostics (in [the evaluate module](running_experiments.md#cli-quickstart)) are the standard post-hoc check.
 2. **Training can fail silently.** Loss curves can decrease while the policy is wrong if the residual has a degenerate local minimum (see the bm_labor "savings rate at 0.9 with negative consumption" story in the `brock_mirman` notebook parity work). Treat low loss as necessary-but-not-sufficient; always sanity-check the policy against a known benchmark where one exists.
 
 ## What it gives you that traditional methods don't

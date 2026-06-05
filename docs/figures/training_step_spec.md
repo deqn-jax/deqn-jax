@@ -38,7 +38,7 @@ references are to `src/deqn_jax/`.
 
 ```text
   ┌──────────────────────────────┐
-  │ TrainConfig (YAML/CLI)       │   config.py — Pydantic v2
+  │ TrainConfig (YAML/CLI)       │   config/ — Pydantic v2
   └─────────────┬────────────────┘
                 │
   ┌─────────────▼────────────────────┐
@@ -66,10 +66,10 @@ references are to `src/deqn_jax/`.
   └─────────────┬─────────────────────┘
                 │
   ┌─────────────▼────────────────────┐
-  │ create_train_state               │   training/trainer.py
-  │   • build network                │   networks/{mlp,lstm,transformer,
-  │     (MLP / LSTM / Transformer    │     linear_plus_mlp}.py
-  │      / LinearPlusMLP)            │
+  │ create_train_state               │   training/state_init.py
+  │   • build network                │   networks/factory.py:build_policy_net
+  │     (MLP / LSTM / Transformer    │     → networks/{mlp,lstm,transformer,
+  │      / LinearPlusMLP)            │       linear_plus_mlp}.py
   │   • build optimizer              │   optimizers/registry.py
   │     (Adam / SGD / NGD / Shampoo  │   → optimizers/{standard,ngd,
   │      / MAO / PCGrad / LBFGS / GN)│       shampoo,mao,mao_kfac,
@@ -92,7 +92,7 @@ references are to `src/deqn_jax/`.
   └─────────────┬─────────────────────┘
                 │
   ┌─────────────▼────────────────────┐
-  │ make_train_step                  │   training/trainer.py
+  │ make_train_step                  │   training/state_init.py
   │   dispatch on OptimizerKind:     │
   │   STANDARD | PCGRAD | MAO |      │
   │   LBFGS | GN                     │

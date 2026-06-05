@@ -18,11 +18,11 @@ see [Architecture](architecture.md).
 
 ```
 src/deqn_jax/
-  config.py         Pydantic v2 configs + YAML/CLI loader (TrainConfig, ...)
+  config/           Pydantic v2 configs + YAML/CLI loader (TrainConfig, ...)
   cli.py            argparse → train/list/info/check/evaluate/irf/optimizers
   types.py          ModelSpec, TrainState, ReweightState, Metrics (NamedTuples)
   metrics.py        TensorBoard / W&B / Null logger
-  evaluate.py       Checkpoint → policy evaluation + residual analysis
+  evaluate/         Checkpoint → policy evaluation + residual analysis
   irf.py            Checkpoint → impulse-response simulation
   benchmark.py      Performance harness (per-step timing)
   plots/            Diagnostic plotting helpers (no inbound deps in package)
@@ -60,8 +60,10 @@ src/deqn_jax/
     gauss_newton.py Gauss-Newton / Levenberg-Marquardt
 
   training/
-    trainer.py        train_from_config(), create_train_state(),
-                      make_train_step() — assembles the variant pipeline.
+    trainer.py        train(), train_from_config(), _run_training_loop()
+                      — slim orchestrator.
+    state_init.py     create_train_state(), make_train_step() — assembles
+                      the variant pipeline (re-exported from trainer).
     cycle.py          rollout_fn + cycle_step — THE JIT entry point.
                       One cycle = one rollout + N minibatch grad steps.
     loss.py           compute_residuals, compute_loss (MC + GH quadrature),
@@ -89,10 +91,11 @@ When you're hunting for a bug:
 - **Loss values look wrong** → `loss.py` (mixture branch, expectation
   aggregation), `composite_loss.py` (aux terms).
 - **Optimizer behaving oddly** → `optimizers/<name>.py`'s `grad_step`,
-  then check the variant dispatch in `make_train_step` in `trainer.py`.
+  then check the variant dispatch in `make_train_step` in
+  `training/state_init.py`.
 - **Model misbehaviour** → `models/<name>/equations.py`, paying attention
   to the diagnostic dict returned by `definitions()`.
-- **Config not parsing right** → `config.py` validators (Pydantic v2
+- **Config not parsing right** → `config/_base.py` validators (Pydantic v2
   `before` mode handles type coercion).
 - **Rollout / shock issues** → `training/cycle.py` (rollout_fn),
   `training/shocks.py`, model's `step_fn`.
@@ -334,7 +337,7 @@ Common gotchas:
 | New optimizer            | [Adding an optimizer](optimizers/adding.md)                          |
 | New loss term            | `training/composite_loss.py`, prefix the key with `aux_` (§3.2)      |
 | New CLI subcommand       | `cli.py:main()`, add an argparse subparser                           |
-| New config field         | `config.py:TrainConfig` + a Pydantic validator on `_ConfigBase`      |
+| New config field         | `config/train.py:TrainConfig` + a Pydantic validator on `_ConfigBase` (`config/_base.py`) |
 | New checkpoint format    | Don't. Use `eqx.tree_serialise_leaves` / `_deserialise_leaves`.      |
 
 ## 6. Things that look weird but are intentional

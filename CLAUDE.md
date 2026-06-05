@@ -29,11 +29,11 @@ Always use `uv run`, never activate the venv manually.
 
 ```
 src/deqn_jax/
-  config.py               # TrainConfig, OptimizerConfig, NetworkConfig, CompositeLossConfig
+  config/                 # TrainConfig, OptimizerConfig, NetworkConfig, CompositeLossConfig (package: _base, optimizer, loss, replay, network, train, io)
   cli.py                  # Entry point: train, list, optimizers subcommands
   types.py                # ModelSpec, TrainState, ReweightState, Metrics (all NamedTuples)
   metrics.py              # TensorBoard, W&B, NullLogger
-  evaluate.py             # Policy evaluation and residual analysis
+  evaluate/               # Policy evaluation and residual analysis (package: simulate, diagnostics, dynare, cli)
   irf.py                  # Impulse response functions from checkpoints
   benchmark.py            # Performance benchmarking
 
@@ -66,7 +66,7 @@ src/deqn_jax/
     gauss_newton.py       # Gauss-Newton and Levenberg-Marquardt (custom classes)
 
   training/
-    trainer.py            # train(), train_from_config(), create_train_state(), make_train_step()
+    trainer.py            # train(), train_from_config() (slim orchestrator; create_train_state(), make_train_step() now in state_init.py, re-exported here)
     loss.py               # MC loss with antithetic variates
     composite_loss.py     # Anchor + Jacobian + barrier + Newton auxiliary losses
     episode.py            # Trajectory simulation via lax.scan
@@ -110,7 +110,7 @@ MAO uses `_MAOFactory` for deferred `n_tasks` resolution (resolved in `create_tr
 --set overrides  >  CLI args  >  YAML file  >  dataclass defaults
 ```
 
-`load_config()` in `config.py` handles merging. Dot-notation for nested fields: `--set optimizer.learning_rate=0.01`.
+`load_config()` in `config/io.py` handles merging. Dot-notation for nested fields: `--set optimizer.learning_rate=0.01`.
 
 ### Types
 

@@ -755,7 +755,7 @@ Output bounds (per policy dimension) are enforced **at the network output**:
 See [Adding a network](networks/adding.md). Minimum: write an Equinox
 `eqx.Module` with `__call__(state) -> policy`, register a factory in
 `networks/__init__.py`, add the type name to
-`NetworkConfig.VALID_TYPES`, and dispatch in `trainer.create_train_state`.
+`NetworkConfig.VALID_TYPES`, and dispatch in `networks/factory.py:build_policy_net`.
 
 ---
 
@@ -1032,9 +1032,9 @@ src/deqn_jax/
   api.py                    # ★ stable agent-facing surface (this doc's contract)
   __init__.py               # legacy re-exports (subset of api.py)
   cli.py                    # entry point: train, list, optimizers, evaluate, irf
-  config.py                 # TrainConfig, OptimizerConfig, NetworkConfig (Pydantic v2)
+  config/                   # TrainConfig, OptimizerConfig, NetworkConfig (Pydantic v2)
   types.py                  # ModelSpec, TrainState, ReweightState, Metrics
-  evaluate.py               # euler_equation_errors, stability_check, moments
+  evaluate/                 # euler_equation_errors, stability_check, moments
   irf.py                    # run_irf, run_girf, load_policy_from_checkpoint
   metrics.py                # TensorBoard / W&B logger backends
   benchmark.py              # train-step performance benchmarks
@@ -1064,7 +1064,8 @@ src/deqn_jax/
     shampoo.py              # Shampoo
 
   training/
-    trainer.py              # train_from_config, create_train_state, make_train_step
+    trainer.py              # train, train_from_config, _run_training_loop (slim orchestrator)
+    state_init.py           # create_train_state, make_train_step (re-exported from trainer)
     cycle.py                # rollout_fn + cycle_step (the inner JIT region)
     episode.py              # lax.scan-based trajectory simulation
     loss.py                 # compute_loss, compute_residuals, sample_antithetic_shocks

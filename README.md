@@ -138,7 +138,7 @@ Composite-loss auxiliary terms live in `src/deqn_jax/training/composite_loss.py`
 
 ### Adding a new network
 
-Subclass `eqx.Module`, add a `create_your_net(...)` factory in `src/deqn_jax/networks/your_net.py`, and wire `network.type: "your_net"` into the trainer's construction block (search for `create_mlp` in `training/trainer.py`).
+Subclass `eqx.Module`, add a `create_your_net(...)` factory in `src/deqn_jax/networks/your_net.py`, and wire `network.type: "your_net"` into the policy-network construction block (search for `create_mlp` in `networks/factory.py`).
 
 ## Architecture
 
@@ -153,7 +153,7 @@ train step per episode — conceptually equivalent, implementation-optimised.*
 
 ```
 src/deqn_jax/
-  config.py               Pydantic model configs + YAML + CLI overrides
+  config/                 Pydantic model configs + YAML + CLI overrides (package)
   cli.py                  Entry point: train, list, info, evaluate, irf, ...
   types.py                ModelSpec, TrainState, Metrics (NamedTuples)
   metrics.py              TensorBoard / W&B / null logger
@@ -173,7 +173,7 @@ src/deqn_jax/
     {adam,sgd,ngd,shampoo,mao,lbfgs,gauss_newton}.py
 
   training/
-    trainer.py            Main loop; 5 train-step variants (STANDARD, PCGRAD, MAO, LBFGS, GN)
+    trainer.py            Main loop (slim orchestrator; 5 train-step variants STANDARD, PCGRAD, MAO, LBFGS, GN dispatched by make_train_step in state_init.py)
     loss.py               MC/quadrature expectations, residual MSE
     composite_loss.py     Anchor + Jacobian + barrier + Newton terms
     episode.py            lax.scan trajectory simulation
