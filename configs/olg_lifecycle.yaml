@@ -1,0 +1,36 @@
+# 6-generation life-cycle OLG with borrowing constraints (Geneva 2026, Day 2 Ex 4).
+#
+# 7-state (Z, k0..k5), 5-policy (saving rates s0..s4), 5 Fischer-Burmeister Euler
+# equations. Trained via the two-stage expectation-inside-residual loss
+# (E[fb] != fb(E)): inside_fn averages the per-cohort continuation terms over
+# shocks, combine_fn applies the FB after the expectation. No closed-form steady
+# state -> trained over the ergodic distribution from a random exp(U(0,1)) init.
+#
+# Calibration is the notebook's decade calibration (one model period ~ 10 years):
+# beta=0.99^10, delta=0.8, rho_z=0.9^10, sigma_z=0.10, l_cycle in variables.py.
+
+model: olg_lifecycle
+
+episodes: 3000
+batch_size: 128
+episode_length: 24
+mc_samples: 8
+seed: 0
+
+initialize_each_episode: false
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+network:
+  type: mlp
+  hidden_sizes: [70, 70]      # Simon's 10 * n_input (= 10 * 7) per hidden layer
+  activation: relu
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 3.0e-4       # Simon's Day 2 Ex 4 learning rate
+  lr_schedule: constant
+
+warm_start: false             # no closed-form SS; learns the ergodic set from init
+log_every: 200
