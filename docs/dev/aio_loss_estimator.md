@@ -228,6 +228,37 @@ Var(r̄)/N directly. Running that diagnostic at a trained disaster-model
 policy measures whether the disaster loss is bias-dominated at its
 operating mc_samples — before investing in any retraining.
 
+### Disaster verdict (2026-06-10, `scripts/aio_bias_floor_diagnostic.py`)
+
+Run at a fresh canonical checkpoint (configs/disaster.yaml, p_disaster=0,
+trained on the DGX, best composite loss 1.0e-1 @ ep 1449; diagnostic on
+512 of its own ergodic states, 2000 keys/cell):
+
+- **Quadrature is adequate at the operating q=3** (3^5=243 nodes): the
+  GH2→GH5 ladder moves per-equation values by ≲1e-4 *relative*. The
+  canonical recipe has no stochastic bias at all (quadrature path) and
+  negligible truncation. Estimator error is NOT the disaster model's
+  problem at this operating point.
+- **Under MC the bias floor is visible but currently subdominant**:
+  at N=2 the worst equations (eq4b Kw-recursion, eq7 investment Euler)
+  carry bias ≈ 4.8e-5 against levels ~1.3-4.5e-3 (ratio ~0.01-0.04;
+  TOTAL ratio 0.4%). Forward-looking implication: an MC-trained
+  disaster run at N=2 hits bias-dominance once those equations reach
+  (E[r])² ~ 5e-5 — only ~25× below current levels. If MC is ever needed
+  (e.g. shock count growth making quadrature unaffordable), use aio.
+- The five deterministic identities (eq1, eq2a/b is partly stochastic,
+  eq2a, eq4a, eq9) have exactly zero estimator spread, as expected —
+  their residuals don't depend on the shock.
+- **Caveat:** p_disaster=0 and no ZLB binding in this run. Disaster
+  jumps + ZLB kinks raise residual curvature, which degrades *both*
+  GH3 truncation and the MC bias floor — re-run the same diagnostic at
+  a p>0/ZLB checkpoint before trusting q=3 there.
+
+Conclusion for the disaster convergence stall: the expectation
+estimator is exonerated at the canonical operating point; the stall
+(~1e-3 per-eq squared residuals) must come from elsewhere
+(optimization landscape, architecture, fixed-point selection).
+
 Artifacts: `docs/dev/figures/aio_head_to_head_results.json`,
 `aio_bias_floor.png`, `aio_trained_policy_error.png`.
 
