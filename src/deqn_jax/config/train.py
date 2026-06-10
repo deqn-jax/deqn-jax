@@ -93,7 +93,7 @@ class TrainConfig(_ConfigBase):
 
     loss_choice: str = Field(
         default="mse",
-        description="Residual aggregation over batch elements: `mse` or `huber`. Applied AFTER the shock expectation. Huber caps gradient at ±huber_delta and helps when rare pathological states dominate.",
+        description="Residual aggregation: `mse` (square the shock-mean residual), `huber` (Huber of the shock-mean; caps gradient at ±huber_delta when rare pathological states dominate), or `aio` (all-in-one, Maliar-Maliar-Winant 2021: product of two independent shock-group means -- unbiased for (E[r])², removing the Var(r̄)/N bias of `mse` under MC; requires expectation_type='mc' and mc_samples>=2; per-eq losses can be transiently negative, so prefer loss_reweight='none').",
     )
     huber_delta: float = Field(
         default=1.0,
@@ -310,7 +310,7 @@ class TrainConfig(_ConfigBase):
     )
 
     VALID_LOSS_TYPES: ClassVar[frozenset] = frozenset({"mse", "composite"})
-    VALID_LOSS_CHOICES: ClassVar[frozenset] = frozenset({"mse", "huber"})
+    VALID_LOSS_CHOICES: ClassVar[frozenset] = frozenset({"mse", "huber", "aio"})
     VALID_LOSS_REWEIGHTS: ClassVar[frozenset] = frozenset(
         {"none", "lr_annealing", "relobralo"}
     )
@@ -478,6 +478,18 @@ class TrainConfig(_ConfigBase):
             )
         if self.huber_delta <= 0:
             raise ValueError(f"huber_delta must be > 0, got {self.huber_delta}")
+        if self.loss_choice == "aio":
+            if self.expectation_type != "mc":
+                raise ValueError(
+                    "loss_choice='aio' requires expectation_type='mc': the "
+                    "quadrature/discrete expectation paths are exact and have "
+                    f"no MC bias to remove, got '{self.expectation_type}'."
+                )
+            if self.mc_samples < 2:
+                raise ValueError(
+                    "loss_choice='aio' needs mc_samples >= 2 to form two "
+                    f"independent shock groups, got {self.mc_samples}."
+                )
         if self.loss_reweight not in self.VALID_LOSS_REWEIGHTS:
             raise ValueError(
                 f"Unknown loss_reweight '{self.loss_reweight}'. "

@@ -309,10 +309,53 @@ def compute_loss(
     z_state_idx = getattr(model, "z_state_idx", None)
     use_discrete = transition_matrix is not None and z_state_idx is not None
 
+    # All-in-one (AiO) estimator (Maliar-Maliar-Winant 2021): replaces the
+    # biased (sample mean)^2 aggregation with the product of TWO independent
+    # group means, which is exactly unbiased for (E[r])^2. Only meaningful
+    # under MC: the quadrature/discrete paths weight nodes exactly and have
+    # no stochastic aggregation bias to remove.
+    use_aio = loss_choice == "aio"
+    if use_aio and (use_quadrature or use_discrete):
+        raise ValueError(
+            "loss_choice='aio' requires Monte Carlo expectations; the "
+            "quadrature/discrete paths are exact and have no MC bias for "
+            "aio to remove. Use expectation_type='mc' or loss_choice='mse'."
+        )
+    if use_aio and mc_samples < 2:
+        raise ValueError(
+            "loss_choice='aio' needs mc_samples >= 2 to form two "
+            f"independent shock groups, got {mc_samples}."
+        )
+
     # Sample weights are always [n_samples, batch] post-construction so the
     # discrete branch's per-batch weights and the GH/MC branches' broadcast
     # weights share the same einsum aggregation downstream.
-    if use_discrete:
+    n_aio = 0  # group-1 size when loss_choice='aio' (0 otherwise)
+    if use_aio:
+        # Two INDEPENDENT antithetic groups: independence between the groups
+        # is what makes E[rbar_1 * rbar_2] = (E[r])^2 hold exactly. A single
+        # antithetic stream split in half would correlate the halves
+        # (mirrored pairs) and reintroduce bias.
+        key1, key2 = jax.random.split(key)
+        n2 = mc_samples // 2
+        n1 = mc_samples - n2
+        shocks = jnp.concatenate(
+            [
+                sample_antithetic_shocks(
+                    key1, n1, batch_size, model.n_shocks, shock_scale
+                ),
+                sample_antithetic_shocks(
+                    key2, n2, batch_size, model.n_shocks, shock_scale
+                ),
+            ],
+            axis=0,
+        )
+        n_aio = n1
+        n_samples = shocks.shape[0]
+        sample_weights = jnp.broadcast_to(
+            (jnp.ones(n_samples) / n_samples)[:, None], (n_samples, batch_size)
+        )
+    elif use_discrete:
         Π = jnp.asarray(transition_matrix)
         K = Π.shape[0]
         # Read current z-index per batch element from state (works for both
@@ -379,7 +422,41 @@ def compute_loss(
     # aggregation is the mean over equations (DEQN-MAO convention): the loss
     # magnitude is decoupled from equation count so one LR transfers across
     # model sizes (brock_mirman=1, bm_labor=2, olg=5, disaster=11).
-    if _two_stage:
+    if use_aio:
+        # AiO aggregation: per equation, average each independent group
+        # separately and take the batch mean of the PRODUCT of group means.
+        # Unbiased for (E[r])^2; the loss (and per-eq losses) can be
+        # transiently negative -- that is sampling noise around a
+        # non-negative population value, not an error. On the two-stage
+        # path the combine_fn is applied per group BEFORE the product,
+        # which removes the outer squaring bias (the Jensen bias of a
+        # nonlinear combine_fn itself remains O(1/mc_samples), as on the
+        # mse path).
+        if _two_stage:
+            e1 = {k: jnp.mean(v[:n_aio], axis=0) for k, v in all_residuals.items()}
+            e2 = {k: jnp.mean(v[n_aio:], axis=0) for k, v in all_residuals.items()}
+            cur_states = states[:, -1, :] if states.ndim == 3 else states
+            pol = policy_fn(states)
+            r1 = model.combine_fn(cur_states, pol, e1, model.constants)
+            r2 = model.combine_fn(cur_states, pol, e2, model.constants)
+            group_means = {k: (r1[k], r2[k]) for k in r1}
+        else:
+            group_means = {
+                k: (jnp.mean(v[:n_aio], axis=0), jnp.mean(v[n_aio:], axis=0))
+                for k, v in all_residuals.items()
+            }
+
+        eq_losses = {}
+        total_loss = 0.0
+        for i, (eq_name, (m1, m2)) in enumerate(group_means.items()):
+            eq_loss = jnp.mean(m1 * m2)
+            eq_losses[eq_name] = eq_loss
+            w = 1.0 if weights is None else weights[i]
+            total_loss = total_loss + w * eq_loss
+        n_eq = len(group_means)
+        if n_eq > 1:
+            total_loss = total_loss / n_eq
+    elif _two_stage:
         # Average the inside terms -> E[inside], then apply the nonlinear
         # combine_fn (the expectation lives INSIDE the residual). MC-correct for
         # e.g. a Fischer-Burmeister constraint on an intertemporal Euler, where
