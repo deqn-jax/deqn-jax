@@ -24,6 +24,39 @@ from deqn_jax.training.history import build_history_windows
 from deqn_jax.types import Metrics, ModelSpec, TrainState
 
 
+def apply_ss_reset(
+    reset_key: Array,
+    ep_states: Array,
+    ss_reset_frac: float,
+    ss_state: Array,
+) -> Array:
+    """Reset a random ``ss_reset_frac`` of batch rows to SS * U[0.95, 1.05].
+
+    Indices are drawn WITHOUT replacement from the whole batch each call,
+    so every path's time-to-reset is geometric with mean ~1/frac episodes.
+    Regression note: the previous fixed-prefix reset (``at[:n_reset]``)
+    made indices >= n_reset immortal — paths that diverged to the
+    soft-clip ceiling during a transient stayed in the training batch
+    forever (observed: 55/64 disaster paths absorbed at k=100, training
+    loss pinned at ~1e-1 while the policy's true ergodic loss was 4e-5).
+    See tests/test_ss_reset.py.
+    """
+    batch_n = ep_states.shape[0]
+    n_reset = int(ss_reset_frac * batch_n)
+    if n_reset <= 0:
+        return ep_states
+    idx_key, noise_key = jax.random.split(reset_key)
+    idx = jax.random.choice(idx_key, batch_n, (n_reset,), replace=False)
+    noise = jax.random.uniform(
+        noise_key,
+        (n_reset, ep_states.shape[1]),
+        minval=-0.05,
+        maxval=0.05,
+    )
+    fresh = ss_state * (1 + noise)
+    return ep_states.at[idx].set(fresh)
+
+
 def make_rollout_fn(
     model: ModelSpec,
     episode_length: int,
@@ -54,21 +87,11 @@ def make_rollout_fn(
                 reset_key, ep_states.shape[0], model.constants
             )
         elif ss_reset_frac > 0.0:
-            batch_n = ep_states.shape[0]
-            n_reset = int(ss_reset_frac * batch_n)
-            if n_reset > 0:
-                assert model.steady_state_fn is not None, (
-                    "ss_reset_frac>0 requires a model with steady_state_fn"
-                )
-                ss_state, _ = model.steady_state_fn(model.constants)
-                noise = jax.random.uniform(
-                    reset_key,
-                    (n_reset, model.n_states),
-                    minval=-0.05,
-                    maxval=0.05,
-                )
-                fresh = ss_state * (1 + noise)
-                ep_states = ep_states.at[:n_reset].set(fresh)
+            assert model.steady_state_fn is not None, (
+                "ss_reset_frac>0 requires a model with steady_state_fn"
+            )
+            ss_state, _ = model.steady_state_fn(model.constants)
+            ep_states = apply_ss_reset(reset_key, ep_states, ss_reset_frac, ss_state)
         if history_len > 1:
             trajectory, final_state, final_history = run_episode_with_history(
                 model,

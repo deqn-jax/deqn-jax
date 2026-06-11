@@ -27,8 +27,10 @@ Three shape priors are implemented, each independently toggleable:
    ``q = M / 𝓑(x)`` post-MLP. Eliminates the sign-flip pathology in
    eq 7 — the LHS ``µ_Υ q 𝓑(x)`` is forced positive by parameterization.
 
-All three are off by default. Configs that need them set the relevant
-``NetworkConfig`` fields explicitly.
+Defaults: the K/F gauge mask is ON by default (``NetworkConfig.kf_names``
+defaults to the four Calvo auxiliaries — F_p, K_p, F_w, K_w stay exactly
+equal to the BK linear policy unless ``kf_names=()`` is set). The ELB
+feature and the investment-bracket reparam are off by default.
 """
 
 from __future__ import annotations
