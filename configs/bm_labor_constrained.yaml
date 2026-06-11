@@ -1,10 +1,17 @@
 # Brock-Mirman with endogenous labor under an upper labor cap (Geneva 2026 Day 2 Ex 3).
-# Same recipe as bm_labor; the labor cap L <= 1.01 is enforced via a
-# Fischer-Burmeister complementarity in the model's equations (see
-# models/bm_labor_constrained/equations.py). The cap binds only in high-TFP
-# regions, so most of the ergodic mass is interior.
+# The labor cap is enforced via a Fischer-Burmeister complementarity in the
+# model's equations (see models/bm_labor_constrained/equations.py); with the
+# reference's 1.01-output / 1.02-FB-cap split the cap is slack by construction
+# and the FB enforces the interior labor FOC.
+#
+# Recipe note: on-policy trajectory sampling (episode_length=100), which
+# concentrates capacity on the ergodic set and converges ~1 decimal deeper
+# there than the exogenous-rect phase alone (the reference's scheme is
+# two-phase rect -> rollout; this single-phase trajectory recipe is the
+# closer ergodic-accuracy match).
+
 model: bm_labor_constrained
-episodes: 2000
+episodes: 6000
 batch_size: 64
 episode_length: 100
 mc_samples: 5
@@ -17,4 +24,8 @@ network:
 
 optimizer:
   name: adam
-  learning_rate: 0.001
+  learning_rate: 1.0e-3
+  lr_schedule: cosine
+  lr_min_factor: 0.1
+
+log_every: 1000
