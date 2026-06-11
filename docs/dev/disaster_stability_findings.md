@@ -86,7 +86,14 @@ and add ρ to `disaster_anchor_diagnostic.py` output.
 ## Status / next steps
 
 - [x] Zombie fix shipped (`b22259e`), regression-tested.
-- [ ] jac_weight=1.0 probe (running).
+- [x] jac_weight=1.0 probe — **cure works on this draw**
+      (`checkpoints/disaster_jacw1`): training loss 1.45e-5 with best at
+      ep2823 (late, ≈ final), ρ(SS) = 0.986993 for BOTH final and best —
+      the BK eigenvalue to six digits, i.e. the tangent anchor at weight
+      1.0 makes the closed-loop spectrum the Blanchard-Kahn one. Zero
+      buffer zombies, ergodic k_max 30.9, GH3 ergodic loss 2.0e-5,
+      training metric ≈ ergodic truth. n=1: census still required before
+      changing the canonical config default.
 - [ ] Multi-seed stability census: fraction of runs with ρ<1 under each
       cure (the lottery framing demands seeds, not single runs).
 - [ ] Re-measure the accuracy gap vs the TF reference using *final* (or
