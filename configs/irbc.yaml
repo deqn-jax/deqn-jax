@@ -9,7 +9,7 @@
 
 model: irbc
 
-episodes: 2001
+episodes: 4001
 batch_size: 128
 episode_length: 1
 mc_samples: 1                # ignored under quadrature
@@ -20,8 +20,14 @@ initialize_each_episode: true
 n_epochs_per_rollout: 1
 n_minibatches_per_epoch: 1
 
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0
+  jac_weight: 1.0
+  aux_decay_floor: 1.0
+
 network:
-  type: mlp
+  type: linear_plus_mlp
   hidden_sizes: [64, 64]
   activation: tanh
   init: xavier_uniform
@@ -39,3 +45,13 @@ loss_reweight: none
 
 warm_start: false
 log_every: 200
+
+# --- Stability recipe (2026-06-11) ---
+# The plain-MLP recipe above trains to small residuals but lands on a
+# closed-loop UNSTABLE policy (rho(SS)=1.23: simulations drift out of the
+# training rect, ARC violated O(1) on the ergodic set, negative investment).
+# Same disease + same cure as the disaster model (see
+# docs/dev/disaster_stability_findings.md): BK-anchored residual net + the
+# composite anchor/jac terms pin the policy's SS tangent to the stable
+# linearization. Measured post-fix: rho(SS)=0.981, i>=0 everywhere on the
+# ergodic set, final loss 8.7e-7 (was 2.5e-4).
