@@ -1,0 +1,13 @@
+# Issue template chooser config.
+# NOTE: URLs below point at the current pre-org-move locations
+# (github.com/mechanicpanic, mechanicpanic.github.io). They are org-move-gated —
+# update them when the repo moves to its permanent org.
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://mechanicpanic.github.io/deqn-jax/
+    about: Method Zoo, model gallery, and the REFERENCE.md contract — start here before filing.
+  - name: Discussions
+    url: https://github.com/mechanicpanic/deqn-jax/discussions
+    about: Questions, "is DEQN the right tool for my model?", and open-ended ideas. Not sure if it's a bug? Ask here first.
+

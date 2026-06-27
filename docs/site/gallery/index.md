@@ -15,8 +15,9 @@ The gallery is a learning path in three arcs. Read top to bottom the first time.
     training runs and are pending a fresh executed render; treat them as the
     target each notebook sets for itself, not a settled benchmark. And keep the
     [two honest limits](../index.md) in view: a low residual is *necessary but
-    not sufficient* (a global solver can land on the wrong equilibrium branch --
-    there is no global Blanchard-Kahn selection guarantee), and there are no
+    not sufficient* (a global solver can land on the wrong equilibrium branch,
+    and nothing enforces equilibrium *selection* -- there is no global analogue
+    of the *local* Blanchard-Kahn saddle-path condition), and there are no
     analytic error bounds. "Certified" here means a spectral-radius +
     residual-quantile + linearization-floor certificate, nothing stronger.
 

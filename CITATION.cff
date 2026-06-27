@@ -1,0 +1,56 @@
+cff-version: 1.2.0
+message: "If you use DEQN-JAX in academic work, please cite it (and the upstream Deep Equilibrium Nets method it reimplements)."
+title: "DEQN-JAX"
+abstract: "A global solver for recursive economic equilibria in JAX: trains a neural-network policy to satisfy a model's Euler/FOC/market-clearing conditions on the ergodic set."
+version: "0.2.0"
+type: software
+license: MIT
+authors:
+  - family-names: Smirnova
+    given-names: Anna
+    email: anna.smirnova@unil.ch
+# URLs below are org-move-gated: a GitHub org move is pending; update on cutover.
+repository-code: "https://github.com/mechanicpanic/deqn-jax"
+url: "https://mechanicpanic.github.io/deqn-jax/"
+keywords:
+  - deep equilibrium nets
+  - global solution methods
+  - recursive equilibrium
+  - dynamic stochastic general equilibrium
+  - computational economics
+  - JAX
+  - neural networks
+# Upstream method credit. DEQN-JAX is a JAX/Equinox reimplementation and
+# extension of Deep Equilibrium Nets, developed by Simon Scheidegger and
+# collaborators. All credit for the original method belongs to these authors.
+references:
+  - type: article
+    title: "Deep Equilibrium Nets"
+    authors:
+      - family-names: Azinovic
+        given-names: Marlon
+      - family-names: Gaegauf
+        given-names: Luca
+      - family-names: Scheidegger
+        given-names: Simon
+    year: 2022
+    journal: "International Economic Review"
+    volume: 63
+    issue: 4
+    start: 1471
+    end: 1525
+    doi: "10.1111/iere.12575"
+  - type: article
+    title: "Machine learning for high-dimensional dynamic stochastic economies"
+    authors:
+      - family-names: Scheidegger
+        given-names: Simon
+      - family-names: Bilionis
+        given-names: Ilias
+    year: 2019
+    journal: "Journal of Computational Science"
+    volume: 33
+    start: 68
+    end: 82
+    doi: "10.1016/j.jocs.2019.03.004"
+

@@ -1,18 +1,13 @@
 # DEQN-JAX
 
-**A global solver for recursive economic equilibria, in JAX.** You write your model — states, Euler equations, transition law, calibration; it returns the solved decision rules and their Euler-equation accuracy.
+**A global solver for recursive economic equilibria, in JAX.** You write your
+model's equilibrium conditions; it returns globally-solved decision rules and
+their Euler-equation accuracy — with the kinks your perturbation tools linearize
+away left **intact**.
 
-> This project is a JAX reimplementation and extension of the Deep Equilibrium Networks
-> methodology developed by Simon Scheidegger and collaborators. Foundational references:
->
-> - Azinovic, M., Gaegauf, L., Scheidegger, S. (2022). *Deep Equilibrium Nets.* International Economic Review 63(4), 1471–1525.
-> - Scheidegger, S., Bilionis, I. (2019). *Machine learning for high-dimensional dynamic stochastic economies.* Journal of Computational Science 33, 68–82.
->
-> Upstream reference implementation: <https://github.com/sischei/DeepEquilibriumNets>.
->
-> This reimplementation migrates the approach to JAX + Equinox, adds architectural
-> priors (`LinearPlusMLP`) and composite loss terms. All credit for the original method
-> belongs to the upstream authors.
+> A JAX/Equinox reimplementation and extension of **Deep Equilibrium Nets**
+> (Scheidegger and collaborators). All credit for the original method belongs to
+> the upstream authors — full references and provenance under *Credit &amp; provenance* below.
 
 ```mermaid
 flowchart LR
@@ -35,11 +30,21 @@ flowchart LR
     RES -.->|relative Euler errors| ACC
 ```
 
-You write your model in its native objects: a state vector, the Euler equations and first-order conditions, the transition law, and a calibration. DEQN-JAX solves the recursive equilibrium globally — it approximates the decision rules π(s) (consumption, labor, savings, prices as functions of the state) and pins them down by driving the Euler, FOC, and market-clearing residuals to zero in expectation over next-period shocks (Gauss-Hermite quadrature, or Monte Carlo with antithetic variates), across the ergodic set the model actually visits. The neural network plays exactly the role Chebyshev polynomials or splines play in a projection method (the Judd / Maliar-Maliar lineage): same target, flexible basis — but it scales to many state dimensions without a tensor grid, so it pushes back the curse of dimensionality rather than pinning you to a grid. Occasionally-binding constraints (irreversibility, borrowing limits) enter directly through Fischer-Burmeister complementarity residuals, without linearizing away the kink. It composes with your toolkit rather than replacing it: a Dynare / Blanchard-Kahn linearization can serve as the warm-start anchor, and accuracy is reported in the units you already trust — the distribution of relative Euler errors (errREE) on the ergodic path.
+### Why reach for it
 
-**Two honest limits, up front (not in a footnote).** A low residual is necessary but not sufficient: like any nonlinear global solver it can settle on the wrong equilibrium branch, and nothing here enforces equilibrium selection — there is no global analogue of the *local* Blanchard-Kahn saddle-path condition. And there are no analytic error bounds, so accuracy is the errREE distribution you measure, not a theorem.
+- **Kinks stay kinked.** ZLB, borrowing limits, irreversible investment enter as Fischer–Burmeister complementarity residuals — solved globally, *not* linearized away at the steady state.
+- **No tensor-grid curse.** The policy is a neural network (the role Chebyshev/splines play in a projection method) — many state dimensions stay tractable, with no grid to explode.
+- **Composes with Dynare.** A first-order Blanchard–Kahn linearization — computed in-framework, or imported from Dynare — warm-starts and anchors the solve. DEQN extends perturbation; it doesn't ask you to throw it out.
+- **Accuracy you'd quote.** Reported as the relative-Euler-error (errREE) distribution on the ergodic set — the number you already put in a paper.
 
-### Where it sits among methods you already use
+> **Two honest limits, stated up front — not in a footnote.**
+> **(1) A low residual is necessary, not sufficient.** Like any nonlinear *global* solver, DEQN can settle on the *wrong* equilibrium branch. Nothing here enforces equilibrium **selection**: there is no global analogue of the *local* Blanchard–Kahn saddle-path/determinacy condition. This is a multiplicity/selection gap — **not** a "Blanchard–Kahn" criterion, which is local and linear.
+> **(2) No certified error bounds.** Accuracy here is **measured** (the errREE distribution), not a theorem. If a first-order perturbation already answers your question, Dynare is faster and proven — reach for DEQN when it can't (occasionally-binding constraints, a state space too big for a projection tensor grid, or a genuinely global nonlinear rule).
+
+<details>
+<summary><b>Where it sits among the methods you already use</b> — diagram</summary>
+
+Same target as perturbation, projection, and time iteration — a decision rule that zeroes the equilibrium residuals. DEQN is the *global* member that scales in the state dimension and keeps the kinks.
 
 ```mermaid
 flowchart TD
@@ -52,7 +57,10 @@ flowchart TD
     L -.->|linearization warm-starts / anchors DEQN| D
 ```
 
-### What an economist calls each piece
+</details>
+
+<details>
+<summary><b>ML &harr; economics dictionary</b> — every ML word is a numerical-methods idea you know</summary>
 
 | You'll see this ML word | What it is, in your language |
 |---|---|
@@ -62,27 +70,48 @@ flowchart TD
 | epoch / batch / optimizer step | inner iterations of the numerical solver |
 | on-policy sampling / minibatch | collocation points drawn by simulating the model (the ergodic set), not a fixed tensor grid |
 | expectation over shocks | Gauss-Hermite quadrature, or Monte Carlo with antithetic variates, over next-period shocks |
-| occasionally-binding-constraint penalty | Fischer-Burmeister complementarity residual (irreversibility, borrowing limits) |
+| occasionally-binding-constraint penalty | Fischer-Burmeister complementarity residual (ZLB, irreversibility, borrowing limits) |
+| warm start / anchor | a Blanchard–Kahn (Dynare) linearization used as the initial guess and a supervised prior |
 | "deep equilibrium net" | a global, nonlinear, high-dimensional recursive-equilibrium / policy-function solver |
 | "converged" / low loss | small relative Euler errors (errREE) on the ergodic path — necessary, but **not** sufficient (the solve can settle on the wrong equilibrium branch) |
 
-**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid (571 tests pass; `uv build` produces both wheel and sdist; CLI subcommands `train`, `list`, `info`, `check`, `evaluate`, `irf`, `optimizers`, `active-subspace`, `init-config` all work). The package supports multiple research papers — it is not paper-specific.
+</details>
+
+<details>
+<summary><b>Credit &amp; provenance</b> — upstream references</summary>
+
+This project is a JAX reimplementation and extension of the Deep Equilibrium Networks methodology developed by Simon Scheidegger and collaborators. Foundational references:
+
+- Azinovic, M., Gaegauf, L., Scheidegger, S. (2022). *Deep Equilibrium Nets.* International Economic Review 63(4), 1471–1525.
+- Scheidegger, S., Bilionis, I. (2019). *Machine learning for high-dimensional dynamic stochastic economies.* Journal of Computational Science 33, 68–82.
+
+Upstream reference implementation: <https://github.com/sischei/DeepEquilibriumNets>.
+
+This reimplementation migrates the approach to JAX + Equinox, adds architectural priors (`LinearPlusMLP`) and composite loss terms. All credit for the original method belongs to the upstream authors.
+
+</details>
+
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **571 tests pass**, `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `active-subspace`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
 
 ## What's implemented
 
+Ten models are registered today (`uv run deqn-jax list`). The small Brock–Mirman family is the canonical/teaching tier; the occasionally-binding-constraint examples are the ones that show the sell.
+
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Brock–Mirman model | stable | 2 states, 1 policy, analytical SS. Canonical smoke test. |
-| Disaster model (CMR + capital destruction) | experimental | 13 states, 11 policies, numerical SS. Baseline CMR converges reliably; disaster block implemented. |
-| Networks: MLP, LSTM, Transformer | stable | History-dependent (sequence) policies supported. |
-| Networks: `LinearPlusMLP` (residual over Blanchard-Kahn solution) | stable | Recommended for medium-scale DSGE — see `networks/linear_plus_mlp.py`. |
-| Optimizers: Adam, SGD, AdamW, Lion, Muon, NGD, Shampoo, MAO, MAO-KFAC, L-BFGS, Gauss-Newton, Levenberg-Marquardt | varying | Adam + `LinearPlusMLP` is the validated stack. Second-order methods work but are less tested. |
-| Composite loss (anchor + Jacobian + barrier + Newton) | stable | Supervised priors toward the linearized policy. |
-| Warm start | stable | L-BFGS fit to steady state, or Dynare linearization import. |
+| `brock_mirman` (+ `bm_deterministic`, `bm_labor`, two `*_autodiff` POCs) | stable | The reference tier. State `(k, z)`, one policy `sav_rate`, one Euler equation, analytical SS. The 5-minute smoke test. |
+| `bm_labor_constrained` — labor with an upper cap (Fischer–Burmeister) | example | Smallest occasionally-binding demo; the kink stays kinked. See the gallery for measured errREE. |
+| `irbc` — 2-country international RBC with irreversibility (Fischer–Burmeister) | example | Global solve of an occasionally-binding investment floor. See the gallery. |
+| `olg_lifecycle` — 6-generation life-cycle OLG with borrowing constraints (Fischer–Burmeister, two-stage loss) | example | Borrowing limits as complementarity residuals; `olg_analytic_6` gives a closed-form check. See the gallery. |
+| `disaster` — NK-DSGE with financial frictions (+ capital destruction) | experimental | 13 states, 11 policies, numerical SS. Baseline CMR converges reliably; the disaster block is implemented but still under validation. |
+| Networks: `MLP`, `LSTM`, `Transformer` | stable | History-dependent (sequence) policies supported; MLP is the validated default. |
+| Network: `LinearPlusMLP` (residual over the Blanchard–Kahn solution) | stable | Recommended for medium-scale DSGE — `networks/linear_plus_mlp.py`. |
+| Optimizers: `adam`, `adamw`, `sgd`, `lion`, `muon`, `ngd`, `shampoo`, `mao`, `mao_kfac`, `lbfgs`, `gn`, `ign`, `lm` | varying | `adam` is the validated first-order method. Second-order (`gn`/`ign`/`lm`, `shampoo`, `ngd`, `mao*`) work but are less tested. |
+| Composite loss (anchor + Jacobian + barrier + Newton) | stable | Optional supervised priors toward the linearized policy. |
+| Warm start | stable | L-BFGS fit to steady state, or Dynare/Blanchard–Kahn linearization import. |
 | Curriculum on shock magnitude | stable | Ramp shocks from small to full over N episodes. |
-| Quadrature / MC expectations | stable | Gauss-Hermite nodes or Monte Carlo with antithetic variates. |
-| Checkpointing, TensorBoard, W&B | stable | Resume training from checkpoint supported. |
-| `aiyagari` module | internal | Present in source; not registered in the public model registry. May be exposed in a later release. |
+| Quadrature / MC expectations | stable | Gauss-Hermite nodes, or Monte Carlo with antithetic variates. |
+| Checkpointing, TensorBoard, W&B | stable | Resume training from checkpoint (even with a different optimizer) supported. |
 
 ## Installation
 
@@ -238,7 +267,7 @@ src/deqn_jax/
 ## Tests
 
 ```bash
-uv run pytest tests/ -v               # 226 tests
+uv run pytest tests/ -v               # 571 tests
 uv run pytest tests/test_basic.py     # 12 core tests
 uv run pytest tests/test_optimizers.py # optimizer + short training tests
 ```
