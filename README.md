@@ -66,7 +66,7 @@ flowchart TD
 | "deep equilibrium net" | a global, nonlinear, high-dimensional recursive-equilibrium / policy-function solver |
 | "converged" / low loss | small relative Euler errors (errREE) on the ergodic path — necessary, but **not** sufficient (the solve can settle on the wrong equilibrium branch) |
 
-**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid (567 tests pass; `uv build` produces both wheel and sdist; CLI subcommands `train`, `list`, `info`, `check`, `evaluate`, `irf`, `optimizers`, `active-subspace`, `init-config` all work). The package supports multiple research papers — it is not paper-specific.
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid (571 tests pass; `uv build` produces both wheel and sdist; CLI subcommands `train`, `list`, `info`, `check`, `evaluate`, `irf`, `optimizers`, `active-subspace`, `init-config` all work). The package supports multiple research papers — it is not paper-specific.
 
 ## What's implemented
 

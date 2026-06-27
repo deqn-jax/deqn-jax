@@ -56,6 +56,10 @@ extra_javascript:
 
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      ignore_h1_titles: true
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -71,37 +75,44 @@ plugins:
 
 nav:
   - Home: index.md
-  - What is DEQN?: what_is_deqn.md
-  - Overview: why.md
-  - Reference (agent-facing): REFERENCE.md
-  - Getting started:
+
+  - Start here:
+      - What is DEQN?: what_is_deqn.md
+      - Where it sits among methods: why.md
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
-  - Guides:
-      - Reading guide (contributors): reading_guide.md
+
+  # HEAT-GATED: this whole section ships only AFTER task #10 re-executes the 4
+  # currently-empty notebooks and the 9 executed .ipynb are copied into
+  # docs/site/gallery/. Adding these leaves before the files exist breaks
+  # `mkdocs build --strict`.
+  - Gallery:
+      - Overview: gallery/index.md
+
+  - Method Zoo:
+      - Overview: method-zoo/index.md
+      - Networks:
+          - MLP / LSTM / Transformer: networks/sequence.md
+          - LinearPlusMLP (BK residual): networks/linear_plus_mlp.md
+          - Adding a network: networks/adding.md
+      - Optimizers:
+          - Built-in optimizers: optimizers/index.md
+          - Adding an optimizer: optimizers/adding.md
+      - Loss & expectations:
+          - Composite loss: training/composite_loss.md
+          - Curriculum & warm start: training/curriculum.md
+
+  - Models & the ModelSpec contract:
+      - Overview: models/index.md
       - Implementing a model: models/implementing.md
-      - Running experiments: running_experiments.md
-      - Architecture: architecture.md
+      - ModelSpec reference (full contract): REFERENCE.md
       - Autodiff-synthesized equations: autodiff.md
-      - Config reference: config_reference.md
-  - Examples:
-      - CLI: examples/cli.md
-      - Python API: examples/api.md
-  - Models:
-      - Brock-Mirman: models/brock_mirman.md
-      - Disaster (NK-DSGE): models/disaster.md
-  - Networks:
-      - MLP / LSTM / Transformer: networks/sequence.md
-      - LinearPlusMLP: networks/linear_plus_mlp.md
-      - Adding a network: networks/adding.md
-  - Optimizers:
-      - Built-in optimizers: optimizers/index.md
-      - Adding an optimizer: optimizers/adding.md
-  - Training:
-      - Composite loss: training/composite_loss.md
-      - Curriculum & warm start: training/curriculum.md
+      - Worked model - Brock-Mirman: models/brock_mirman.md
+      - Worked model - Disaster (NK-DSGE): models/disaster.md
+
   - API reference:
+      - Overview: api/index.md
       - Config: api/config.md
       - Types: api/types.md
       - Trainer: api/trainer.md
@@ -109,3 +120,14 @@ nav:
       - Models: api/models.md
       - Networks: api/networks.md
       - Optimizers: api/optimizers.md
+
+  - deqn-agent (paper to policy): ecosystem/deqn-agent.md
+
+  - Guides:
+      - Overview: guides/index.md
+      - Running experiments: running_experiments.md
+      - CLI usage: examples/cli.md
+      - Python API usage: examples/api.md
+      - Config field reference: config_reference.md
+      - Reading guide (contributors): reading_guide.md
+      - Module architecture (contributors): architecture.md
