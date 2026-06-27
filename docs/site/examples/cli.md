@@ -1,15 +1,18 @@
 # CLI examples
 
-The `deqn-jax` CLI exposes seven subcommands: `train`, `list`, `info`,
-`check`, `evaluate`, `irf`, `optimizers`.
+The `deqn-jax` CLI exposes nine subcommands: `train`, `list`, `info`,
+`check`, `evaluate`, `irf`, `optimizers`, `active-subspace`, `init-config`
+(plus `--version`).
 
 ## Discovery
 
 ```bash
+deqn-jax --version             # print the installed package version
 deqn-jax list                  # show registered models
 deqn-jax info disaster         # constants, state/policy names, equation count
 deqn-jax optimizers            # list available optimizers
 deqn-jax check                 # JAX device + version sanity check
+deqn-jax init-config bm.yaml   # write a starter config you can edit
 ```
 
 ## Training

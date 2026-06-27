@@ -15,6 +15,14 @@ def main():
         description="DEQN-JAX: Pure JAX Deep Equilibrium Networks",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    from deqn_jax import __version__
+
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="version",
+        version=f"deqn-jax {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Train command

@@ -1,5 +1,11 @@
 # Architecture
 
+!!! info "For contributors — this is the software-engineering view"
+    This page is the *code* architecture (modules, imports, JIT boundary). If
+    you're an economist evaluating the **method**, you want the [home page](index.md)
+    instead — the recursive-equilibrium loop and where DEQN sits among projection /
+    time iteration / perturbation, not this import graph.
+
 Three diagrams: the **module dependency graph** (what imports what), the **training cycle sequence** (what happens when you call `train_from_config`), and the **`ModelSpec` contract** (what a model author writes vs. what the framework consumes). A fourth section traces **tensor shapes** through one cycle for the people who think in shapes.
 
 Diagrams are hand-drawn against the actual import graph (extracted via `pydeps src/deqn_jax --show-deps`) — collapse-at-depth-2 to keep them readable. Regenerate with:

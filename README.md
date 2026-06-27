@@ -1,6 +1,6 @@
 # DEQN-JAX
 
-**Pure-JAX framework for solving economic equilibrium models with deep equilibrium networks.**
+**A global solver for recursive economic equilibria, in JAX.** You write your model — states, Euler equations, transition law, calibration; it returns the solved decision rules and their Euler-equation accuracy.
 
 > This project is a JAX reimplementation and extension of the Deep Equilibrium Networks
 > methodology developed by Simon Scheidegger and collaborators. Foundational references:
@@ -14,13 +14,59 @@
 > priors (`LinearPlusMLP`) and composite loss terms. All credit for the original method
 > belongs to the upstream authors.
 
-Train a neural network to satisfy a dynamic model's equilibrium conditions across the full state space, rather than solving point-by-point. DEQN-JAX is designed as a general framework: models, networks, optimizers, and loss terms are independent plug-in layers.
-
+```mermaid
+flowchart LR
+    subgraph WRITE["You write (your model, native objects)"]
+        S["State s = (K, z): capital, productivity, shocks"]
+        EQ["Equilibrium conditions:<br/>Euler equations, FOCs, market clearing"]
+        TR["Law of motion + shocks:<br/>s' = g(s, pi(s), eps')"]
+    end
+    subgraph RET["Framework returns"]
+        PI["Decision rules pi(s):<br/>consumption, labor, savings, prices"]
+        ACC["Accuracy diagnostic:<br/>errREE distribution on the ergodic path"]
+    end
+    S --> PI
+    PI --> EQ
+    EQ --> RES["Residuals = conditional expectation<br/>over next-period shock (quadrature or MC)"]
+    RES -->|refine pi until residuals vanish| PI
+    PI --> TR
+    TR --> ERG["Ergodic set:<br/>states the economy actually visits"]
+    ERG -->|simulate to draw collocation states| S
+    RES -.->|relative Euler errors| ACC
 ```
-state  →  Network  →  policy  →  Equilibrium equations  →  Loss = Σ residuals²
+
+You write your model in its native objects: a state vector, the Euler equations and first-order conditions, the transition law, and a calibration. DEQN-JAX solves the recursive equilibrium globally — it approximates the decision rules π(s) (consumption, labor, savings, prices as functions of the state) and pins them down by driving the Euler, FOC, and market-clearing residuals to zero in expectation over next-period shocks (Gauss-Hermite quadrature, or Monte Carlo with antithetic variates), across the ergodic set the model actually visits. The neural network plays exactly the role Chebyshev polynomials or splines play in a projection method (the Judd / Maliar-Maliar lineage): same target, flexible basis — but it scales to many state dimensions without a tensor grid, so it pushes back the curse of dimensionality rather than pinning you to a grid. Occasionally-binding constraints (irreversibility, borrowing limits) enter directly through Fischer-Burmeister complementarity residuals, without linearizing away the kink. It composes with your toolkit rather than replacing it: a Dynare / Blanchard-Kahn linearization can serve as the warm-start anchor, and accuracy is reported in the units you already trust — the distribution of relative Euler errors (errREE) on the ergodic path.
+
+**Two honest limits, up front (not in a footnote).** A low residual is necessary but not sufficient: like any nonlinear global solver it can settle on the wrong equilibrium branch, and nothing here enforces equilibrium selection — there is no global analogue of the *local* Blanchard-Kahn saddle-path condition. And there are no analytic error bounds, so accuracy is the errREE distribution you measure, not a theorem.
+
+### Where it sits among methods you already use
+
+```mermaid
+flowchart TD
+    T["Same target: a decision rule pi(s) that drives the<br/>Euler / FOC / market-clearing residuals to zero"]
+    T --> L["Perturbation (Dynare):<br/>LOCAL Taylor expansion at the steady state"]
+    T --> P["Projection (Judd):<br/>Chebyshev / splines on a tensor grid (global)"]
+    T --> I["Time iteration / PFI:<br/>iterate the policy to a fixed point (global)"]
+    T --> D["DEQN -- this framework:<br/>network pi(s), residuals on the simulated ergodic set (global)"]
+    D --> N["Network plays the basis-function role; scales to many<br/>state dimensions without a tensor grid; occasionally-binding<br/>constraints via Fischer-Burmeister complementarity<br/>(irreversibility, borrowing limits) without linearizing away the kink"]
+    L -.->|linearization warm-starts / anchors DEQN| D
 ```
 
-**Status:** alpha (`v0.1.0`). API may change. Core plumbing is solid (241 tests pass; `uv build` produces both wheel and sdist; CLI subcommands `check`, `list`, `info`, `train`, `irf`, `evaluate`, `optimizers` all work). The package is intended to support multiple research papers — it is not paper-specific.
+### What an economist calls each piece
+
+| You'll see this ML word | What it is, in your language |
+|---|---|
+| neural-network policy | a flexible approximation of the decision rule π(s) — the role Chebyshev polynomials or splines play in a projection method |
+| loss / training residual | the Euler-equation / FOC / market-clearing error |
+| gradient descent / "training" | solving for the approximation's coefficients — the projection / collocation solve |
+| epoch / batch / optimizer step | inner iterations of the numerical solver |
+| on-policy sampling / minibatch | collocation points drawn by simulating the model (the ergodic set), not a fixed tensor grid |
+| expectation over shocks | Gauss-Hermite quadrature, or Monte Carlo with antithetic variates, over next-period shocks |
+| occasionally-binding-constraint penalty | Fischer-Burmeister complementarity residual (irreversibility, borrowing limits) |
+| "deep equilibrium net" | a global, nonlinear, high-dimensional recursive-equilibrium / policy-function solver |
+| "converged" / low loss | small relative Euler errors (errREE) on the ergodic path — necessary, but **not** sufficient (the solve can settle on the wrong equilibrium branch) |
+
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid (567 tests pass; `uv build` produces both wheel and sdist; CLI subcommands `train`, `list`, `info`, `check`, `evaluate`, `irf`, `optimizers`, `active-subspace`, `init-config` all work). The package supports multiple research papers — it is not paper-specific.
 
 ## What's implemented
 

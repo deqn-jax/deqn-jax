@@ -4,7 +4,7 @@ from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig, load_co
 from deqn_jax.training.trainer import train, train_from_config
 from deqn_jax.types import ModelSpec, ReweightState, TrainState, make_reweight_state
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "ModelSpec",
     "TrainState",

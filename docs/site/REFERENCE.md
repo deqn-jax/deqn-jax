@@ -94,7 +94,8 @@ Everything below is re-exported from `deqn_jax.api`. Import from there.
 | **Training** | `train_from_config(cfg) -> (params, history)`, `train(...)`, `create_train_state(...)`, `make_train_step(...)` |
 | **Evaluation** | `euler_equation_errors`, `print_euler_errors`, `stability_check`, `simulated_moments`, `print_moments`, `market_clearing_errors` |
 | **IRF** | `run_irf`, `run_girf`, `load_policy_from_checkpoint`, `save_irf_csv`, `print_irf_summary` |
-| **Networks (advanced)** | `MLP`, `ResMLP`, `LSTMPolicy`, `TransformerPolicy`, `create_mlp`, `create_lstm`, `create_transformer` |
+| **Steady state** | `solve_steady_state`, `verify_steady_state`, `euler_from_period_return` |
+| **Networks (advanced)** | `MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`, `KfAnchoredMLP`, `create_mlp`, `create_lstm`, `create_transformer`, `create_linear_plus_mlp`, `create_kf_anchored_mlp` |
 
 If you find yourself importing from `deqn_jax.training.*` or `deqn_jax.optimizers.*`
 directly, you've stepped past the stable surface. File an issue requesting that
