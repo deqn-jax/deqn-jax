@@ -23,10 +23,19 @@ from deqn_jax.plots._style import deqn_style
 # ---------------------------------------------------------------------------
 
 
-def _pct_deviation(series: np.ndarray) -> np.ndarray:
-    """Percent deviation of each point from series[0]."""
+def _deviation(series: np.ndarray, ss_floor: float = 1e-3):
+    """Deviation of each point from series[0].
+
+    Percent deviation for normal baselines; ABSOLUTE deviation for
+    near-zero baselines (e.g. log-deviation / AR(1) states whose steady
+    state is ~0, like log-TFP), where a percent change would divide by
+    ~0 and explode to ~1e12. Returns ``(dev, unit_suffix)`` so callers
+    annotate the right unit ("%" vs absolute).
+    """
     ss = series[0]
-    return (series - ss) / (abs(ss) + 1e-12) * 100
+    if abs(ss) < ss_floor:
+        return series - ss, ""  # absolute deviation; baseline ~0
+    return (series - ss) / abs(ss) * 100, "%"
 
 
 def plot_irf_grid(
@@ -34,7 +43,8 @@ def plot_irf_grid(
     *,
     variables: Sequence[str] = ("y_gdp", "pi", "R", "i", "c", "K_p"),
     shock_labels: Optional[Mapping[str, str]] = None,
-    title: str = "Impulse responses (% dev from t=0)",
+    var_labels: Optional[Mapping[str, str]] = None,
+    title: str = "Impulse responses (dev. from steady state)",
     mark_t1: bool = True,
     row_height: float = 2.0,
     col_width: float = 3.0,
@@ -73,6 +83,28 @@ def plot_irf_grid(
     }
     labels = {**default_labels, **(shock_labels or {})}
 
+    # Pretty economic names for panel titles (internal field name -> label).
+    # Callers override / extend via ``var_labels``; unmapped names fall back
+    # to the raw field name.
+    default_var_labels = {
+        "k": "capital",
+        "K": "capital",
+        "K_p": "capital",
+        "z": "log TFP (state)",
+        "Z": "TFP level",
+        "c": "consumption",
+        "i": "investment",
+        "pi": "inflation",
+        "R": "policy rate",
+        "y": "output",
+        "y_gdp": "output",
+        "L": "labor",
+        "w": "wage",
+        "mpk": "MPK",
+        "sav_rate": "savings rate",
+    }
+    vlabels = {**default_var_labels, **(var_labels or {})}
+
     with deqn_style():
         fig, axes = plt.subplots(
             nrows,
@@ -98,19 +130,19 @@ def plot_irf_grid(
                     ax.axis("off")
                     continue
                 series = np.asarray(shock_data[var], dtype=float)
-                dev = _pct_deviation(series)
+                dev, unit = _deviation(series)
                 ax.plot(periods, dev, lw=1.3)
                 ax.axhline(0, color="gray", lw=0.5, ls="--")
                 if mark_t1 and len(dev) > 1:
                     ax.annotate(
-                        f"t=1: {dev[1]:+.2f}%",
+                        f"t=1: {dev[1]:+.3g}{unit}",
                         xy=(periods[1], dev[1]),
                         xytext=(6, dev[1]),
                         fontsize=7,
                         arrowprops=dict(arrowstyle="->", lw=0.4),
                     )
                 if i == 0:
-                    ax.set_title(var, fontsize=9)
+                    ax.set_title(vlabels.get(var, var), fontsize=9)
                 if j == 0:
                     ax.set_ylabel(labels.get(shock, shock), fontsize=8)
                 ax.tick_params(labelsize=7)
