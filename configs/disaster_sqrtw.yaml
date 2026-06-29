@@ -1,9 +1,9 @@
 # disaster + linear_plus_mlp_kfmask + sqrt(MSE_BK) per-equation loss weights
 #
 # Same architecture as disaster.yaml, but with per-equation residual
-# weights derived from a one-time BK-init diagnostic. Empirically (see
-# `docs/dev/disaster_equation_shape_priors.md` §3 and the per-equation
-# residual diagnostic in `scripts/diagnostic_per_equation_residuals.py`):
+# weights derived from a one-time BK-init diagnostic. Empirically (see the
+# per-equation residual diagnostic in
+# `scripts/diagnostic_per_equation_residuals.py`):
 #
 #   - Uniform MSE rewards the optimizer for fitting the algebraic
 #     definition equations (eq2a, eq4a) to noise floor while leaving

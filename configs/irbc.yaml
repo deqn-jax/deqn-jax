@@ -50,8 +50,7 @@ log_every: 200
 # The plain-MLP recipe above trains to small residuals but lands on a
 # closed-loop UNSTABLE policy (rho(SS)=1.23: simulations drift out of the
 # training rect, ARC violated O(1) on the ergodic set, negative investment).
-# Same disease + same cure as the disaster model (see
-# docs/dev/disaster_stability_findings.md): BK-anchored residual net + the
-# composite anchor/jac terms pin the policy's SS tangent to the stable
+# Same disease + same cure as the disaster model: a BK-anchored residual net
+# + the composite anchor/jac terms pin the policy's SS tangent to the stable
 # linearization. Measured post-fix: rho(SS)=0.981, i>=0 everywhere on the
 # ergodic set, final loss 8.7e-7 (was 2.5e-4).

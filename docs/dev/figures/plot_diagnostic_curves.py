@@ -7,8 +7,7 @@ Generates four PNGs in this directory:
   - elb_floor.png:           softplus ELB R(R_taylor)
 
 These are 1D slices of multivariate equation residuals, intended to
-illustrate where shape priors would help. See
-``docs/dev/disaster_equation_shape_priors.md`` for the analysis.
+illustrate where shape priors would help.
 
 Constants are pulled from src/deqn_jax/models/disaster/variables.py
 defaults. Tune by editing the globals at the top.

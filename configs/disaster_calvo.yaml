@@ -16,9 +16,6 @@
 # π, w_tilda). Net: difficulty moved into eq2b/eq4b/eq5/eq6/eq3 with worse
 # loss landscape.
 #
-# Full write-up: docs/dev/disaster_equation_shape_priors.md §3.1 empirical
-# update (2026-05-04 joint).
-#
 # Production-ready disaster recipe: configs/disaster_sqrtw.yaml (sqrt(MSE_BK)
 # per-equation weights, validated). DO NOT use this config for new training
 # runs — it's only kept to reproduce the negative finding.

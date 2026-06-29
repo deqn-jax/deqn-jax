@@ -111,17 +111,17 @@ class NetworkConfig(_ConfigBase):
 
     reparam_q_as_m: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP. Eliminates the eq 7 sign-flip pathology by parameterization. (§3.3 of disaster_equation_shape_priors.md)",
+        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP. Eliminates the eq 7 sign-flip pathology by parameterization.",
     )
 
     reparam_pi_as_kp_inner: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner. (§3.1 of disaster_equation_shape_priors.md)",
+        description="`disaster_policy_net` only: treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner.",
     )
 
     reparam_wtilda_as_kw_inner: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam. (§3.1' of disaster_equation_shape_priors.md)",
+        description="`disaster_policy_net` only: treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam.",
     )
 
     output_links: Optional[Tuple[str, ...]] = Field(

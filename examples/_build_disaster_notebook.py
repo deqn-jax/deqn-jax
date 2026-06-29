@@ -8,8 +8,7 @@ and writes the .ipynb. Re-run after editing, then execute with::
         --ExecutePreprocessor.timeout=3600
 
 The flagship example: the CMR-style NK-DSGE with financial frictions, trained
-with the BK-anchored recipe and certified for closed-loop stability. The
-notebook is the distilled version of docs/dev/disaster_stability_findings.md.
+with the BK-anchored recipe. An experimental research example.
 """
 
 from __future__ import annotations
@@ -102,8 +101,7 @@ def chapter_train() -> List[Dict]:
 
 `configs/disaster.yaml` with one override: the Jacobian-anchor weight raised
 to **1.0** (the config default is 0.1, which measurably fails to hold the
-steady-state tangent — a multi-seed comparison is in
-`docs/dev/disaster_stability_findings.md`). Expectations by Gauss-Hermite
+steady-state tangent). Expectations by Gauss-Hermite
 quadrature, $3^5 = 243$ nodes; fp64; warm-started from the steady state with a
 curriculum ramp on shock scale. ~20 minutes on a laptop CPU."""
         ),
@@ -122,9 +120,11 @@ print(f"final training loss: {history['loss'][-1]:.3e}")"""
         ),
         code(
             """fig, ax = plt.subplots(figsize=(7, 4))
-ax.semilogy(history["loss"], lw=0.8)
-ax.set_xlabel("episode"); ax.set_ylabel("composite training loss")
-ax.set_title("the curriculum transient resolves; the loss is honest about it")
+ax.semilogy(history["loss"], lw=0.8, color="C0")
+ax.set_xlabel("episode")
+ax.set_ylabel("composite training loss")
+ax.set_title("Training loss (log scale)")
+ax.grid(True, which="both", alpha=0.2)
 fig.tight_layout()"""
         ),
     ]
@@ -166,8 +166,29 @@ traj = simulate(params)
 assert bool(jnp.isfinite(traj).all())
 k_idx = list(model.state_names).index("k_lag")
 k = np.asarray(traj[500:, :, k_idx])
-print(f"unclipped 2000-step simulation: k in [{k.min():.1f}, {k.max():.1f}] "
+print(f"unclipped 2000-step simulation: capital in [{k.min():.1f}, {k.max():.1f}] "
       f"(ss {float(ss[k_idx]):.1f}) — bounded, no ceiling mass")"""
+        ),
+        md(
+            r"""The ergodic cloud the trained policy actually visits. A
+BK-unstable policy would smear toward the state-clip box; this one stays a
+tight, recurrent blob around the steady state (marked ★). Economic axes:
+capital against (gross quarterly) inflation."""
+        ),
+        code(
+            """pi_idx = list(model.state_names).index("pi_lag")
+erg = np.asarray(traj[500:].reshape(-1, model.n_states))
+
+fig, ax = plt.subplots(figsize=(6.5, 5))
+ax.scatter(erg[:, k_idx], erg[:, pi_idx], s=4, alpha=0.12, color="C0",
+           label="ergodic draws")
+ax.scatter([float(ss[k_idx])], [float(ss[pi_idx])], marker="*", s=240,
+           color="k", zorder=5, label="steady state")
+ax.set_xlabel("capital $K$")
+ax.set_ylabel(r"inflation $\\pi$ (gross, quarterly)")
+ax.set_title("Ergodic distribution under the trained policy")
+ax.legend(loc="best")
+fig.tight_layout()"""
         ),
     ]
 
@@ -183,7 +204,12 @@ the linear rule on the model's own ergodic states — otherwise the MLP added
 nothing. Both policies are evaluated with the same 243-node quadrature."""
         ),
         code(
-            """from deqn_jax.training.loss import compute_loss, gauss_hermite_nd
+            """import re
+
+from deqn_jax.training.loss import (
+    compute_residuals,
+    gauss_hermite_nd,
+)
 from deqn_jax.training.linearize import linearize_model
 
 P, Q = linearize_model(model, verbose=False)
@@ -192,21 +218,68 @@ _, ss_policy = model.steady_state_fn(model.constants)
 def lin_policy(states):
     return jnp.asarray(ss_policy)[None, :] + (states - ss[None, :]) @ jnp.asarray(P).T
 
-nodes, weights = gauss_hermite_nd(3, model.n_shocks)
+# Evaluate both policies on the SAME ergodic states with the SAME 243-node
+# quadrature. The disaster model is single-stage, so the expectation residual
+# per state is the weighted sum of the per-node residuals — exactly the inner
+# quantity the (E[r])^2 training loss squares and averages.
+nodes, q_weights = gauss_hermite_nd(3, model.n_shocks)
+nodes = jnp.array(nodes); q_weights = jnp.array(q_weights)
 pool = traj[500:].reshape(-1, model.n_states)
 idx = jax.random.choice(jax.random.PRNGKey(2), pool.shape[0], (512,), replace=False)
 states = pool[idx]
 
-rows = []
-for name, fn in (("trained net", params), ("linearized policy", lin_policy)):
-    total, eq = compute_loss(model, fn, states, jax.random.PRNGKey(0),
-                             quad_nodes=jnp.array(nodes), quad_weights=jnp.array(weights))
-    rows.append((name, float(total), eq))
-    print(f"{name:<20} mean squared residual (per-eq mean): {float(total):.3e}")
+def expectation_residuals(fn):
+    \"\"\"Dict eq_name -> E[r] per state (weighted over quadrature nodes).\"\"\"
+    shocks = jnp.broadcast_to(nodes[:, None, :], (nodes.shape[0], states.shape[0], model.n_shocks))
+    per_node = jax.vmap(lambda sh: compute_residuals(model, fn, states, sh))(shocks)
+    return {k: jnp.einsum("s,sb->b", q_weights, v) for k, v in per_node.items()}
 
-print(f"\\nimprovement over the anchor: {rows[1][1] / rows[0][1]:.1f}x")
-worst = sorted(((float(v), k) for k, v in rows[0][2].items()), reverse=True)[:3]
-print("hardest equations:", ", ".join(f"{k} ({v:.1e})" for v, k in worst))"""
+res_net = expectation_residuals(params)
+res_lin = expectation_residuals(lin_policy)
+
+eq_order = [k for k in res_net if not k.startswith("aux_")]
+def label(name):
+    return re.sub(r"^eq\\d+[ab]?_", "", name).replace("_", " ")
+
+rms_net = np.array([float(jnp.sqrt(jnp.mean(res_net[k] ** 2))) for k in eq_order])
+rms_lin = np.array([float(jnp.sqrt(jnp.mean(res_lin[k] ** 2))) for k in eq_order])
+loss_net = float(np.mean(rms_net ** 2))
+loss_lin = float(np.mean(rms_lin ** 2))
+print(f"trained net        mean squared residual: {loss_net:.3e}")
+print(f"linearized anchor  mean squared residual: {loss_lin:.3e}")
+print(f"improvement over the anchor: {loss_lin / loss_net:.1f}x")"""
+        ),
+        md(
+            r"""Root-mean-square equilibrium residual per equation, trained net
+against its linearized anchor (log scale — the residuals span orders of
+magnitude and a linear axis would hide the small ones). Lower is better; bars
+where the orange (net) sits below the grey (linear) are equations the
+nonlinear correction actually improves."""
+        ),
+        code(
+            """fig, ax = plt.subplots(figsize=(10, 4.5))
+x = np.arange(len(eq_order))
+ax.bar(x - 0.2, rms_lin, width=0.4, color="0.6", label="linearized anchor")
+ax.bar(x + 0.2, rms_net, width=0.4, color="C1", label="trained net")
+ax.set_yscale("log")
+ax.set_xticks(x)
+ax.set_xticklabels([label(k) for k in eq_order], rotation=40, ha="right", fontsize=8)
+ax.set_ylabel("RMS equilibrium residual")
+ax.set_title("Per-equation accuracy: trained net vs linearized anchor")
+ax.legend(loc="best")
+fig.tight_layout()"""
+        ),
+        code(
+            """# Accuracy certificate: quantiles of the dimensionless equilibrium
+# residual over all (state, equation) pairs. Quantiles, not a mean — a single
+# mean hides whether the tail is controlled.
+all_res = np.abs(np.concatenate([np.asarray(res_net[k]) for k in eq_order]))
+med, p90, p99, mx = (float(np.quantile(all_res, q)) for q in (0.5, 0.9, 0.99, 1.0))
+print("trained net |E[r]| across ergodic states x equations:")
+print(f"  median={med:.2e}  p90={p90:.2e}  p99={p99:.2e}  max={mx:.2e}")
+print(f"  log10 median = {np.log10(med):.2f}")
+worst = sorted(((rms, label(k)) for rms, k in zip(rms_net, eq_order)), reverse=True)[:3]
+print("hardest equations:", ", ".join(f"{nm} ({v:.1e})" for v, nm in worst))"""
         ),
     ]
 
@@ -237,16 +310,32 @@ where they coincide is a sanity check, not a disappointment."""
 
 d_net = irf(params)
 d_lin = irf(lin_policy)
-show = ["pi_lag", "k_lag", "c_lag", "R_lag"]
+
+# Economic names for the internal lagged-state fields, and report responses as
+# percent deviation from steady state — the standard, comparable IRF unit.
+show = [("pi_lag", "inflation"), ("k_lag", "capital"),
+        ("c_lag", "consumption"), ("R_lag", "policy rate")]
 fig, axes = plt.subplots(1, 4, figsize=(14, 3.2))
-for ax, nm in zip(axes, show):
+for ax, (nm, econ) in zip(axes, show):
     i = list(model.state_names).index(nm)
-    ax.plot(np.asarray(d_net[:, i]), label="nonlinear (net)")
-    ax.plot(np.asarray(d_lin[:, i]), "--", label="linearized")
+    ss_i = float(ss[i])
+    pct_net = 100.0 * np.asarray(d_net[:, i]) / ss_i
+    pct_lin = 100.0 * np.asarray(d_lin[:, i]) / ss_i
+    ax.plot(pct_net, color="C1", label="nonlinear (net)")
+    ax.plot(pct_lin, "--", color="0.4", label="linearized")
     ax.axhline(0, color="k", lw=0.5)
-    ax.set_title(nm)
+    ax.set_title(econ)
+    ax.set_xlabel("periods (quarters)")
+    # Honest axis: keep zero in frame and never autoscale a ~0 response into
+    # float noise. If the whole response is numerically negligible, show a
+    # readable flat band instead of a noise-magnified squiggle.
+    span = max(np.abs(pct_net).max(), np.abs(pct_lin).max())
+    pad = max(1.05 * span, 1e-3)
+    ax.set_ylim(-pad, pad)
+axes[0].set_ylabel("% deviation from steady state")
 axes[0].legend(fontsize=8)
-fig.suptitle("IRF to a 1σ investment-efficiency shock (deviation from baseline)")
+fig.suptitle("IRF to a 1σ investment-efficiency shock — nonlinear (net) vs "
+             "linearized; gaps are the risk/curvature content the net adds")
 fig.tight_layout()"""
         ),
     ]
@@ -265,8 +354,7 @@ def chapter_summary() -> List[Dict]:
 - The certificate battery (ρ, unclipped simulation health, net-vs-anchor
   accuracy) is what "solved" means in this gallery; the training loss alone is
   not it — this model's history includes a long stretch where the training
-  loss was wrong in *both* directions (see
-  `docs/dev/disaster_stability_findings.md` for the full forensic story).
+  loss was wrong in *both* directions.
 - The same anchoring recipe stabilizes the structurally different `irbc`
   example: equilibrium-selection-by-anchoring is a method-level tool, not a
   per-model hack.

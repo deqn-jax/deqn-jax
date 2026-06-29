@@ -32,8 +32,7 @@ Krusell-Smith, the DICE climate family (incl. Epstein-Zin).
 ## What counts as solved
 
 Training loss is not the claim — this repo has documented cases of the
-training loss being wrong in *both* directions (see
-`docs/dev/disaster_stability_findings.md`). A gallery model is presented as
+training loss being wrong in *both* directions. A gallery model is presented as
 solved when:
 
 1. **its closed-loop dynamics are stable** (long unclipped simulations stay in
