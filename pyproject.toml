@@ -52,10 +52,10 @@ deqn-jax = "deqn_jax.cli:main"
 
 # NOTE: org-move-gated — update these URLs after the planned GitHub org move.
 [project.urls]
-Homepage = "https://github.com/mechanicpanic/deqn-jax"
-Documentation = "https://mechanicpanic.github.io/deqn-jax/"
-Repository = "https://github.com/mechanicpanic/deqn-jax"
-Changelog = "https://github.com/mechanicpanic/deqn-jax/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/deqn-jax/deqn-jax"
+Documentation = "https://deqn-jax.github.io/"
+Repository = "https://github.com/deqn-jax/deqn-jax"
+Changelog = "https://github.com/deqn-jax/deqn-jax/blob/master/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]

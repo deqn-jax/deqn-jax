@@ -16,7 +16,7 @@ sector and an optional disaster block.
 ### Baseline (`p_disaster = 0`)
 
 Plain CMR — no disaster code path activates. Configured in
-[`configs/disaster.yaml`](https://github.com/mechanicpanic/deqn-jax/blob/master/configs/disaster.yaml).
+[`configs/disaster.yaml`](https://github.com/deqn-jax/deqn-jax/blob/master/configs/disaster.yaml).
 
 ### Disaster risk (`p_disaster > 0`)
 
@@ -34,7 +34,7 @@ When `p_disaster > 0`, the trainer automatically swaps to the
 and Blanchard-Kahn linearization. This uses a Gourio-style
 locally-flat policy approximation.
 
-Example config: [`configs/disaster_pdis.yaml`](https://github.com/mechanicpanic/deqn-jax/blob/master/configs/disaster_pdis.yaml).
+Example config: [`configs/disaster_pdis.yaml`](https://github.com/deqn-jax/deqn-jax/blob/master/configs/disaster_pdis.yaml).
 
 ## Validated stack
 

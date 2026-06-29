@@ -10,8 +10,8 @@ authors:
     given-names: Anna
     email: anna.smirnova@unil.ch
 # URLs below are org-move-gated: a GitHub org move is pending; update on cutover.
-repository-code: "https://github.com/mechanicpanic/deqn-jax"
-url: "https://mechanicpanic.github.io/deqn-jax/"
+repository-code: "https://github.com/deqn-jax/deqn-jax"
+url: "https://deqn-jax.github.io/"
 keywords:
   - deep equilibrium nets
   - global solution methods

@@ -1,6 +1,3 @@
-<!-- Repo + docs URLs below are org-move-gated: a GitHub org move is pending.
-     Until it lands, the canonical locations are the mechanicpanic/* ones used here. -->
-
 # Contributing to DEQN-JAX
 
 Thanks for looking under the hood. DEQN-JAX is a global solver for recursive
@@ -20,7 +17,7 @@ extend it.
 ## 30-second dev setup
 
 ```bash
-git clone https://github.com/mechanicpanic/deqn-jax   # org-move-gated; see top of file
+git clone https://github.com/deqn-jax/deqn-jax   # org-move-gated; see top of file
 cd deqn-jax
 uv sync                                   # creates .venv, installs deps + dev tools
 uv run pytest tests/                      # 571 tests
@@ -156,7 +153,7 @@ Questions, model contributions, or research collaboration:
 
 ## The ecosystem
 
-[`deqn-agent`](https://github.com/mechanicpanic/deqn-agent) <!-- org-move-gated -->
+[`deqn-agent`](https://github.com/deqn-jax/deqn-agent) <!-- org-move-gated -->
 is a separate repo: an agent stack *on top* of DEQN-JAX that turns a paper or
 model description into a trained, residual-checked DEQN policy. It targets the
 same `ModelSpec` / `REFERENCE.md` contract you build against here. It is **v0

@@ -10,9 +10,12 @@ operate on (the ``aux_`` prefix is the documented exclusion convention).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 jax.config.update("jax_enable_x64", True)
 
@@ -141,6 +144,15 @@ def test_wrapper_passthrough_when_no_overlap():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not (
+        Path(__file__).resolve().parents[1]
+        / "dynare"
+        / "results"
+        / "dynare_moments.csv"
+    ).exists(),
+    reason="Dynare reference output (dynare/results/) is local-only (gitignored); skipped on CI.",
+)
 def test_end_to_end_train_with_moment_matching():
     """Smoke: a 4-episode disaster run with the aux enabled completes
     without NaN, and the aux key shows up in the final history."""

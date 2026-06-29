@@ -5,7 +5,7 @@ DEQN-JAX requires Python 3.10+.
 ## From source (alpha)
 
 ```bash
-git clone https://github.com/mechanicpanic/deqn-jax.git
+git clone https://github.com/deqn-jax/deqn-jax.git
 cd deqn-jax
 uv sync
 ```

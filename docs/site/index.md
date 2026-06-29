@@ -7,6 +7,11 @@ clearing, a transition law, a calibration. It returns globally-solved decision
 rules and their Euler-equation accuracy, with the kinks your perturbation tools
 linearize away left **intact**.
 
+> **Built on Deep Equilibrium Nets** — the method of **Azinovic, Gaegauf &
+> Scheidegger (2022)** and **Scheidegger & Bilionis (2019)**. DEQN-JAX is a
+> JAX/Equinox reimplementation and extension; all credit for the original method
+> belongs to the upstream authors. [Full references ↓](#citing)
+
 !!! note "Status: alpha (v0.2.0)"
     The **validated stack is small**: `adam` + an MLP (or `LinearPlusMLP`) +
     an MSE residual + antithetic Monte-Carlo (or Gauss–Hermite) expectations.

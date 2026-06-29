@@ -4,8 +4,7 @@
     `deqn-agent` is a separate, early-stage project that sits **on top of**
     deqn-jax and does not ship inside it. Its CLI flags, exit codes, and
     skill/prompt contracts may change without notice. This page documents only
-    what is shipped today. URLs below point to the personal `mechanicpanic`
-    account and will change after the pending org move.
+    what is shipped today.
 
 ## Where it sits in the ecosystem
 

@@ -4,8 +4,15 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 
+@pytest.mark.skipif(
+    not (
+        Path(__file__).resolve().parents[1] / "dynare" / "results" / "dynare_ghx.csv"
+    ).exists(),
+    reason="Dynare reference output (dynare/results/) is local-only (gitignored); skipped on CI.",
+)
 def test_dynare_warm_start_runs_for_disaster_model():
     """Dynare warm-start should support current disaster policy variables."""
     from deqn_jax.models.disaster import MODEL

@@ -1,8 +1,8 @@
 site_name: DEQN-JAX
 site_description: Pure-JAX framework for Deep Equilibrium Networks
-site_url: https://mechanicpanic.github.io/deqn-jax/
-repo_url: https://github.com/mechanicpanic/deqn-jax
-repo_name: mechanicpanic/deqn-jax
+site_url: https://deqn-jax.github.io/
+repo_url: https://github.com/deqn-jax/deqn-jax
+repo_name: deqn-jax/deqn-jax
 docs_dir: docs/site
 
 theme:

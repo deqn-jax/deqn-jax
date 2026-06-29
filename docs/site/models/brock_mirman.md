@@ -10,7 +10,7 @@ Analytical steady state.
 deqn-jax train brock_mirman -n 1000 --warm-start
 ```
 
-Or via YAML: see [`configs/brock_mirman.yaml`](https://github.com/mechanicpanic/deqn-jax/blob/master/configs/brock_mirman.yaml).
+Or via YAML: see [`configs/brock_mirman.yaml`](https://github.com/deqn-jax/deqn-jax/blob/master/configs/brock_mirman.yaml).
 
 ## Source
 

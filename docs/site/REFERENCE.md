@@ -1122,7 +1122,7 @@ issue requesting that it be re-exported from `deqn_jax.api`.
   that turn a paper into a `ModelSpec` are user-stack territory. The
   contract here is just the `ModelSpec` shape — what an agent emits.
 - **No actor-critic, no value-function head.** That work currently lives
-  on the [`experimental/actor-critic`](https://github.com/mechanicpanic/deqn-jax/tree/experimental/actor-critic)
+  on the [`experimental/actor-critic`](https://github.com/deqn-jax/deqn-jax/tree/experimental/actor-critic)
   branch and may land later as an isolated module that wraps stable APIs.
 - **No distributed training.** Single-device JAX. Multi-device support
   via `pmap` is straightforward in principle but not wired.
