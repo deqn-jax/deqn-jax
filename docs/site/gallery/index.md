@@ -8,7 +8,7 @@ dimensionless residual quantiles on the model's *own* ergodic states, plus, wher
 it matters, a closed-loop stability diagnostic and an independent cross-check.
 See [What counts as solved](#what-counts-as-solved) before you read the numbers.
 
-The gallery is a learning path in three arcs. Read top to bottom the first time.
+The gallery is a learning path in two arcs. Read top to bottom the first time.
 
 !!! warning "Alpha -- and these certificates are claims to re-verify"
     deqn-jax is alpha. The certificate numbers below are quoted from prior
@@ -56,31 +56,6 @@ multi-country planner problem.
 
 ---
 
-## Arc 3 -- The certified NK-DSGE flagship
-
-| # | notebook | economics | method capability it shows | certificate |
-|---|----------|-----------|----------------------------|-------------|
-| 8 | [The disaster model](disaster.ipynb) | NK-DSGE with financial frictions in the CMR tradition -- **13 states, 11 policies, 11 equilibrium equations, 5 shocks** (rare-disaster mixture optional, off in baseline) | **equilibrium selection made explicit**: a Blanchard-Kahn-linear core + tangent anchoring + a spectral-radius certificate, on a model with Calvo price *and* wage aggregates (near-degenerate dynamics) | $\rho(\mathrm{SS})$ matches the BK eigenvalue to 6 digits; the trained policy **beats its own linearized anchor** on ergodic residuals |
-
-The disaster notebook is where the honest limits bite hardest and where the
-framework earns the word *certified*: not by a soundness theorem, but by pairing
-a residual certificate with a closed-loop stability certificate and a
-linearization floor it has to beat. It does **not** claim parity with the
-TensorFlow reference -- there is a known ~0.85-decimal ergodic-accuracy gap still
-under investigation; the claim is strictly "stable, small-residual, beats its
-own linear anchor."
-
----
-
-## Appendix -- mechanistic interpretability (experimental)
-
-[Mech-interp on DEQNs: Brock-Mirman walkthrough](interp_brock_mirman.ipynb) -- a
-narrated dissection of tiny `LinearPlusMLP` networks trained at three
-risk-aversion settings. This is **experimental** tooling exploration, not a
-certified economic result; it sits outside the learning path.
-
----
-
 ## What counts as solved
 
 Training loss is **not** the claim. This repo has documented cases of the
@@ -98,13 +73,13 @@ solved only when all three of these hold:
    median / p90 / p99, **never a bare mean**.
 3. **Something independent agrees** -- a closed form (Arc 1, notebook 4), a
    structural identity (notebook 7's risk-sharing ratio), or the model's own
-   linearization used as a floor to beat (notebook 8).
+   linearization used as a floor to beat (the Blanchard-Kahn-anchored models).
 
 ## Running a notebook yourself
 
-Every notebook trains its model from scratch -- minutes on a laptop for the
-first seven, ~20 minutes for the disaster flagship. All training is
-config-driven; there is no hand-tuned magic beyond each model's `configs/` file.
+Every notebook trains its model from scratch -- minutes on a laptop. All
+training is config-driven; there is no hand-tuned magic beyond each model's
+`configs/` file.
 
 ```bash
 uv run jupyter nbconvert --to notebook --execute examples/<name>.ipynb \

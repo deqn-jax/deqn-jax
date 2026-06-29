@@ -86,12 +86,15 @@ nav:
       - Quickstart: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
 
-  # HEAT-GATED: this whole section ships only AFTER task #10 re-executes the 4
-  # currently-empty notebooks and the 9 executed .ipynb are copied into
-  # docs/site/gallery/. Adding these leaves before the files exist breaks
-  # `mkdocs build --strict`.
   - Gallery:
       - Overview: gallery/index.md
+      - Brock-Mirman (deterministic): gallery/bm_deterministic.ipynb
+      - Brock-Mirman (stochastic): gallery/brock_mirman.ipynb
+      - Brock-Mirman + labor: gallery/bm_labor.ipynb
+      - Labor cap (Fischer-Burmeister): gallery/bm_labor_constrained.ipynb
+      - IRBC (irreversibility): gallery/irbc.ipynb
+      - OLG life-cycle (borrowing): gallery/olg_lifecycle.ipynb
+      - OLG closed-form check: gallery/olg_analytic_6.ipynb
 
   - Method Zoo:
       - Overview: method-zoo/index.md
