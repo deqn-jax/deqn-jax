@@ -11,6 +11,11 @@ sector and an optional disaster block.
 | Shocks          | 5     |
 | Steady state    | numerical |
 
+!!! note "Experimental research example"
+    The disaster model is included as an **experimental research target** for
+    reproduction and method development — not a validated or turnkey result.
+    Treat its outputs accordingly.
+
 ## Calibrations
 
 ### Baseline (`p_disaster = 0`)
@@ -36,10 +41,10 @@ locally-flat policy approximation.
 
 Example config: [`configs/disaster_pdis.yaml`](https://github.com/deqn-jax/deqn-jax/blob/master/configs/disaster_pdis.yaml).
 
-## Validated stack
+## Training configuration
 
-The disaster model is sensitive — plain MLP + bare residual loss finds
-degenerate self-referential fixed points. The **validated stack** is:
+The disaster model is sensitive to the network and loss choice. The
+configuration used here is:
 
 - Network: `LinearPlusMLP` (residual over Blanchard-Kahn linearization)
 - Loss: `composite` (anchor + Jacobian + barrier + Newton)
@@ -63,18 +68,12 @@ gradient explosions through the soft floor at 0.01.
 
 See `models/disaster/variables.py` for the bound spec and rationale.
 
-## `xi_p = 0.6` is pinned by determinacy
+## Calibration coupling
 
-The price-stickiness parameter `xi_p = 0.6` cannot be lowered without
-recalibrating the rest of the Phillips block at the same time.
-Attempting `xi_p = 0.5` produced 14 stable eigenvalues where determinacy
-expects 13 — so the linearised system loses uniqueness of equilibrium
-and the Blanchard-Kahn solve in `linearize.py` silently picks a
-non-fundamental root.
-
-This couples to the validity edge above: the `pi` upper bound is
-calibrated against `xi_p = 0.6`, so any change to `xi_p` must
-re-derive the bound.
+`xi_p = 0.6` is the price-stickiness value used here. Lowering it requires
+recalibrating the rest of the Phillips block at the same time, and the `pi`
+upper bound (above) is derived against this value — so any change to `xi_p`
+must re-derive the bound.
 
 ## Aggregator residuals: ratio form, not log form
 
