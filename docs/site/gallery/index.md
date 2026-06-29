@@ -59,9 +59,8 @@ multi-country planner problem.
 ## What counts as solved
 
 Training loss is **not** the claim. This repo has documented cases of the
-training loss being misleading in *both* directions
-(`docs/dev/disaster_stability_findings.md`). A gallery model is presented as
-solved only when all three of these hold:
+training loss being misleading in *both* directions. A gallery model is
+presented as solved only when all three of these hold:
 
 1. **Its closed-loop dynamics are stable.** Long *unclipped* simulations stay in
    economic territory, and the spectral radius of the closed loop at the steady

@@ -255,15 +255,11 @@ packaged API.
     | **Dynare Jacobian match** | `evaluate/dynare.py` | validated | Frobenius distance between the network's policy slope at SS and the Dynare/BK matrix `P`. |
     | **Active subspace / effective dimension** | `active_subspace.py` | experimental | Eigenanalysis of the policy-gradient covariance + a degeneracy detector. |
     | **Ergodic replay buffer** | `training/replay.py` | experimental | A prioritized ring buffer so the policy doesn't forget rare-event branches (ZLB, disaster). A training mechanism, not a metric. |
-    | **Closed-loop spectral radius &rho;** | dev analysis (`docs/dev/disaster_stability_findings.md`) | research probe | &rho; of the closed-loop Jacobian at SS -- a local stability read. A documented analysis, **not yet a packaged function**. |
     | **Bias floor -- MSE vs AiO** | dev analysis (`docs/dev/aio_loss_estimator.md`) | research probe | Estimates the MC bias floor with no ground truth. A write-up + probe, not shipped API. |
-    | **Anchor / selection diagnostic** | dev analysis (`docs/dev/disaster_stability_findings.md`) | research probe | How strongly anchor/Jacobian terms pin the solution to the BK branch. Exploratory. |
 
-    !!! note "The three research probes are leads, not features"
-        Closed-loop &rho;, the bias floor, and the anchor/selection check live in
-        `docs/dev/` as analyses on the disaster model. They informed real fixes
-        but are not exposed as stable API. To use them today, read the dev note
-        and run the analysis by hand.
+    !!! note "The research probe is a lead, not a feature"
+        The bias-floor estimator lives in `docs/dev/` as an analysis, not a
+        stable API. To use it today, read the dev note and run it by hand.
 
 ??? quote "Lineage & attribution"
     DEQN-JAX is a JAX/Equinox reimplementation of the **Deep Equilibrium Nets**
