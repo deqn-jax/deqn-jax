@@ -9,8 +9,11 @@ Five residuals for the N=2 model:
 Economic structure:
 
 - Each country produces y_j = A_tfp * exp(z_j) * k_j^zeta.
-- Investment: i_j = k_j_next - (1-delta) k_j + adj_cost_j, where
-  adj_cost_j = (kappa/2) * (k_j_next/k_j - 1)^2 * k_j. Zero at SS.
+- Gross investment: i_j = k_j_next - (1-delta) k_j (the irreversibility
+  constraint i_j >= 0 is on this plain object; its k'/k derivatives match
+  the Euler's mu coefficients). The adjustment cost
+  adj_cost_j = (kappa/2) * (k_j_next/k_j - 1)^2 * k_j (zero at SS) enters
+  the aggregate resource constraint separately, NOT inside i_j.
 - Consumption is NOT a policy output. It's pinned by the Pareto-
   weighted FOC c_j = (lambda / tau_j)^(-1/gamma_j): marginal utility
   equalization under complete markets.
@@ -96,7 +99,14 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
         zeta * A_tfp * Z[j] * jnp.power(ks[j], zeta - 1.0) for j in range(N_COUNTRIES)
     ]
     adj_cost = [_adj_cost(ks[j], ks_next[j], kappa) for j in range(N_COUNTRIES)]
-    i = [ks_next[j] - (1.0 - delta) * ks[j] + adj_cost[j] for j in range(N_COUNTRIES)]
+    # Gross investment EXCLUDES the adjustment cost. The irreversibility
+    # constraint (FB slack) is on this plain i, whose derivatives w.r.t.
+    # k' and k are exactly the mu coefficients the capital Euler carries
+    # (mu*1 and (1-delta)*mu'). An earlier version folded adj_cost into i,
+    # which made the Euler and the FB complementarity describe two slightly
+    # different KKT systems -- inconsistent precisely where the constraint
+    # binds. The adjustment cost enters the resource constraint separately.
+    i = [ks_next[j] - (1.0 - delta) * ks[j] for j in range(N_COUNTRIES)]
 
     defs = {"lam": lam}
     for j in range(N_COUNTRIES):
