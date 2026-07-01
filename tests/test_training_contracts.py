@@ -247,7 +247,6 @@ def test_train_step_shock_scale_zero_freezes_rollout_shocks():
         ("gn", "none"),
         ("ign", "none"),
         ("lm", "none"),
-        ("lbfgs", "none"),
         ("adam", "pcgrad"),
     ],
 )
@@ -282,7 +281,6 @@ def test_composite_loss_rejects_update_paths_that_do_not_apply_aux_gradients(
         ("gn", "none"),
         ("ign", "none"),
         ("lm", "none"),
-        ("lbfgs", "none"),
         ("adam", "pcgrad"),
     ],
 )
