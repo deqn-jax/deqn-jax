@@ -19,6 +19,7 @@ from deqn_jax.config._base import (
     _coerce_optional_int,
     _ConfigBase,
 )
+from deqn_jax.config.coverage import CoverageConfig
 from deqn_jax.config.loss import CompositeLossConfig, MomentMatchingConfig
 from deqn_jax.config.network import NetworkConfig
 from deqn_jax.config.optimizer import OptimizerConfig
@@ -85,6 +86,10 @@ class TrainConfig(_ConfigBase):
     replay_buffer: ReplayBufferConfig = Field(
         default_factory=ReplayBufferConfig,
         description="Prioritized state-replay buffer; only active when `replay_buffer.enabled=true`.",
+    )
+    coverage: CoverageConfig = Field(
+        default_factory=CoverageConfig,
+        description="EWM coverage sampling (base + stress + local pools); only active when `coverage.enabled=true`.",
     )
     moment_matching: MomentMatchingConfig = Field(
         default_factory=MomentMatchingConfig,
@@ -586,6 +591,7 @@ class TrainConfig(_ConfigBase):
         comp_dict = d.pop("composite_loss", {})
         replay_dict = d.pop("replay_buffer", {})
         mom_dict = d.pop("moment_matching", {})
+        cov_dict = d.pop("coverage", {})
 
         # If optimizer is a plain string, treat as name
         if isinstance(opt_dict, str):
@@ -616,6 +622,7 @@ class TrainConfig(_ConfigBase):
         comp_fields = set(CompositeLossConfig.model_fields.keys())
         replay_fields = set(ReplayBufferConfig.model_fields.keys())
         mom_fields = set(MomentMatchingConfig.model_fields.keys())
+        cov_fields = set(CoverageConfig.model_fields.keys())
         train_fields = set(TrainConfig.model_fields.keys())
 
         _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
@@ -623,6 +630,7 @@ class TrainConfig(_ConfigBase):
         _check_unknown_keys(set(comp_dict.keys()), comp_fields, "composite_loss")
         _check_unknown_keys(set(replay_dict.keys()), replay_fields, "replay_buffer")
         _check_unknown_keys(set(mom_dict.keys()), mom_fields, "moment_matching")
+        _check_unknown_keys(set(cov_dict.keys()), cov_fields, "coverage")
         _check_unknown_keys(set(d.keys()), train_fields, "config")
 
         return cls(
@@ -631,6 +639,7 @@ class TrainConfig(_ConfigBase):
             composite_loss=CompositeLossConfig(**comp_dict),
             replay_buffer=ReplayBufferConfig(**replay_dict),
             moment_matching=MomentMatchingConfig(**mom_dict),
+            coverage=CoverageConfig(**cov_dict),
             **{k: v for k, v in d.items() if k in train_fields},
         )
 

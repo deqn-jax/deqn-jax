@@ -7,6 +7,7 @@ Split into a package (config/) for readability; this module re-exports the full
 public surface so ``from deqn_jax.config import TrainConfig`` etc. keep working.
 """
 
+from deqn_jax.config.coverage import CoverageConfig
 from deqn_jax.config.io import (
     _check_unknown_keys,
     _config_to_flat_dict,
@@ -23,6 +24,7 @@ from deqn_jax.config.train import TrainConfig
 __all__ = [
     "OptimizerConfig",
     "CompositeLossConfig",
+    "CoverageConfig",
     "MomentMatchingConfig",
     "ReplayBufferConfig",
     "NetworkConfig",
