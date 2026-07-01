@@ -84,3 +84,93 @@ def test_make_local_pool_shape_and_detach():
     assert local.shape == (20, model.n_states)
     # perturbed (not identical to base rows)
     assert not np.allclose(np.asarray(local[:1]), np.asarray(states[:1]))
+
+
+# ---------------------------------------------------------------------------
+# make_coverage_loss wrapper
+# ---------------------------------------------------------------------------
+
+from deqn_jax.config import CoverageConfig  # noqa: E402
+from deqn_jax.training.coverage import make_coverage_loss  # noqa: E402
+
+
+def _cov_cfg(**kw):
+    base = dict(
+        enabled=True,
+        rho_base=2.0,
+        rho_stress=1.0,
+        rho_local=1.0,
+        n_stress=8,
+        n_local=8,
+        rollout_horizon=2,
+        local_sigma=0.02,
+        stress_ranges={"z_0": (-0.18, -0.05), "k_0": (1.05, 1.20)},
+        repair_ranges={
+            "k_0": (0.2, 5.0),
+            "k_1": (0.2, 5.0),
+            "z_0": (-0.2, 0.2),
+            "z_1": (-0.2, 0.2),
+        },
+    )
+    base.update(kw)
+    return CoverageConfig(**base)
+
+
+def test_wrapper_forwards_quad_kwargs_to_all_pools():
+    model = _irbc()
+    calls = []
+
+    def spy(model_, pf, states, key, mc_samples=5, weights=None, shock_scale=1.0,
+            quad_nodes=None, quad_weights=None, target_policy_fn=None):
+        calls.append({"quad_nodes": quad_nodes, "n": int(states.shape[0])})
+        return jnp.array(float(len(calls)) * 10.0), {"euler": jnp.array(1.0)}
+
+    fn = make_coverage_loss(spy, model, _cov_cfg())
+    net = _tiny_net(model)
+    states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
+    qn = jnp.zeros((4, model.n_shocks))
+    qw = jnp.ones((4,)) / 4
+    total, eq = fn(model, net, states, jax.random.PRNGKey(0),
+                   quad_nodes=qn, quad_weights=qw)
+    # all three pools were evaluated, each got the quadrature nodes
+    assert len(calls) == 3
+    assert all(c["quad_nodes"] is not None for c in calls)
+    # mixture weights normalized: 2/1/1 -> 0.5/0.25/0.25; spy returns 10,20,30
+    assert np.isclose(float(total), 0.5 * 10 + 0.25 * 20 + 0.25 * 30)
+    for k in ("aux_cov_base", "aux_cov_stress", "aux_cov_local"):
+        assert k in eq
+
+
+def test_wrapper_real_compute_loss_runs():
+    model = _irbc()
+    from deqn_jax.training.loss import compute_loss
+
+    net = _tiny_net(model)
+    fn = make_coverage_loss(compute_loss, model, _cov_cfg())
+    states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
+    qn = jnp.zeros((4, model.n_shocks))
+    qw = jnp.ones((4,)) / 4
+    total, eq = fn(model, net, states, jax.random.PRNGKey(0),
+                   quad_nodes=qn, quad_weights=qw)
+    assert np.isfinite(float(total))
+    assert np.isfinite(float(eq["aux_cov_stress"]))
+
+
+def test_kappa_zero_collapses_to_plain_loss():
+    """Paper's kappa=0 identity: rho_stress=rho_local=0 => wrapper == compute_loss
+    EXACTLY (under quadrature the loss key is unused, so key-splitting inside the
+    wrapper cannot introduce a difference)."""
+    model = _irbc()
+    from deqn_jax.training.loss import compute_loss
+
+    net = _tiny_net(model)
+    cfg = CoverageConfig(enabled=True, rho_stress=0.0, rho_local=0.0)
+    fn = make_coverage_loss(compute_loss, model, cfg)
+    states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
+    qn = jnp.zeros((4, model.n_shocks))
+    qw = jnp.ones((4,)) / 4
+    key = jax.random.PRNGKey(0)
+    t_wrap, eq_wrap = fn(model, net, states, key, quad_nodes=qn, quad_weights=qw)
+    t_plain, _ = compute_loss(model, net, states, key, 5, quad_nodes=qn, quad_weights=qw)
+    assert float(t_wrap) == float(t_plain)  # exact, not allclose
+    assert "aux_cov_stress" not in eq_wrap  # zero-weight pools skipped at build time
