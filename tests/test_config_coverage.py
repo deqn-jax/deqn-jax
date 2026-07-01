@@ -91,3 +91,25 @@ def test_trainconfig_from_dict_coverage():
 def test_trainconfig_from_dict_unknown_coverage_key():
     with pytest.raises(Exception):
         TrainConfig.from_dict({"coverage": {"nope": 1}})
+
+
+def test_to_yaml_roundtrip_with_coverage(tmp_path):
+    """to_yaml must not emit !!python/tuple tags (checkpointing writes config
+    via to_yaml; from_yaml uses safe_load and would refuse them). Regression:
+    the old per-field tuple->list whitelist missed dict-of-tuple fields."""
+    cfg = TrainConfig.from_dict(
+        {
+            "model": "irbc",
+            "coverage": {
+                "enabled": True,
+                "stress_ranges": {"z_0": [-0.18, -0.05], "k_0": [1.05, 1.2]},
+                "repair_ranges": {"z_0": [-0.2, 0.2]},
+            },
+        }
+    )
+    p = str(tmp_path / "rt.yaml")
+    cfg.to_yaml(p)
+    back = TrainConfig.from_yaml(p)
+    assert back.coverage.enabled is True
+    assert back.coverage.stress_ranges == cfg.coverage.stress_ranges
+    assert back.coverage.repair_ranges == cfg.coverage.repair_ranges

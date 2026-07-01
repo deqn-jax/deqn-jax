@@ -678,20 +678,21 @@ class TrainConfig(_ConfigBase):
         """Write config to a YAML file."""
         import yaml
 
-        d = self.to_dict()
         # Convert tuples to lists for YAML readability + safe_load compat:
         # PyYAML's default dumper writes tuples as `!!python/tuple` which
         # safe_load refuses; the round-trip path uses safe_load (correctly,
         # since trusting arbitrary-Python deserialization on a config is
-        # bad). Coerce known-tuple fields to lists at write time.
-        if "network" in d and "hidden_sizes" in d["network"]:
-            d["network"]["hidden_sizes"] = list(d["network"]["hidden_sizes"])
-        if "network" in d and d["network"].get("activations") is not None:
-            d["network"]["activations"] = list(d["network"]["activations"])
-        if "network" in d and d["network"].get("kf_names") is not None:
-            d["network"]["kf_names"] = list(d["network"]["kf_names"])
-        if "network" in d and d["network"].get("output_links") is not None:
-            d["network"]["output_links"] = list(d["network"]["output_links"])
+        # bad). Recursive coercion (not a per-field whitelist) so that any
+        # tuple-valued field — including tuples nested in dict values like
+        # coverage.stress_ranges — is covered without maintenance.
+        def _tuples_to_lists(obj):
+            if isinstance(obj, (tuple, list)):
+                return [_tuples_to_lists(v) for v in obj]
+            if isinstance(obj, dict):
+                return {k: _tuples_to_lists(v) for k, v in obj.items()}
+            return obj
+
+        d = _tuples_to_lists(self.to_dict())
 
         with open(path, "w") as f:
             yaml.dump(d, f, default_flow_style=False, sort_keys=False)
