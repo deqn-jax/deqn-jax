@@ -1,0 +1,34 @@
+# 2-country IRBC — PLAIN recipe (reconstructed historical baseline).
+# Plain MLP + bare MSE residual, Gauss-Hermite quadrature. No composite
+# anchor. This is the recipe that trains to small on-measure residuals but
+# lands on a closed-loop UNSTABLE policy (rho(SS)~1.23). The EWM coverage
+# run (irbc_ewm.yaml) adds ONLY a coverage block on top of this.
+model: irbc
+
+episodes: 4001
+batch_size: 128
+episode_length: 1
+mc_samples: 1
+expectation_type: gauss_hermite
+n_quadrature_points: 3
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+loss_type: mse
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  lr_schedule: constant
+
+loss_reweight: none
+warm_start: false
+log_every: 200

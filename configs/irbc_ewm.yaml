@@ -1,0 +1,61 @@
+# 2-country IRBC — EWM coverage recipe = irbc_plain.yaml + a coverage block.
+# Coverage is the ONLY change vs irbc_plain.yaml. Tests whether imposing the
+# same residual on base + stress + local pools (stress = recession-tail TFP
+# with high capital so irreversibility binds, rolled through the exact
+# transition) yields a stable policy (rho(SS) < 1) WITHOUT the BK-anchor
+# composite recipe.
+#
+# Coverage knobs follow the coverage-exact arm of Scheidegger & Schaab
+# (2026, arXiv:2606.23463) and are fixed a priori (never tuned on the
+# reported metrics): path:stress:local = 1:0.5:0.25, H=5, stress box inside
+# +-4 stationary sd of TFP (sd(z) ~ 0.045 here: two 0.01 innovations at
+# rho_z=0.95), repair box wide (a bound, not a target region).
+model: irbc
+
+episodes: 4001
+batch_size: 128
+episode_length: 1
+mc_samples: 1
+expectation_type: gauss_hermite
+n_quadrature_points: 3
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+loss_type: mse
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  lr_schedule: constant
+
+loss_reweight: none
+warm_start: false
+log_every: 200
+
+coverage:
+  enabled: true
+  rho_base: 1.0
+  rho_stress: 0.5
+  rho_local: 0.25
+  n_stress: 128
+  n_local: 128
+  rollout_horizon: 5
+  local_sigma: 0.02
+  stress_ranges:
+    z_0: [-0.18, -0.05]  # recession tail: ~1-4 stationary sd down
+    z_1: [-0.18, -0.05]  # (independent per-dim draws -> asymmetric combos too)
+    k_0: [1.05, 1.20]    # high capital -> desired disinvestment -> i>=0 binds
+    k_1: [1.05, 1.20]
+  repair_ranges:
+    k_0: [0.2, 5.0]      # feasible box: stress landings + local perturbations
+    k_1: [0.2, 5.0]      # are clipped here before the residual (repair step)
+    z_0: [-0.2, 0.2]     # ~ +-4.4 stationary sd
+    z_1: [-0.2, 0.2]
