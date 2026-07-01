@@ -353,9 +353,18 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
     Returns the custom loss callable (or None if the default MSE
     `compute_loss` should be used as-is). Handles three layered cases:
     composite loss, state-barrier penalty, and Huber loss for the bare
-    path.
+    path — plus EWM coverage sampling, which wraps plain compute_loss
+    and is mutually exclusive with the others (validated in
+    _validate_train_config).
     """
     from functools import partial
+
+    if getattr(config, "coverage", None) is not None and config.coverage.enabled:
+        from deqn_jax.training.coverage import make_coverage_loss
+
+        if config.verbose:
+            print("  Coverage sampling: base + stress + local pools")
+        return make_coverage_loss(compute_loss, model, config.coverage)
 
     custom_loss_fn = None
     if config.loss_type == "composite":

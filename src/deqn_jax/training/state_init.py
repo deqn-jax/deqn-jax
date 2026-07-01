@@ -354,6 +354,50 @@ def _validate_train_config(config) -> None:
                 "or remove them."
             )
 
+    if config.coverage.enabled:
+        if config.loss_type == "composite":
+            raise ValueError(
+                "coverage.enabled is not supported with loss_type='composite' "
+                "in v1 (both are compute_loss wrappers). Use loss_type='mse'."
+            )
+        _cov_bad = {"mao", "lm", "gn", "ign", "lbfgs"}
+        _cov_pcgrad = config.gradient_surgery == "pcgrad"
+        if config.optimizer.name.lower() in _cov_bad or _cov_pcgrad:
+            raise ValueError(
+                f"coverage.enabled requires a STANDARD optimizer; "
+                f"'{config.optimizer.name}'"
+                + (" + gradient_surgery='pcgrad'" if _cov_pcgrad else "")
+                + " differentiates the per-equation/residual vector, so the "
+                "stress/local pools (folded into the scalar total) would be "
+                "silently dropped from the gradient. Use adam/sgd/adamw/lion/"
+                "muon/ngd/shampoo."
+            )
+        if (
+            config.barrier_weight > 0
+            or config.loss_choice != "mse"
+            or config.moment_matching.enabled
+        ):
+            raise ValueError(
+                "coverage.enabled wraps plain MSE compute_loss in v1; disable "
+                "barrier_weight / loss_choice!='mse' / moment_matching (they "
+                "would be silently dropped on the coverage path)."
+            )
+        if config.network.history_len > 1:
+            raise NotImplementedError(
+                "coverage.enabled is v1-only-MLP. Sequence networks "
+                "(network.history_len > 1) train on [batch, H, n_states] "
+                "history windows, but the stress/local pools are flat "
+                "[n, n_states] states -- pool construction for windows is a "
+                "follow-up. Disable coverage or use an MLP."
+            )
+        if config.replay_buffer.enabled:
+            raise ValueError(
+                "coverage.enabled is incompatible with replay_buffer.enabled "
+                "in v1: the buffer concatenates old-policy states into the "
+                "batch, muddying the base-pool semantics of the coverage "
+                "mixture. Disable one."
+            )
+
     if config.episode_length == 1 and not config.initialize_each_episode:
         raise ValueError(
             "episode_length=1 requires initialize_each_episode=True. "
@@ -413,6 +457,16 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
             f"model's n_shocks ({model.n_shocks}). model={model.name} has "
             f"shock_names={model.shock_names!r}."
         )
+
+    if config.coverage.enabled:
+        unknown = (
+            set(config.coverage.stress_ranges) | set(config.coverage.repair_ranges)
+        ) - set(model.state_names)
+        if unknown:
+            raise ValueError(
+                f"coverage.stress_ranges/repair_ranges names {sorted(unknown)} are "
+                f"not in model.state_names {model.state_names!r} (model={model.name})."
+            )
 
     if config.constants:
         # Surface exactly which calibration constants change (old -> new). A
