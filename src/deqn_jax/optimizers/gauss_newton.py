@@ -387,9 +387,15 @@ class LevenbergMarquardt:
         new_r = flat_residual_fn(new_flat_params)
         new_loss = jnp.sum(new_r**2)
 
-        # Gain ratio for damping adaptation
+        # Gain ratio for damping adaptation. The step actually taken is
+        # step_size * delta, so the predicted reduction must be evaluated for
+        # that scaled step: L(x) - L(x + s*d) ~= -2s*(Jd)'r - s^2*(Jd)'(Jd).
+        # Using the full-step prediction here (the old bug) made rho ~ 2*s,
+        # which at the default lr=1e-3 sat below the 0.25 threshold forever
+        # and ratcheted damping to max_damping — LM silently degenerated to
+        # frozen steepest descent.
         Jdelta = J @ delta
-        predicted = -2 * Jdelta.T @ r - Jdelta.T @ Jdelta
+        predicted = -2 * step_size * (Jdelta.T @ r) - step_size**2 * (Jdelta.T @ Jdelta)
         actual = current_loss - new_loss
         rho = jnp.where(jnp.abs(predicted) > 1e-10, actual / predicted, 1.0)
 

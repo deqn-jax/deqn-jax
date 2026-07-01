@@ -4,10 +4,14 @@ Five Euler equations, one per savings-choosing agent (h = 1..A-1):
 
     u'(c_t^h) = beta * E[r_{t+1} * u'(c_{t+1}^{h+1})]
 
-Raw residual form: LHS - RHS. Under our per-shock averaging aggregation
-this gives E_shock[raw] = LHS - beta * E[r' u_c(c'^{h+1})] which is zero
-at equilibrium and free of the Jensen-under-reciprocal trap that the
-"LHS/RHS - 1" form introduces.
+Normalized residual form: 1 - beta * r' * u'(c'^{h+1}) / u'(c^h). The
+division is by the CURRENT-period marginal utility u'(c^h), which is
+deterministic given (state, policy) — so under per-shock averaging
+E_shock[resid] = 1 - beta * E[r' u_c']/u_c, zero at equilibrium and free
+of the Jensen-under-reciprocal trap that dividing by a SHOCK-DEPENDENT
+quantity would introduce. (See the equations() docstring for the full
+rationale; an earlier version of this header wrongly described the raw
+LHS - RHS form.)
 
 The 5x per-agent dimension of the residual comes out as 5 separate
 named equations (euler_h1..euler_h5) so the reweighting machinery can

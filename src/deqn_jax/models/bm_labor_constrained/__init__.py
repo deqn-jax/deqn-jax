@@ -6,7 +6,7 @@ optimality condition (see ``equations.py``).
 
 Extend, don't fork: reuses ``bm_labor``'s dynamics, steady state, init sampler, and
 ``definitions`` verbatim. Only the labor equation (now FB) and the ``L`` upper bound
-differ. The cap is slack at the deterministic SS (L_ss ~= 0.975 < L_max = 1.01), so
+differ. The cap is slack at the deterministic SS (L_ss ~= 0.975 < L_max = 1.02), so
 ``bm_labor``'s analytical steady state is also the constrained model's SS.
 """
 

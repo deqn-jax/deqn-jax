@@ -163,7 +163,7 @@ def euler_equation_errors(
         elif p_disaster > 0.0:
             key, shock_key, d_key = jax.random.split(key, 3)
             shock = jax.random.normal(shock_key, (1, n_shocks))
-            d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
+            d_val = (jax.random.uniform(d_key, (1,)) < p_disaster).astype(jnp.float32)
             next_state, row, st = _sim_step_with_d(state, shock, d_val)
         else:
             key, shock_key = jax.random.split(key)
@@ -376,7 +376,7 @@ def simulated_moments(
         if p_disaster > 0.0:
             key, shock_key, d_key = jax.random.split(key, 3)
             shock = jax.random.normal(shock_key, (1, model.n_shocks))
-            d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
+            d_val = (jax.random.uniform(d_key, (1,)) < p_disaster).astype(jnp.float32)
             next_state, st, pol = _sim_step_with_d(state, shock, d_val)
         else:
             key, shock_key = jax.random.split(key)
@@ -526,7 +526,7 @@ def stability_check(
         if p_disaster > 0.0:
             key, shock_key, d_key = jax.random.split(key, 3)
             shock = jax.random.normal(shock_key, (1, model.n_shocks))
-            d_val = (jax.random.uniform(d_key, (1, 1)) < p_disaster).astype(jnp.float32)
+            d_val = (jax.random.uniform(d_key, (1,)) < p_disaster).astype(jnp.float32)
             next_state, policy = _sim_step_with_d(state, shock, d_val)
         else:
             key, shock_key = jax.random.split(key)

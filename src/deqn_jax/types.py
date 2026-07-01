@@ -102,11 +102,14 @@ class ModelSpec(NamedTuple):
     #   - rollout: samples next z-index from Multinomial(transition_matrix[z_t]),
     #   - residual expectation: enumerates over all K next-z values, weighting
     #     residuals by transition_matrix[z_t, z_{t+1}].
-    # Activated by ``TrainConfig.expectation_type='discrete'``. Models that
-    # encode a finite-cardinality exogenous chain (e.g. discrete TFP, OLG
-    # depreciation states) should provide both fields below; the shock passed
-    # to ``step_fn`` is then a categorical index in [0, K), not a continuous
-    # noise. Models without these fields use Gaussian shocks as before.
+    # Activated purely by the MODEL setting both fields below — the trainer
+    # and rollout dispatch on ``transition_matrix is not None`` regardless of
+    # ``TrainConfig.expectation_type`` (which only selects quadrature vs MC
+    # for Gaussian models; the discrete branch takes precedence over both).
+    # Models that encode a finite-cardinality exogenous chain (e.g. discrete
+    # TFP, OLG depreciation states) should provide both fields; the shock
+    # passed to ``step_fn`` is then a categorical index in [0, K), not a
+    # continuous noise. Models without these fields use Gaussian shocks.
     transition_matrix: Optional[Array] = None  # [K, K], rows sum to 1
     z_state_idx: Optional[int] = None  # which entry of state holds current z-index
 

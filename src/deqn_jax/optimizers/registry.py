@@ -145,10 +145,12 @@ def create_optimizer(
     """Create optimizer from config.
 
     LR schedules are NOT applied here — they break XLA kernel fusion
-    and cause 5-6x slowdowns. Instead, the training loop periodically
-    recreates the optimizer with an updated constant LR. See
-    ``_build_lr_schedule`` for computing schedule values and
-    ``train_from_config`` for the periodic update logic.
+    and cause 5-6x slowdowns. Instead, when a schedule is active the
+    optimizer is created once with LR fixed to 1.0 and the per-episode
+    scheduled LR is passed into the train step as the dynamic ``lr_scale``
+    scalar (updates are multiplied by it). See ``_build_lr_schedule`` for
+    computing schedule values and ``train_from_config`` for where
+    ``lr_scale`` is fed per episode.
 
     Args:
         config: OptimizerConfig with at least a ``name`` field.

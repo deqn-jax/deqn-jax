@@ -1,11 +1,16 @@
 """Main training loop for DEQN-JAX.
 
-Key design: single JIT boundary around entire train_step for maximum performance.
-Three step variants dispatched at construction time (before JIT):
+Key design: each cycle is a Python-level loop composing two separately-JIT'd
+pieces — one rollout call plus a minibatch sweep of grad_step calls (see
+training/cycle.py). Five grad-step variants dispatched at construction time
+(before JIT), each owned by its optimizer family under ``optimizers/``:
 
-- STANDARD: normal jax.grad + opt.update(grads, state, params)
-- MAO: jax.jacrev(per_eq_loss_vector) -> per-equation Jacobian -> mao.update(eq_jac, state, params)
-- LBFGS: optax.lbfgs (GradientTransformationExtraArgs) -- needs value + value_fn for line search
+- STANDARD (adam/sgd/adamw/lion/muon/ngd/shampoo): jax.grad -> opt.update
+- PCGRAD: per-equation grads with conflict projection -> opt.update
+- MAO: jax.jacrev(per_eq_loss_vector) -> per-equation Jacobian -> mao.update
+- LBFGS: optax.lbfgs (GradientTransformationExtraArgs) -- needs value +
+  value_fn for line search
+- GN: Gauss-Newton / Levenberg-Marquardt on the residual Jacobian
 """
 
 import time

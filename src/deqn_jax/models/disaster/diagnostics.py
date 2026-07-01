@@ -406,8 +406,11 @@ def _eq5_diagnostics(
 
     habit_now_raw = c_now * mu_z - c_const["b"] * c_lag
     habit_next_raw = c_n * mu_z_n - c_const["b"] * c_now
-    habit_now = _soft_floor(habit_now_raw, 1e-2)
-    habit_next = _soft_floor(habit_next_raw, 1e-2)
+    # sharpness must match the trained eq5 residual (equations.py uses
+    # sharpness=100.0); the default 10.0 made this TensorBoard decomposition
+    # disagree with the actual residual near the habit floor.
+    habit_now = _soft_floor(habit_now_raw, 1e-2, sharpness=100.0)
+    habit_next = _soft_floor(habit_next_raw, 1e-2, sharpness=100.0)
 
     tax_term = (1.0 + c_const["tau_c"]) * lambda_z * habit_now
     habit_ratio_term = c_const["beta"] * c_const["b"] * habit_now / (habit_next + 1e-8)

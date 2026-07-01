@@ -6,7 +6,7 @@ The capital Euler is unchanged from ``bm_labor``. The labor optimality condition
 becomes a KKT/complementarity problem for the cap ``L <= L_max``, written as a single
 smooth Fischer-Burmeister residual:
 
-    fb(slack, wedge) = 0,   slack = L_max - L,   wedge = w*u'(c) - psi*L^theta
+    fb(slack, wedge) = 0,   slack = L_max - L,   wedge = w*u'(c) / (psi*L^theta) - 1
 
   - ``slack >= 0``  : the cap is respected (also guaranteed by the L output bound).
   - ``wedge >= 0``  : marginal benefit of labor >= marginal cost.

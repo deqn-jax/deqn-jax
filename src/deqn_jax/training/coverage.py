@@ -153,7 +153,18 @@ def make_coverage_loss(
         quad_weights=None,
         target_policy_fn=None,
     ):
-        k_base, k_seed, k_roll, k_local = jax.random.split(key, 4)
+        # One independent subkey per random consumer: the three pools' loss
+        # expectations must not share a shock stream under MC (identical keys
+        # would correlate gradient noise across mixture components; under
+        # quadrature the loss keys are unused and this is a no-op).
+        (
+            k_base,
+            k_stress_loss,
+            k_local_loss,
+            k_seed,
+            k_roll,
+            k_local,
+        ) = jax.random.split(key, 6)
 
         def _loss(pool_states, k):
             return base_compute_loss(
@@ -180,13 +191,13 @@ def make_coverage_loss(
             stress = roll_states(
                 model_, policy_fn, seeds, k_roll, horizon, shock_scale, lo, hi
             )
-            l_stress, _ = _loss(stress, k_base)
+            l_stress, _ = _loss(stress, k_stress_loss)
             total = total + w_stress * l_stress
             eq["aux_cov_stress"] = l_stress
 
         if use_local:
             local = make_local_pool(states, k_local, n_local, local_sigma, lo, hi)
-            l_local, _ = _loss(local, k_base)
+            l_local, _ = _loss(local, k_local_loss)
             total = total + w_local * l_local
             eq["aux_cov_local"] = l_local
 
