@@ -4,7 +4,7 @@
 
 **Goal:** Add Equilibrium-World-Model coverage sampling — impose the existing residual loss on a broader measure (base ∪ stress ∪ local pools, off-path seeds rolled through the exact transition) — to the trainer as a config-gated `compute_loss` wrapper, validated on `irbc`.
 
-**Architecture:** A loss *wrapper* (`make_coverage_loss`) installed inside `_build_custom_loss_fn` evaluates the unchanged `compute_loss` on three state pools and returns a mixture-weighted sum. Stress seeds are drawn from a config box and rolled H steps through the exact transition via `run_episode` (reused, takes `policy_fn`), then `stop_gradient`'d. Zero changes to `compute_loss` or the five train-step variants; bit-identical to baseline when disabled.
+**Architecture:** A loss *wrapper* (`make_coverage_loss`) installed inside `_build_custom_loss_fn` evaluates the unchanged `compute_loss` on up to three state pools and returns a mixture-weighted sum (weights normalized over the included pools; zero-weight pools skipped at build time, so κ=0 collapses exactly to plain `compute_loss`). Stress seeds are drawn from a config box and rolled H steps through the exact transition via `run_episode` (reused, takes `policy_fn`), then clipped to the `repair_ranges` feasible box (the paper's repair step) and `stop_gradient`'d. Zero changes to `compute_loss` or the five train-step variants; bit-identical to baseline when disabled.
 
 **Tech Stack:** JAX, Equinox, Optax, Pydantic v2, pytest, uv.
 
@@ -14,7 +14,8 @@
 - **uv only:** run everything via `uv run ...`; never activate the venv.
 - **Single JIT boundary:** the coverage wrapper is built before JIT (inside `_build_custom_loss_fn`). Do NOT introduce a second `@jax.jit` or break the train step.
 - **Pydantic v2 config:** `model_config = ConfigDict(extra="forbid")`; use `_coerce_float` / `_coerce_int` from `deqn_jax.config._base`.
-- **v1 scope (enforced by validators):** coverage requires a STANDARD optimizer (`adam`/`sgd`/`adamw`/`lion`/`muon`/`ngd`/`shampoo`, `gradient_surgery="none"`) and `loss_type: mse`; it is mutually exclusive with `composite`, `barrier_weight>0`, `loss_choice!="mse"`, and `moment_matching.enabled`.
+- **v1 scope (enforced by validators):** coverage requires a STANDARD optimizer (`adam`/`sgd`/`adamw`/`lion`/`muon`/`ngd`/`shampoo`, `gradient_surgery="none"`) and `loss_type: mse`; it is mutually exclusive with `composite`, `barrier_weight>0`, `loss_choice!="mse"`, `moment_matching.enabled`, `replay_buffer.enabled`, and `network.history_len>1`.
+- **Paper-faithful knobs (fixed a priori, never tuned on the reported metrics):** mixture ρ = 1 : 0.5 : 0.25 (path:stress:local, the paper's coverage-exact arm), rollout H = 5, stress box inside ±4 stationary sd, and a `repair_ranges` clip applied to generated states before the residual (the paper's repair step).
 - **Bit-identical when disabled** is a hard requirement (exact equality, not allclose).
 - **Mixture weights** are normalized to sum to 1 inside the wrapper (faithful to the paper; avoids an LR shift).
 - **Stop-gradient** every generated pool (`roll_states`, `make_local_pool`): state generation is never differentiated.
@@ -34,7 +35,7 @@
 - Test: `tests/test_config_coverage.py`
 
 **Interfaces:**
-- Produces: `CoverageConfig` with fields `enabled: bool`, `rho_base: float`, `rho_stress: float`, `rho_local: float`, `n_stress: int`, `n_local: int`, `rollout_horizon: int`, `local_sigma: float`, `stress_ranges: Dict[str, Tuple[float, float]]`. Available as `TrainConfig(...).coverage`.
+- Produces: `CoverageConfig` with fields `enabled: bool`, `rho_base: float` (default 1.0), `rho_stress: float` (default 0.5), `rho_local: float` (default 0.25), `n_stress: int` (128), `n_local: int` (128), `rollout_horizon: int` (5), `local_sigma: float` (0.02), `stress_ranges: Dict[str, Tuple[float, float]]`, `repair_ranges: Dict[str, Tuple[float, float]]`. Available as `TrainConfig(...).coverage`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -50,11 +51,18 @@ from deqn_jax.config import CoverageConfig, TrainConfig
 def test_defaults_disabled():
     c = CoverageConfig()
     assert c.enabled is False
-    assert c.rho_base == 1.0 and c.rho_stress == 1.0 and c.rho_local == 1.0
+    # paper's coverage-exact arm: path:stress:local = 1:0.5:0.25, H in {3,5}
+    assert c.rho_base == 1.0 and c.rho_stress == 0.5 and c.rho_local == 0.25
     assert c.n_stress == 128 and c.n_local == 128
-    assert c.rollout_horizon == 8
-    assert c.local_sigma == 0.01
+    assert c.rollout_horizon == 5
+    assert c.local_sigma == 0.02
     assert c.stress_ranges == {}
+    assert c.repair_ranges == {}
+
+
+def test_bad_repair_range_rejected():
+    with pytest.raises(Exception):
+        CoverageConfig(repair_ranges={"k_0": (5.0, 0.2)})  # low > high
 
 
 def test_extra_forbidden():
@@ -163,10 +171,10 @@ class CoverageConfig(_ConfigBase):
         default=1.0, description="Mixture weight on the base (init-rect / on-policy) pool."
     )
     rho_stress: float = Field(
-        default=1.0, description="Mixture weight on the stress pool."
+        default=0.5, description="Mixture weight on the stress pool (paper's coverage-exact arm: 0.5 relative to path)."
     )
     rho_local: float = Field(
-        default=1.0, description="Mixture weight on the local-perturbation pool. Weights are normalized to sum to 1 inside the wrapper.",
+        default=0.25, description="Mixture weight on the local-perturbation pool (paper: 0.25). Weights are normalized over the included pools inside the wrapper.",
     )
     n_stress: int = Field(
         default=128, description="Number of stress seeds drawn per step (before rollout)."
@@ -175,14 +183,18 @@ class CoverageConfig(_ConfigBase):
         default=128, description="Number of local perturbations per step."
     )
     rollout_horizon: int = Field(
-        default=8, description="H: steps to roll stress seeds through the exact transition.",
+        default=5, description="H: steps to roll stress seeds through the exact transition (paper: typically 3 or 5).",
     )
     local_sigma: float = Field(
-        default=0.01, description="Std of Gaussian local perturbations, in state units.",
+        default=0.02, description="Std of Gaussian local perturbations, in state units.",
     )
     stress_ranges: Dict[str, Tuple[float, float]] = Field(
         default_factory=dict,
         description="Per-state-name uniform box for stress seeds. Keys are state names (validated against model.state_names at model resolution). Empty is an error when enabled with rho_stress>0.",
+    )
+    repair_ranges: Dict[str, Tuple[float, float]] = Field(
+        default_factory=dict,
+        description="Per-state-name feasible box; stress landings and local perturbations are clipped into it before the residual is evaluated (the paper's repair step). Empty = no clipping.",
     )
 
     @field_validator(
@@ -209,11 +221,12 @@ class CoverageConfig(_ConfigBase):
         for n in ("n_stress", "n_local", "rollout_horizon"):
             if getattr(self, n) < 0:
                 raise ValueError(f"coverage.{n} must be >= 0")
-        for k, rng in self.stress_ranges.items():
-            if rng[0] > rng[1]:
-                raise ValueError(
-                    f"coverage.stress_ranges[{k!r}] must be [low <= high], got {rng}"
-                )
+        for field_name in ("stress_ranges", "repair_ranges"):
+            for k, rng in getattr(self, field_name).items():
+                if rng[0] > rng[1]:
+                    raise ValueError(
+                        f"coverage.{field_name}[{k!r}] must be [low <= high], got {rng}"
+                    )
         if self.enabled:
             if self.rho_stress > 0:
                 if self.n_stress <= 0:
@@ -271,7 +284,7 @@ and pass it to the constructor (~line 632):
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_config_coverage.py -q`
-Expected: PASS (11 passed).
+Expected: PASS (12 passed).
 
 - [ ] **Step 7: Commit**
 
@@ -279,7 +292,7 @@ Expected: PASS (11 passed).
 git add src/deqn_jax/config/coverage.py src/deqn_jax/config/__init__.py src/deqn_jax/config/train.py tests/test_config_coverage.py
 git commit -m "feat(config): CoverageConfig for EWM coverage sampling
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -294,8 +307,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `run_episode` from `deqn_jax.training.episode` (signature `run_episode(model, policy_fn, init_state, key, episode_length=100, shock_scale=1.0, shock_mask=None) -> (trajectory [T,B,D], final_state [B,D])`, trajectory holds PRE-transition states).
 - Produces:
   - `sample_stress_seeds(key, n, n_states, ss_state, stress_idx, lows, highs) -> Array [n, n_states]`
-  - `roll_states(model, policy_fn, seeds, key, horizon, shock_scale=1.0) -> Array [n*horizon, n_states]` (stop-gradient'd; landings s_1..s_H, raw seed excluded)
-  - `make_local_pool(states, key, n, sigma) -> Array [n, n_states]` (stop-gradient'd)
+  - `roll_states(model, policy_fn, seeds, key, horizon, shock_scale=1.0, lo=None, hi=None) -> Array [n*horizon, n_states]` (landings s_1..s_H, raw seed excluded; clipped to [lo, hi] when given; stop-gradient'd)
+  - `make_local_pool(states, key, n, sigma, lo=None, hi=None) -> Array [n, n_states]` (clipped when given; stop-gradient'd)
+- Networks for tests come from `build_policy_net(model, net_key, hidden_sizes, network_config)` in `deqn_jax.networks.factory` (returns the callable Equinox policy module; pass `network_config=None` to use `hidden_sizes` directly).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -337,26 +351,37 @@ def test_sample_stress_seeds_shape_and_box():
     np.testing.assert_allclose(np.asarray(seeds[:, 0]), float(ss_state[0]))
 
 
+def _tiny_net(model):
+    from deqn_jax.networks.factory import build_policy_net
+
+    return build_policy_net(model, jax.random.PRNGKey(1), (8,), None)
+
+
 def test_roll_states_shape_excludes_raw_seed():
     model = _irbc()
-    policy = load_model("irbc")  # not used; need a callable policy
-    # a real callable policy: build the network params from a tiny config path
-    from deqn_jax.networks.factory import create_network
-
-    net = create_network(model, type="mlp", hidden_sizes=(8,), key=jax.random.PRNGKey(1))
-    seeds = jnp.tile(jnp.array([1.0, 1.0, -0.4, -0.4]), (16, 1))
-    out = roll_states(model, net, seeds, jax.random.PRNGKey(2), horizon=8)
-    assert out.shape == (16 * 8, model.n_states)
+    net = _tiny_net(model)
+    seeds = jnp.tile(jnp.array([1.0, 1.0, -0.15, -0.15]), (16, 1))
+    out = roll_states(model, net, seeds, jax.random.PRNGKey(2), horizon=5)
+    assert out.shape == (16 * 5, model.n_states)
     # landings differ from the raw seed (the exact-Γ rollout moved them)
     assert not np.allclose(np.asarray(out[:16]), np.asarray(seeds))
 
 
+def test_roll_states_repair_clip():
+    model = _irbc()
+    net = _tiny_net(model)
+    seeds = jnp.tile(jnp.array([1.0, 1.0, -0.15, -0.15]), (16, 1))
+    lo = jnp.array([0.99, 0.99, -0.01, -0.01])  # tight box: forces clipping
+    hi = jnp.array([1.01, 1.01, 0.01, 0.01])
+    out = roll_states(model, net, seeds, jax.random.PRNGKey(2), horizon=3, lo=lo, hi=hi)
+    assert np.all(np.asarray(out) >= np.asarray(lo) - 1e-7)
+    assert np.all(np.asarray(out) <= np.asarray(hi) + 1e-7)
+
+
 def test_roll_states_stop_gradient():
     model = _irbc()
-    from deqn_jax.networks.factory import create_network
-
-    net = create_network(model, type="mlp", hidden_sizes=(8,), key=jax.random.PRNGKey(1))
-    seeds = jnp.tile(jnp.array([1.0, 1.0, -0.4, -0.4]), (8, 1))
+    net = _tiny_net(model)
+    seeds = jnp.tile(jnp.array([1.0, 1.0, -0.15, -0.15]), (8, 1))
 
     def f(p):
         return jnp.sum(roll_states(model, p, seeds, jax.random.PRNGKey(2), horizon=4))
@@ -372,7 +397,7 @@ def test_roll_states_stop_gradient():
 def test_make_local_pool_shape_and_detach():
     model = _irbc()
     states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (32, 1))
-    local = make_local_pool(states, jax.random.PRNGKey(3), n=20, sigma=0.01)
+    local = make_local_pool(states, jax.random.PRNGKey(3), n=20, sigma=0.02)
     assert local.shape == (20, model.n_states)
     # perturbed (not identical to base rows)
     assert not np.allclose(np.asarray(local[:1]), np.asarray(states[:1]))
@@ -432,9 +457,13 @@ def roll_states(
     key: Array,
     horizon: int,
     shock_scale=1.0,
+    lo: Optional[Array] = None,
+    hi: Optional[Array] = None,
 ) -> Array:
     """Roll seeds horizon steps through the EXACT transition; return the
-    projected landings s_1..s_H (raw seed excluded), stop-gradient'd.
+    projected landings s_1..s_H (raw seed excluded), repaired (clipped to
+    [lo, hi] when given -- the paper's repair step: bounds the simulation,
+    never penalizes the residual), stop-gradient'd.
 
     Reuses run_episode (MC shocks even under quadrature: state generation
     is a different object from the loss expectation). trajectory holds
@@ -446,25 +475,37 @@ def roll_states(
     )
     landings = jnp.concatenate([trajectory[1:], final_state[None]], axis=0)
     landings = landings.reshape(-1, model.n_states)
+    if lo is not None:
+        landings = jnp.clip(landings, lo, hi)
     return jax.lax.stop_gradient(landings)
 
 
-def make_local_pool(states: Array, key: Array, n: int, sigma: float) -> Array:
+def make_local_pool(
+    states: Array,
+    key: Array,
+    n: int,
+    sigma: float,
+    lo: Optional[Array] = None,
+    hi: Optional[Array] = None,
+) -> Array:
     """n locally-perturbed copies of base states (sampled with replacement),
-    plus Gaussian noise; stop-gradient'd."""
-    batch = states.shape[0]
-    idx = jax.random.randint(key, (n,), 0, batch)
+    plus Gaussian noise; repaired (clipped) when a box is given; stop-gradient'd."""
+    k_idx, k_noise = jax.random.split(key)
+    idx = jax.random.randint(k_idx, (n,), 0, states.shape[0])
     base = states[idx]
-    noise = jax.random.normal(key, base.shape) * sigma
-    return jax.lax.stop_gradient(base + noise)
+    noise = jax.random.normal(k_noise, base.shape) * sigma
+    out = base + noise
+    if lo is not None:
+        out = jnp.clip(out, lo, hi)
+    return jax.lax.stop_gradient(out)
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_coverage.py -q`
-Expected: PASS (4 passed).
+Expected: PASS (5 passed).
 
-If `create_network`'s signature differs, adjust the test's network construction to the project's helper (check `src/deqn_jax/networks/factory.py` for the exact factory entry point); the helpers under test do not depend on it.
+(The factory entry point is `build_policy_net(model, net_key, hidden_sizes, network_config)` in `src/deqn_jax/networks/factory.py:19`; it returns the callable Equinox policy module — verified against the source.)
 
 - [ ] **Step 5: Commit**
 
@@ -472,7 +513,7 @@ If `create_network`'s signature differs, adjust the test's network construction 
 git add src/deqn_jax/training/coverage.py tests/test_coverage.py
 git commit -m "feat(training): coverage rollout helpers (stress seeds, roll, local)
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -498,8 +539,10 @@ from deqn_jax.training.coverage import make_coverage_loss
 def _cov_cfg(**kw):
     base = dict(
         enabled=True, rho_base=2.0, rho_stress=1.0, rho_local=1.0,
-        n_stress=8, n_local=8, rollout_horizon=2, local_sigma=0.01,
-        stress_ranges={"z_0": (-0.5, -0.2), "k_0": (1.05, 1.20)},
+        n_stress=8, n_local=8, rollout_horizon=2, local_sigma=0.02,
+        stress_ranges={"z_0": (-0.18, -0.05), "k_0": (1.05, 1.20)},
+        repair_ranges={"k_0": (0.2, 5.0), "k_1": (0.2, 5.0),
+                       "z_0": (-0.2, 0.2), "z_1": (-0.2, 0.2)},
     )
     base.update(kw)
     return CoverageConfig(**base)
@@ -515,9 +558,7 @@ def test_wrapper_forwards_quad_kwargs_to_all_pools():
         return jnp.array(float(len(calls)) * 10.0), {"euler": jnp.array(1.0)}
 
     fn = make_coverage_loss(spy, model, _cov_cfg())
-    from deqn_jax.networks.factory import create_network
-
-    net = create_network(model, type="mlp", hidden_sizes=(8,), key=jax.random.PRNGKey(1))
+    net = _tiny_net(model)
     states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
     qn = jnp.zeros((4, model.n_shocks))
     qw = jnp.ones((4,)) / 4
@@ -534,10 +575,9 @@ def test_wrapper_forwards_quad_kwargs_to_all_pools():
 
 def test_wrapper_real_compute_loss_runs():
     model = _irbc()
-    from deqn_jax.networks.factory import create_network
     from deqn_jax.training.loss import compute_loss
 
-    net = create_network(model, type="mlp", hidden_sizes=(8,), key=jax.random.PRNGKey(1))
+    net = _tiny_net(model)
     fn = make_coverage_loss(compute_loss, model, _cov_cfg())
     states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
     qn = jnp.zeros((4, model.n_shocks))
@@ -546,6 +586,26 @@ def test_wrapper_real_compute_loss_runs():
                    quad_nodes=qn, quad_weights=qw)
     assert np.isfinite(float(total))
     assert np.isfinite(float(eq["aux_cov_stress"]))
+
+
+def test_kappa_zero_collapses_to_plain_loss():
+    """Paper's kappa=0 identity: rho_stress=rho_local=0 => wrapper == compute_loss
+    EXACTLY (under quadrature the loss key is unused, so key-splitting inside the
+    wrapper cannot introduce a difference)."""
+    model = _irbc()
+    from deqn_jax.training.loss import compute_loss
+
+    net = _tiny_net(model)
+    cfg = CoverageConfig(enabled=True, rho_stress=0.0, rho_local=0.0)
+    fn = make_coverage_loss(compute_loss, model, cfg)
+    states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
+    qn = jnp.zeros((4, model.n_shocks))
+    qw = jnp.ones((4,)) / 4
+    key = jax.random.PRNGKey(0)
+    t_wrap, eq_wrap = fn(model, net, states, key, quad_nodes=qn, quad_weights=qw)
+    t_plain, _ = compute_loss(model, net, states, key, 5, quad_nodes=qn, quad_weights=qw)
+    assert float(t_wrap) == float(t_plain)  # exact, not allclose
+    assert "aux_cov_stress" not in eq_wrap  # zero-weight pools skipped at build time
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -567,19 +627,45 @@ def make_coverage_loss(
 
     Returns a fn with the exact compute_loss signature. The base pool is
     the batch passed in; stress + local pools are generated internally
-    (stop-gradient'd). All expectation kwargs are forwarded to every pool
-    so all three share the identical operator (e.g. quadrature on irbc).
+    (repaired + stop-gradient'd). All expectation kwargs are forwarded to
+    every pool so all pools share the identical operator (e.g. quadrature
+    on irbc). Zero-weight pools are skipped at BUILD time (Python-level,
+    pre-JIT), so rho_stress=rho_local=0 collapses to exactly the plain
+    base_compute_loss (the paper's kappa=0 => DEQN identity).
     """
     ss_state, _ = model.steady_state_fn(model.constants)
     ss_state = jnp.asarray(ss_state)
     n_states = model.n_states
     name_to_idx = {n: i for i, n in enumerate(model.state_names)}
-    names = list(cfg.stress_ranges.keys())
-    stress_idx = jnp.array([name_to_idx[n] for n in names], dtype=jnp.int32)
-    lows = jnp.array([cfg.stress_ranges[n][0] for n in names])
-    highs = jnp.array([cfg.stress_ranges[n][1] for n in names])
-    rho = jnp.array([cfg.rho_base, cfg.rho_stress, cfg.rho_local])
-    rho = rho / jnp.sum(rho)
+
+    use_stress = cfg.rho_stress > 0 and cfg.n_stress > 0
+    use_local = cfg.rho_local > 0 and cfg.n_local > 0
+
+    if use_stress:
+        names = list(cfg.stress_ranges.keys())
+        stress_idx = jnp.array([name_to_idx[n] for n in names], dtype=jnp.int32)
+        lows = jnp.array([cfg.stress_ranges[n][0] for n in names])
+        highs = jnp.array([cfg.stress_ranges[n][1] for n in names])
+
+    # Repair box (the paper's clip-to-feasible step): +-inf where unspecified.
+    if cfg.repair_ranges:
+        lo = jnp.full(n_states, -jnp.inf)
+        hi = jnp.full(n_states, jnp.inf)
+        for nme, rng in cfg.repair_ranges.items():
+            i = name_to_idx[nme]
+            lo = lo.at[i].set(rng[0])
+            hi = hi.at[i].set(rng[1])
+    else:
+        lo = hi = None
+
+    # Mixture weights over the INCLUDED pools, normalized to sum to 1.
+    norm = cfg.rho_base
+    norm += cfg.rho_stress if use_stress else 0.0
+    norm += cfg.rho_local if use_local else 0.0
+    w_base = cfg.rho_base / norm
+    w_stress = (cfg.rho_stress / norm) if use_stress else 0.0
+    w_local = (cfg.rho_local / norm) if use_local else 0.0
+
     n_stress = int(cfg.n_stress)
     n_local = int(cfg.n_local)
     horizon = int(cfg.rollout_horizon)
@@ -608,20 +694,26 @@ def make_coverage_loss(
             )
 
         l_base, eq = _loss(states, k_base)
-
-        seeds = sample_stress_seeds(
-            k_seed, n_stress, n_states, ss_state, stress_idx, lows, highs
-        )
-        stress = roll_states(model_, policy_fn, seeds, k_roll, horizon, shock_scale)
-        l_stress, _ = _loss(stress, k_base)
-
-        local = make_local_pool(states, k_local, n_local, local_sigma)
-        l_local, _ = _loss(local, k_base)
-
-        total = rho[0] * l_base + rho[1] * l_stress + rho[2] * l_local
+        total = w_base * l_base
         eq["aux_cov_base"] = l_base
-        eq["aux_cov_stress"] = l_stress
-        eq["aux_cov_local"] = l_local
+
+        if use_stress:
+            seeds = sample_stress_seeds(
+                k_seed, n_stress, n_states, ss_state, stress_idx, lows, highs
+            )
+            stress = roll_states(
+                model_, policy_fn, seeds, k_roll, horizon, shock_scale, lo, hi
+            )
+            l_stress, _ = _loss(stress, k_base)
+            total = total + w_stress * l_stress
+            eq["aux_cov_stress"] = l_stress
+
+        if use_local:
+            local = make_local_pool(states, k_local, n_local, local_sigma, lo, hi)
+            l_local, _ = _loss(local, k_base)
+            total = total + w_local * l_local
+            eq["aux_cov_local"] = l_local
+
         return total, eq
 
     return coverage_loss_fn
@@ -630,7 +722,7 @@ def make_coverage_loss(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_coverage.py -q`
-Expected: PASS (6 passed).
+Expected: PASS (8 passed).
 
 - [ ] **Step 5: Commit**
 
@@ -638,7 +730,7 @@ Expected: PASS (6 passed).
 git add src/deqn_jax/training/coverage.py tests/test_coverage.py
 git commit -m "feat(training): make_coverage_loss mixture wrapper
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -704,6 +796,20 @@ def test_coverage_plus_barrier_rejected():
     cfg = _cfg(barrier_weight=1.0,
                coverage={"enabled": True, "stress_ranges": {"z": (-0.1, -0.05)}})
     with pytest.raises(ValueError):
+        _validate_train_config(cfg)
+
+
+def test_coverage_plus_replay_rejected():
+    cfg = _cfg(replay_buffer={"enabled": True},
+               coverage={"enabled": True, "stress_ranges": {"z": (-0.1, -0.05)}})
+    with pytest.raises(ValueError):
+        _validate_train_config(cfg)
+
+
+def test_coverage_plus_sequence_net_rejected():
+    cfg = _cfg(network={"type": "lstm", "hidden_sizes": [16], "history_len": 4},
+               coverage={"enabled": True, "stress_ranges": {"z": (-0.1, -0.05)}})
+    with pytest.raises(NotImplementedError):
         _validate_train_config(cfg)
 
 
@@ -782,6 +888,21 @@ In `src/deqn_jax/training/state_init.py`, inside `_validate_train_config`, after
                 "barrier_weight / loss_choice!='mse' / moment_matching (they would "
                 "be silently dropped on the coverage path)."
             )
+        if config.network.history_len > 1:
+            raise NotImplementedError(
+                "coverage.enabled is v1-only-MLP. Sequence networks "
+                "(network.history_len > 1) train on [batch, H, n_states] history "
+                "windows, but the stress/local pools are flat [n, n_states] states "
+                "-- pool construction for windows is a follow-up. Disable coverage "
+                "or use an MLP."
+            )
+        if config.replay_buffer.enabled:
+            raise ValueError(
+                "coverage.enabled is incompatible with replay_buffer.enabled in "
+                "v1: the buffer concatenates old-policy states into the batch, "
+                "muddying the base-pool semantics of the coverage mixture. "
+                "Disable one."
+            )
 ```
 
 - [ ] **Step 4: Add the stress-name check in `_resolve_model_for_training`**
@@ -790,11 +911,13 @@ In `src/deqn_jax/training/state_init.py`, inside `_resolve_model_for_training`, 
 
 ```python
     if config.coverage.enabled:
-        unknown = set(config.coverage.stress_ranges) - set(model.state_names)
+        unknown = (
+            set(config.coverage.stress_ranges) | set(config.coverage.repair_ranges)
+        ) - set(model.state_names)
         if unknown:
             raise ValueError(
-                f"coverage.stress_ranges names {sorted(unknown)} are not in "
-                f"model.state_names {model.state_names!r} (model={model.name})."
+                f"coverage.stress_ranges/repair_ranges names {sorted(unknown)} are "
+                f"not in model.state_names {model.state_names!r} (model={model.name})."
             )
 ```
 
@@ -816,7 +939,7 @@ In `src/deqn_jax/training/composite_loss.py`, at the TOP of `_build_custom_loss_
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_coverage_wiring.py -q`
-Expected: PASS (6 passed).
+Expected: PASS (8 passed).
 
 - [ ] **Step 7: Run the full suite (no regressions)**
 
@@ -829,7 +952,7 @@ Expected: PASS (existing count + new tests; no failures).
 git add src/deqn_jax/training/composite_loss.py src/deqn_jax/training/state_init.py tests/test_coverage_wiring.py
 git commit -m "feat(training): wire coverage into loss builder + validators
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -922,20 +1045,30 @@ loss_reweight: none
 warm_start: false
 log_every: 200
 
+# Coverage knobs follow the paper's coverage-exact arm and are fixed a
+# priori (never tuned on the reported metrics): path:stress:local =
+# 1:0.5:0.25, H=5, stress box inside +-4 stationary sd of TFP
+# (sd(z) ~ 0.045 here: two 0.01 innovations at rho_z=0.95), repair box
+# wide (a bound, not a target region).
 coverage:
   enabled: true
   rho_base: 1.0
-  rho_stress: 1.0
-  rho_local: 1.0
+  rho_stress: 0.5
+  rho_local: 0.25
   n_stress: 128
   n_local: 128
-  rollout_horizon: 8
-  local_sigma: 0.01
+  rollout_horizon: 5
+  local_sigma: 0.02
   stress_ranges:
-    z_0: [-0.5, -0.2]   # deep recession TFP, country 0
-    z_1: [-0.5, -0.2]   # deep recession TFP, country 1
-    k_0: [1.05, 1.20]   # high capital -> desired disinvestment -> i>=0 binds
+    z_0: [-0.18, -0.05]  # recession tail: ~1-4 stationary sd down
+    z_1: [-0.18, -0.05]  # (independent per-dim draws -> asymmetric combos too)
+    k_0: [1.05, 1.20]    # high capital -> desired disinvestment -> i>=0 binds
     k_1: [1.05, 1.20]
+  repair_ranges:
+    k_0: [0.2, 5.0]      # feasible box: stress landings + local perturbations
+    k_1: [0.2, 5.0]      # are clipped here before the residual (paper's repair)
+    z_0: [-0.2, 0.2]     # ~ +-4.4 stationary sd
+    z_1: [-0.2, 0.2]
 ```
 
 - [ ] **Step 3: Write the smoke test**
@@ -980,31 +1113,37 @@ Expected: PASS (2 passed). If `with_overrides` doesn't accept `episodes`, build 
 git add configs/irbc_plain.yaml configs/irbc_ewm.yaml tests/test_coverage_smoke.py
 git commit -m "feat(configs): irbc_plain + irbc_ewm coverage configs + smoke
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Research validation (manual / DGX — reported finding, not a pytest)
 
-This produces the three-way table; it trains to completion and computes a closed-loop spectral radius, so it runs on the DGX, not in CI. Not a Definition-of-Done gate.
+This produces the comparison table; it trains to completion and computes closed-loop spectral radii, so it runs on the DGX, not in CI. Not a Definition-of-Done gate.
 
-1. **Train all three** (DGX, host uv or container):
+**Multi-seed protocol (the paper's, scaled down).** The paper runs ten seeds per arm and reports medians + verified counts — distinct seeds settle into distinct self-confirming basins, so a single-run comparison can mislead in either direction (their pathwise arm's failure is structural: 3× the budget does not repair it). Coverage knobs are fixed a priori (Global Constraints) and never adjusted based on these results.
+
+1. **Train both arms over 5–10 seeds each** (DGX, host uv or container); the BK-anchor row reuses the known 0.981 figure or one confirmation run:
    ```bash
-   uv run deqn-jax train --config configs/irbc_plain.yaml   # ρ(SS)≈1.23 baseline
-   uv run deqn-jax train --config configs/irbc_ewm.yaml     # coverage (the bet)
-   uv run deqn-jax train --config configs/irbc.yaml         # BK-anchor (ρ=0.981, known)
+   for s in 0 1 2 3 4; do
+     uv run deqn-jax train --config configs/irbc_plain.yaml --set seed=$s   # unstable baseline (documented single-seed: 1.23)
+     uv run deqn-jax train --config configs/irbc_ewm.yaml   --set seed=$s   # coverage (the bet)
+   done
+   uv run deqn-jax train --config configs/irbc.yaml                          # BK-anchor (0.981, known)
    ```
-2. **ρ(SS) for each** via the existing evaluator `scripts/evidence_report.py::_rho_ss(policy_net, model)` (gitignored, local-only): load each run's final checkpoint into the irbc model and call `_rho_ss`. Target: `irbc_ewm` gives ρ(SS) < 1.
-3. **Stress-region residual:** sample the `stress_ranges` box once with a fixed seed, roll through the exact Γ, and report per-equation `mean (E[r])²` for `fb_0`, `fb_1`, `arc` on `irbc_plain` vs `irbc_ewm` (reuse `compute_residuals` from `training/loss.py` with the quadrature nodes). Headline: % reduction in the max of those three, coverage vs plain.
-4. **Record** the result in the spec's "Research finding" table. A ρ(SS) ≥ 1 is a valid negative result, not an engineering failure.
+2. **ρ(SS) per seed** via the existing evaluator `scripts/evidence_report.py::_rho_ss(policy_net, model)` (gitignored, local-only): load each run's final params into the irbc model and call `_rho_ss`. Report per-seed values + the count with ρ(SS) < 1 per arm.
+3. **Stress-region residual per seed:** sample the `stress_ranges` box once with a fixed, arm-independent seed, roll through the exact Γ, and report per-equation `mean (E[r])²` for `fb_0`, `fb_1`, `arc` on `irbc_plain` vs `irbc_ewm` (reuse `compute_residuals` from `training/loss.py` with the quadrature nodes). Headline: % reduction in the max of those three, coverage vs plain, median over seeds.
+4. **Record** medians + pass counts in the spec's "Research finding" table. ρ(SS) ≥ 1 across seeds is a valid negative result, not an engineering failure. (Optional secondary diagnostic, from the paper: "verified stationarity" — continue training Δ episodes and check sup-norm policy change < 10⁻³ on a fixed held-out coverage-distributed set.)
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** CoverageConfig (Task 1) ✓; roll/seed/local helpers + stop-gradient (Task 2) ✓; mixture wrapper + exact signature + quad-kwarg forwarding + key-split + aux_cov_* (Task 3) ✓; `_build_custom_loss_fn` install + all validators + name check + bit-identical + divergence (Task 4) ✓; two configs + integration smoke (Task 5) ✓; ρ(SS) + stress-grid research validation (Research section) ✓. Non-goals are enforced by Task 4 validators ✓.
+**Spec coverage:** CoverageConfig incl. `repair_ranges` (Task 1) ✓; roll/seed/local helpers + repair clip + stop-gradient + split keys (Task 2) ✓; mixture wrapper + exact signature + quad-kwarg forwarding + build-time pool skip + κ=0 identity + aux_cov_* (Task 3) ✓; `_build_custom_loss_fn` install + all v1 gates (composite, non-STANDARD optimizers, barrier/huber/moment, replay, history_len) + name check over both range dicts + bit-identical + divergence (Task 4) ✓; two configs with paper-aligned knobs + integration smoke (Task 5) ✓; multi-seed ρ(SS) + stress-grid research validation (Research section) ✓. Non-goals are enforced by Task 4 validators ✓.
 
-**Placeholder scan:** every code step has complete code; commands have expected output. Two spots flag a graceful fallback (network factory entry point in Task 2 Step 4; `with_overrides` shape in Task 5 Step 4) with the concrete alternative — not placeholders.
+**Conceptual re-review (2026-06-30, against the paper's §coverage + IRBC coverage-measure appendix):** stress box rescaled to this model's stationary law (old z box was 4–11σ, outside the paper's own ±4σ repair region); repair clip adopted from the paper's replicable spec; ρ = 1:0.5:0.25 and H = 5 aligned to the paper's coverage-exact arm; knobs declared fixed-a-priori (paper's no-tuning protocol); single-run validation replaced by the paper's multi-seed protocol; factory call corrected to `build_policy_net` (verified at networks/factory.py:19).
 
-**Type consistency:** helper signatures in Task 2 Interfaces match their use in Task 3; `coverage_loss_fn` mirrors `compute_loss` (verified against loss.py:264 and composite_loss.py:240); `make_coverage_loss(base_compute_loss, model, cfg)` matches the Task 4 install call `make_coverage_loss(compute_loss, model, config.coverage)`; `aux_cov_base/stress/local` keys consistent across Task 3 and the diagnostics claim.
+**Placeholder scan:** every code step has complete code; commands have expected output. One spot flags a graceful fallback (`with_overrides` shape in Task 5 Step 4) with the concrete alternative — not a placeholder.
+
+**Type consistency:** helper signatures in Task 2 Interfaces match their use in Task 3 (incl. `lo`/`hi`); `coverage_loss_fn` mirrors `compute_loss` (verified against loss.py:264 and composite_loss.py:240); `make_coverage_loss(base_compute_loss, model, cfg)` matches the Task 4 install call `make_coverage_loss(compute_loss, model, config.coverage)`; `aux_cov_base/stress/local` keys consistent across Task 3 tests, wrapper code, and the diagnostics claim.
