@@ -77,6 +77,27 @@ The hypothesis (drawn from the paper's coverage-exact arm: 8/10, 9/10 verified v
 is ρ(SS)<1 for most seeds and a materially lower stress-region residual. A correct implementation
 that yields ρ(SS)≥1 is a valid *negative result*, not an engineering failure.
 
+**RESULT (2026-07-02, 5 seeds/arm, 4001 episodes, DGX; fixed policy-independent eval sets,
+27-node GH expectation):** a split verdict.
+
+| metric (median over 5 seeds) | irbc_plain | irbc_ewm | delta |
+|---|---|---|---|
+| stress-region max(fb_0,fb_1,arc) mean (E[r])² | 4.79e-2 | **3.11e-4** | **~154× lower (2.2 decades)** |
+| base (init-rect) total residual | ~1.5e-4..1.7e-3 | same range | no on-measure cost |
+| ρ(SS) | 1.11 [1.09, 1.29] | 1.15 [1.11, 1.26] | **unchanged; 0/5 pass both arms** |
+
+1. **The coverage-gap/certification claim fully replicates**: the plain arm shows the textbook
+   self-confirming signature (base residual ~1e-4, stress residual ~5e-2 — 500× worse exactly
+   where irreversibility binds), and coverage closes it by >2 decades at zero on-measure cost —
+   stronger than the paper's ~1-decade BM-lab figure.
+2. **The ρ(SS)<1 bet is a clean negative**: coverage does NOT repair closed-loop instability at
+   the SS on this (no-disaster) irbc. The selection/stability failure is evidently a *different*
+   pathology from the coverage gap — consistent with the BK-anchor recipe (ρ=0.981) remaining the
+   working fix for selection, while coverage is the fix for off-path certification. Note the
+   paper's "verified stationarity" is a training-loop fixed-point criterion, not a
+   closed-loop-dynamics one, so this does not contradict the paper's IRBC result; it sharpens the
+   distinction between the two notions of "verified."
+
 **Protocol rule (adopted from the paper):** coverage design parameters (box, ρ's, H, σ_local) are
 fixed a priori by the coverage criterion — enough mass on the rare/post-shock region, local radius
 a small fraction of the ergodic spread — and are **never tuned against the reported metrics**.
