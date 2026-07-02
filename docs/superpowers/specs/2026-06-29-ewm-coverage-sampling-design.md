@@ -86,17 +86,40 @@ that yields ρ(SS)≥1 is a valid *negative result*, not an engineering failure.
 | base (init-rect) total residual | ~1.5e-4..1.7e-3 | same range | no on-measure cost |
 | ρ(SS) | 1.11 [1.09, 1.29] | 1.15 [1.11, 1.26] | **unchanged; 0/5 pass both arms** |
 
-1. **The coverage-gap/certification claim fully replicates**: the plain arm shows the textbook
-   self-confirming signature (base residual ~1e-4, stress residual ~5e-2 — 500× worse exactly
-   where irreversibility binds), and coverage closes it by >2 decades at zero on-measure cost —
-   stronger than the paper's ~1-decade BM-lab figure.
+1. **The coverage-gap/certification mechanism replicates.** The plain arm shows the
+   self-confirming signature (base residual small, stress residual far larger exactly where
+   irreversibility binds — ~22× in residual units; the 500× figure is in squared units), and
+   coverage closes it at zero on-measure cost. **In like-for-like (unsquared) units the gain is
+   √154 ≈ 12× ≈ 1.1 decades — comparable to the paper's own figures (BM lab 0.86 dec, IRBC
+   1.24 dec), not stronger.** An earlier version of this section compared squared decades to the
+   paper's unsquared decades; corrected 2026-07-02 after independent refereeing. Caveat on scope:
+   the baseline arm is a fixed init-rect sampler (geometrically the paper's *placebo box*, not
+   its policy-induced pathwise measure), so this experiment is "box vs box+coverage" — an
+   adjacent test of the mechanism, not an instantiation of the paper's headline comparison.
 2. **The ρ(SS)<1 bet is a clean negative**: coverage does NOT repair closed-loop instability at
    the SS on this (no-disaster) irbc. The selection/stability failure is evidently a *different*
-   pathology from the coverage gap — consistent with the BK-anchor recipe (ρ=0.981) remaining the
-   working fix for selection, while coverage is the fix for off-path certification. Note the
-   paper's "verified stationarity" is a training-loop fixed-point criterion, not a
-   closed-loop-dynamics one, so this does not contradict the paper's IRBC result; it sharpens the
-   distinction between the two notions of "verified."
+   pathology from the coverage gap — consistent with the BK-anchor recipe (ρ=0.981, single-seed,
+   pre-KKT-fix) remaining the working fix for selection, while coverage is the fix for off-path
+   certification. Note the paper's "verified stationarity" is a training-loop fixed-point
+   criterion, not a closed-loop-dynamics one, so this does not contradict the paper's IRBC
+   result; it sharpens the distinction between the two notions of "verified."
+3. **The failure is broader than ρ(SS)≥1** (found by the independent referee, 2026-07-02, and
+   confirmed on all 10 checkpoints + 2 fresh seeds): every policy in BOTH arms is also wrong *in
+   level* at the steady state — spurious irreversibility multipliers (μ(SS) ≈ 1.6–3.2 where the
+   true value is 0), shadow price λ(SS) 10–37% below truth, negative SS investment — and carries
+   median own-path residuals (0.04–0.12) an order above its in-box residuals. Mechanism
+   (referee's diagnosis): at δ=0.01 the residual objective has a near-flat direction — μ's net
+   Euler coefficient is 1−β(1−δ) ≈ 0.02, the Fischer-Burmeister residual is nearly flat for
+   μ≫|i|, and λ-shifts are first-order free at SS — an **identification failure of the residual
+   metric itself**, which measure-enlargement cannot repair. Coverage certifies residuals where
+   you impose them; it cannot select among solutions the residual barely distinguishes.
+4. **Independent verification (2026-07-02):** a blinded referee working from the arXiv source and
+   the raw code (docs/ and scripts/ barred until its own analysis was committed) reproduced the
+   implementation-faithfulness assessment, the 154× squared-units figure (162× on its own fresh
+   box), the ρ(SS) medians/ranges, and both effects on freshly retrained seed-11 runs (22× in
+   squared units); it also independently re-derived the irbc KKT fix (c94df1f) as correct from
+   the planner's Lagrangian. Runs are fp32 (the paper uses fp64) — not expected to change the
+   conclusions but noted for completeness.
 
 **Protocol rule (adopted from the paper):** coverage design parameters (box, ρ's, H, σ_local) are
 fixed a priori by the coverage criterion — enough mass on the rare/post-shock region, local radius
@@ -109,10 +132,12 @@ fixed-point* check; our ρ(SS) is a *closed-loop dynamics* check. We keep ρ(SS)
 (it connects to the documented 1.23 / 0.981 numbers) and may add the policy-stationarity check as
 a cheap secondary diagnostic.
 
-**Stress-region metric (quantified).** On a fixed held-out stress grid (the stress box sampled once
-with a pinned seed, rolled through the exact Γ), report the mean expected squared residual
-`mean (E[r])²` **per equation** (at minimum `fb_0`, `fb_1`, `arc`) for plain vs coverage. Headline
-number: percent reduction in the max-over-{fb_0,fb_1,arc} stress residual, coverage vs plain.
+**Stress-region metric (quantified).** On a fixed held-out stress grid — the stress box sampled
+once with a pinned seed and evaluated **directly** (raw box states; policy-independent and
+identical across arms) — report the mean expected squared residual `mean (E[r])²` **per equation**
+(at minimum `fb_0`, `fb_1`, `arc`) for plain vs coverage. Headline number: percent reduction in
+the max-over-{fb_0,fb_1,arc} stress residual, coverage vs plain. When comparing magnitudes to the
+paper, convert to **residual (unsquared) units**: a factor F in (E[r])² is √F in |E[r]|.
 
 ## Non-goals / v1 scope restrictions (enforced by validators)
 
