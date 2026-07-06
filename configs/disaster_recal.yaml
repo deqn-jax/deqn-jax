@@ -1,0 +1,78 @@
+# Disaster model — RECALIBRATED steady state (on-target inflation).
+#
+# = configs/disaster.yaml with two constant overrides that land the solved
+# SS exactly on the stated calibration targets (2026-07 audit, verified by
+# counterfactual re-solves, independently refereed):
+#
+#   y_ss: 3.006808   fixed-point model-consistent SS GDP (shipped constant
+#                    3.0308 is 0.87% above the model's actual SS GDP; the
+#                    Taylor output-gap term reads that gap permanently and
+#                    drags solved inflation to 1.0123 vs the 1.006 target)
+#   R_ss: 1.0116421  Fisher-consistent with the 1.006 target
+#
+# Verified through the repo's own SS solver (fp64, 2026-07-06):
+#   shipped:            pi* = 1.012287  (~5.0% annual inflation)
+#   this calibration:   pi* = 1.005918  (~2.4% annual; the -8e-5 residual
+#                       is the ELB softplus wedge — 1.005998 with the
+#                       floor pushed away)
+#
+# TRADE-OFF — read before adopting as default: on-target inflation means a
+# lower SS nominal rate, which nearly DOUBLES the model's ELB exposure
+# (Taylor rate below the floor ~12% of quarters at shipped calibration ->
+# ~22% here, distance 1.18 sigma -> 0.77 sigma). The linearization is blind
+# to the floor, so BK-anchored training is mis-anchored more often under
+# this calibration. Shipped default stays the CMR-faithful constants;
+# adopting this one should be decided jointly with the ELB treatment
+# (kink-aware anchor / ELB-targeted coverage — see
+# docs/dev/handoff_2026_07_06.md, spec-let 1, and
+# docs/disaster_corrected.tex errata item 12 + SS note).
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+constants:
+  y_ss: 3.006808
+  R_ss: 1.0116421
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0      # supervised: match linearized policy at anchor points
+  jac_weight: 0.1         # supervised: match dπ/ds(SS) = P
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0    # keep anchor active throughout training
+
+checkpoint_dir: checkpoints/disaster_recal
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_recal
