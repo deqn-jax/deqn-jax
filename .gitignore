@@ -60,6 +60,7 @@ scripts/*
 !scripts/ewm_seed_sweep.sh
 !scripts/ewm_stress_table.py
 !scripts/disaster_cert_sweep.sh
+!scripts/cert_sweep_container.py
 !scripts/disaster_ss_probe.py
 dynare/
 PLAN.md
