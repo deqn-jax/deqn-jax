@@ -39,6 +39,16 @@ and \texttt{disaster.tex} disagree, \emph{this document is correct}.
   $10 \!\to\! 100$ to eliminate a $0.4\%$ wedge in habit at SS values that
   was propagating to a $+0.17$pp shift in solved $\pi_{ss}$. Cached
   \texttt{STEADY\_STATE} dict refreshed against the corrected solver.
+\item \emph{July 2026.} Documentation audit (independently refereed
+  counterfactual re-solves): the $\pi_{ss}$-gap mechanism paragraph
+  rewritten (the pin is the Taylor rule's output-gap term against a
+  miscalibrated $y_{\text{ss}}$ constant, \emph{not} financial-friction
+  compounding); ELB SS-distortion claim corrected
+  (${\sim}10^{-7}$ holds only locally on $R$; the equilibrium effect on
+  solved $\pi_{ss}$ is $-8\times 10^{-5}$ in logs); $R_{\text{ss}}$
+  constant vs solved-SS rate disambiguated; stale policy-bounds-table
+  SS values and stale equation numbers in the provenance table fixed.
+  See errata item~12.
 \end{itemize}
 
 \bigskip\noindent
@@ -132,8 +142,8 @@ $F_{w,t}$        & 0.30 & $\infty$ & 0.8853 & softplus \\
 $F_{p,t}$        & 2.00 & $\infty$ & 4.7359 & softplus \\
 $q_t$            & 0.50 & $\infty$ & 1.0000 & softplus \\
 $c_t$            & 0.50 & $\infty$ & 1.5937 & softplus \\
-$K_{p,t}$        & 1.00 & $\infty$ & 4.8308 & softplus \\
-$K_{w,t}$        & 0.50 & $\infty$ & 2.2071 & softplus \\
+$K_{p,t}$        & 1.00 & $\infty$ & 4.7774 & softplus \\
+$K_{w,t}$        & 0.50 & $\infty$ & 2.1825 & softplus \\
 \bottomrule
 \end{tabular}
 \caption{Per-variable output bounding. Softplus:
@@ -554,9 +564,14 @@ $\sharp \equiv R^{lb}_{\text{sharpness}}$ is the kink sharpness
   near $R^{\text{Taylor}}_t = R^{lb}$. For $R^{\text{Taylor}}_t \gg R^{lb}$,
   $R_t \approx R^{\text{Taylor}}_t$. For $R^{\text{Taylor}}_t \ll R^{lb}$,
   $R_t \approx R^{lb}$.
-\item At the steady state, $R^{\text{Taylor}}_{ss} = R_{ss} \approx 1.018 \gg R^{lb}$,
-  so the floor is slack in expectation and the SS distortion from the
-  softplus is ${\sim}10^{-7}$ at $\sharp = 500$.
+\item At the steady state the floor is slack: the \emph{solved} SS policy
+  rate is $1.0180$ (distinct from the $R_{\text{ss}}$ \emph{constant}
+  $1.011678$ in the calibration table --- see the SS note), well above
+  $R^{lb}$. The softplus wedge on $R$ itself is
+  ${\sim}2.5\times 10^{-7}$ at $\sharp = 500$; its \emph{equilibrium}
+  effect on solved $\pi_{ss}$ is $-8\times 10^{-5}$ in logs (amplified
+  ${\times}6.67$ by interest smoothing $1/(1-\rho_p)$ and ${\times}2$ by
+  $1/(\alpha_\pi - 1)$; measured by counterfactual re-solve, July 2026).
 \item Under stress shocks (especially monetary policy shocks $m_t^p$
   combined with disasters), $R^{\text{Taylor}}_t$ can dip below $R^{lb}$
   and the floor activates.
@@ -765,10 +780,10 @@ porting to other solvers.
 Variable & Pinned by & Implementation slot \\
 \midrule
 $\pi_t$         & Phillips curve (Eq.~2a/2b) & network output \\
-$q_t$           & Investment Euler (Eq.~3) & network output \\
-$i_t$           & Investment FOC (Eq.~6) & network output \\
-$\tilde{w}_t$   & Wage Phillips (Eq.~4a/4b) & network output \\
-$c_t$           & Consumption Euler (Eq.~1, with Eq.~9 enforcing identity) & network output \\
+$q_t$           & Investment Euler (Eq.~7) & network output \\
+$i_t$           & Investment Euler (Eq.~7) & network output \\
+$\tilde{w}_t$   & Wage Phillips (Eq.~3, 4a/4b) & network output \\
+$c_t$           & Consumption Euler (Eq.~5, with Eq.~9 enforcing identity) & network output \\
 $k_t$           & Capital accumulation (Section~2) & definition from $(k_{t-1}, i_t, \mu_{z,t})$ \\
 $R_t$           & Taylor rule with ELB (Sections~2, 4) & definition from $(R_{t-1}, \pi_t, y_t^{\text{GDP}}, m_t^p)$ \\
 $L_t$           & Balance-sheet identity (Eq.~12) & definition from $(q_t, k_t, n_t)$, after $\bar\omega_t$ Newton solve \\
@@ -860,8 +875,8 @@ Idiosyncratic dispersion & $\sigma_\omega$ & 0.26822 & CMR steady state \\
 Monitoring cost & $\mu$ & 0.22 & CMR calibration \\[3pt]
 SS inflation target & $\pi_{\text{ss}}$ & 1.006 & CMR calibration \\
 SS growth rate & $\mu_{z,\text{ss}}$ & 1.0041 & CMR calibration \\
-SS interest rate & $R_{\text{ss}}$ & 1.011678 & Steady state \\
-SS output & $y_{\text{ss}}$ & 3.0308 & Steady state \\
+SS interest rate & $R_{\text{ss}}$ & 1.011678 & Steady state (Fisher-consistent value: 1.0116421) \\
+SS output & $y_{\text{ss}}$ & 3.0308 & \emph{Miscalibrated} (solved-SS GDP $= 3.0044$; see \S\ref{sec:steady_state}) \\
 SS government spending & $g_{\text{ss}}$ & 0.616 & CMR calibration \\[3pt]
 $\rho_\epsilon$ / $\sigma_\epsilon$ & & 0.809 / 0.0046 & CMR estimation \\
 $\rho_{\mu_\Upsilon}$ / $\sigma_{\mu_\Upsilon}$ & & 0.987 / 0.004 & CMR estimation \\
@@ -881,9 +896,10 @@ Disaster magnitude (log-fraction) & $\theta_{\text{disaster}}$ & 0.05 & Calibrat
 \item $R^{lb} = 1.0$ corresponds to a zero net nominal rate. Lowering
   $R^{lb}$ to $\sim 0.998$ would approximate the SNB's $-0.75\%$ annual
   policy rate at quarterly frequency.
-\item $R^{lb}_{\text{sharpness}} = 500$ keeps the SS distortion from
-  the softplus floor at ${\sim}10^{-7}$ while still producing a tight
-  kink near the floor.
+\item $R^{lb}_{\text{sharpness}} = 500$ keeps the softplus wedge on $R$
+  at ${\sim}2.5\times 10^{-7}$ (equilibrium effect on solved
+  $\pi_{ss}$: $-8\times 10^{-5}$ in logs; see \S\ref{sec:elb}) while
+  still producing a tight kink near the floor.
 \item $p_{\text{disaster}} = 0$ is the production default; the
   mechanism is inert and the model is exactly baseline CMR.
 \item $\theta_{\text{disaster}} = 0.05$ corresponds to a ${\sim}4.9\%$
@@ -951,16 +967,36 @@ $m_t^p$            & 0.0000 \\
 \end{tabular}
 \bigskip
 
-\textbf{Note on the target/solved gap.}
+\textbf{Note on the target/solved gap (mechanism corrected July 2026).}
 The CMR calibration targets $\pi_{ss} = 1.006$, but the nonlinear solver
-lands at $\pi = 1.0123$, a $+0.6$pp gap. CMR's structural parameters
-($\Phi$, $\psi_L$, $b$, etc.) were estimated against a \emph{linearized}
-model that takes the SS as given; the nonlinear equations have to find
-a self-consistent SS, and small inconsistencies that linearization
-smooths over compound through the financial-friction block (eq.~8) into
-the observed shift. The SS at $1.0123$ is internally consistent (all 11
-residuals $< 6\times 10^{-8}$); it is just not the SS at the calibration
-target.
+lands at $\pi = 1.0123$, a $+0.6$pp gap. \emph{The pin is the monetary
+block}: at any stationary point the bond Euler fixes the real rate
+(Fisher: $R = \pi\,\mu_z/\beta$), and the Taylor rule must produce that
+same $R$ --- but its output-gap term $(y^{\text{GDP}}/y_{\text{ss}})^{\alpha_y}$
+permanently drags the prescribed rate because the model's actual SS GDP
+($g + c + i/\mu_\Upsilon = 3.0044$, from the state/policy tables on this
+page) sits $0.87\%$ below the hardcoded $y_{\text{ss}} = 3.0308$
+constant. With Taylor slope $\alpha_\pi = 1.5$ against Fisher slope 1,
+the equilibrium shifts by
+$\Delta\log\pi = -(\delta_R + \alpha_y\,\Delta\log y)/(\alpha_\pi - 1)$,
+where $\delta_R$ is the log gap between the $R_{\text{ss}}$ constant and
+the Fisher-consistent rate: predicted $+0.006233$ vs.\ actual
+$+0.006230$. Counterfactual re-solves (July 2026, independently
+refereed): $\alpha_y := 0 \Rightarrow \pi^* = 1.005844$;
+$y_{\text{ss}} := 3.006808$ and $R_{\text{ss}} := 1.0116421$ (Fisher-consistent)
+with the ELB wedge removed $\Rightarrow \pi^* = 1.006000$ exactly. An
+indexation sweep $\iota = \iota_w \in \{0, 1\}$ moves $\pi^*$ by
+$\leq 0.07$pp --- the Calvo/indexation block is \emph{not} the
+mechanism, and an earlier draft of this note that attributed the gap to
+financial-friction compounding is refuted by the same counterfactuals.
+The SS at $1.0123$ is internally consistent (all 11 residuals
+$< 6\times 10^{-8}$); it is the correct SS \emph{of the shipped
+constants}, which encode a $5\%$-inflation economy rather than the
+$2.4\%$ target. The exact recalibration exists but roughly doubles the
+model's ELB exposure ($1.18\sigma/{\sim}12\%$ of quarters at shipped
+values $\to 0.77\sigma/{\sim}22\%$) --- adopting it is a modeling
+decision, not a bug fix, and must be taken jointly with the ELB
+treatment.
 
 \emph{Independent issue (May 2026, fixed):} between February and May
 the consumption-Euler habit floor (Eq.~5) used a low softplus sharpness
@@ -1197,6 +1233,23 @@ sheet) after the original February 2026 cut.
   residuals when the dict was used as initial-guess seed for the
   solver. Refreshed to match the post-fix runtime SS exactly
   (all residuals $\leq 2\times 10^{-15}$).
+
+\item \textbf{Documentation audit} (July 2026; equations audited against
+  the code and re-derived, both by hand and by an independent
+  cross-family referee --- \emph{no errors found in the equations
+  themselves}; the SS tables pass independent consistency checks
+  through Eq.~2a and Eq.~9). Prose corrections: (a) the
+  $\pi_{ss}$-gap mechanism note rewritten --- the pin is the Taylor
+  output-gap term against the miscalibrated $y_{\text{ss}}$ constant,
+  established by counterfactual re-solves; the earlier
+  financial-friction-compounding story was wrong; (b) ELB SS-distortion
+  claim corrected from ${\sim}10^{-7}$ (which holds only for the local
+  wedge on $R$) to $-8\times 10^{-5}$ log-$\pi_{ss}$ equilibrium effect;
+  (c) solved-SS rate ($1.0180$) vs $R_{\text{ss}}$ constant
+  ($1.011678$) disambiguated; (d) policy-bounds table $K_p/K_w$ SS
+  values refreshed to the post-May-2026 solve ($4.7774$, $2.1825$);
+  (e) provenance-table equation numbers updated to the current
+  numbering (Eq.~5, Eq.~7).
 \end{enumerate}
 
 \bigskip\noindent\textbf{Negative findings} (tested, not adopted; see
