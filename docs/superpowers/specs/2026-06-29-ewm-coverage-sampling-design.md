@@ -416,3 +416,41 @@ No JIT-boundary change, no new pytree state, no `TrainState` change.
 - Per-dimension `local_sigma` (dict-by-state-name, mirroring the paper's per-dim local scales).
 - Policy-stationarity diagnostic (the paper's "verified stationarity" criterion) as a cheap
   secondary convergence check.
+
+## Composition addendum (2026-07-06): coverage ∘ composite
+
+The v1 coverage×composite mutual exclusion was relaxed in 3ed43c7: `make_composite_loss` gained a
+`base_loss_fn` parameter and the composite loss's base residual term is now the coverage mixture
+when both are enabled (composite ∘ coverage — anchor/jac added once on top; the reverse order
+would multiply-count the state-independent anchor terms across pools). Exact zero-pool identity
+and pool-divergence guards in `tests/test_coverage_smoke.py`. New arm:
+`configs/irbc_ewm_anchor.yaml` = `irbc.yaml` (composite, linear_plus_mlp) + `irbc_ewm.yaml`'s
+coverage block, knobs unchanged.
+
+**RESULT (2026-07-06): 4 arms × 5 seeds, all 20 retrained fresh on identical code (post-KKT-fix,
+post-3ed43c7), DGX host-uv CPU, 4001 episodes, fp32. Evaluation: `scripts/ewm_stress_table.py`
+(held-out pinned grids, 27-node GH). Raw per-seed artifact:
+`docs/superpowers/specs/data/ewm_composition_table_2026_07_06.json`.**
+
+| arm | median rho(SS) | pass rho<1 | median stress max(fb_0,fb_1,arc) | median base total |
+|---|---|---|---|---|
+| irbc_plain | 1.1145 [1.088, 1.289] | 0/5 | 4.915e-02 | 1.838e-04 |
+| irbc_ewm | 1.1515 [1.114, 1.256] | 0/5 | 3.105e-04 | 1.665e-04 |
+| irbc (anchor) | 0.9808 [0.981, 0.981] | **5/5** | 2.323e-05 | 3.121e-06 |
+| irbc_ewm_anchor | 0.9808 [0.981, 0.981] | **5/5** | **1.032e-05** | 3.350e-06 |
+
+1. **Both certificates simultaneously** (the composition hypothesis, confirmed a fortiori): 5/5
+   stable AND the lowest stress residual of any arm. No anchor-vs-binding-region tension:
+   coverage adds a further ~2.3× stress cut (squared units, ~0.18 decades) on every individual
+   seed, at a systematic but small ~8% on-measure cost in units ~3 decades below the plain arms.
+2. **The anchor abolishes the seed lottery**: all ten anchored runs land at rho(SS)=0.9808 with
+   zero cross-seed variance (the anchored linearization's stable root). The documented
+   single-seed 0.981 upgrades to a 5-seed, post-KKT-fix result. Note the composite recipe is a
+   network+loss bundle (linear_plus_mlp + anchor/jac); this experiment does not decompose it.
+3. **Anchor alone already closes most of the coverage gap on this stress box** (2.3e-5 vs
+   coverage's 3.1e-4): correct SS level+tangent extrapolates well over a
+   linearization-friendly box (k in 1.05–1.20 vs k_ss=1). Expected to break where the local
+   model is wrong (disaster ELB region) — the natural next experiment, per the handoff pack.
+4. Same-day rerun note: the plain/ewm rows above are fresh retrains and match the committed
+   2026-07-02 result (154× -> 158× squared on a freshly pinned grid; rho medians within 0.01),
+   which also validates the rewritten in-repo evaluation script against the original record.
