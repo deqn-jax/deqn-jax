@@ -66,10 +66,13 @@ Three findings in one small table:
    deterministic but leaves the floor region taught by nobody; the residual loss alone there is
    exactly the self-confirming trap. Determinism without correctness.
 
-### ELB coverage: the training measure chases the policy (1 seed; seeds 1–2 cut as redundant)
+### ELB coverage: the training measure chases the policy — then comes back (1 seed)
 
-Training loss stuck at ~4×10⁵ (vs ~0.08 healthy) from episode 500 onward. The diagnosis is the
-night's most instructive result:
+**Correction over the first draft of this section:** the training loss sat at ~4×10⁵ from
+episode 500 through ~2500 and this was initially read as divergence — seeds 1–2 were cut on
+that reading (a premature call, on the record: the DONE markers say so). In the final ~500
+episodes the run *recovered*: loss 4×10⁵ → 918 → **0.025 — the best final loss of any arm
+tonight**. The mid-run diagnosis remains valid and is the night's most instructive result:
 
 - **The stress pool is innocent.** The checkpoint's residuals *on its own stress landings* are
   fine (total 0.017; worst equation 7.6e-2).
@@ -87,7 +90,18 @@ attractors of the on-policy training measure** — any training pressure that pu
 toward a bound can drag the sampling distribution with it, and the loss explodes on the
 migrated measure. On irbc this could not happen: its kink is off-path, so coverage taught a
 region the base measure never followed it into. The disaster model's kink is on-path — the
-measure *can* follow.
+measure *can* follow. The eventual escape (final 500 episodes) shows the spiral is a long
+transient rather than a terminal absorption under this calibration — but 2500 of 3000 episodes
+were spent inside it.
+
+**Final certificates (the punchline):** despite the best final loss of the night,
+
+| seed | final loss | ρ(SS) | max SS err | drift@100 |
+|---|---|---|---|---|
+| 0 | **0.025** | 1.060 | **7.41%** (λ_z +7.4, π −6.2) | 53% |
+
+Best loss, worst treated-arm levels — the most dramatic loss-is-not-a-certificate instance of
+the night, in an experiment that had already demonstrated it twice.
 
 ### Gated + coverage (composed) — PENDING at time of writing
 
@@ -102,7 +116,17 @@ The ELB-conflict mechanism is **half-confirmed, precisely**:
   1.22 → 1.05) and is a source of the seed lottery (variance collapse when removed).
 - Refuted (v1 form): "just add residual pressure at the floor" — the paper-faithful coverage
   design that worked on irbc's off-path kink destabilizes the *training measure* when the kink
-  is on-path. Silence at the floor is insufficient; naive teaching at the floor is toxic.
+  is on-path (a 2500-episode bound-attractor transient), and even after recovering to the best
+  loss of the night, its certificates are the worst of the treated arms.
+
+**The emerging pattern above the arms:** every treated run that converges lands in the same
+ρ(SS) ≈ 1.05–1.06 basin — gated (1.049/1.064/1.052) and coverage (1.060) alike. The
+treatments control the *variance* of the outcome (the lottery) but not the *location* of the
+attractor. That is the signature of the loss surface itself preferring a specific
+mildly-unstable solution — the disaster-model analogue of irbc's identification finding: a
+direction the residual objective barely penalizes. If the composed arm confirms it, the next
+lever is not sampling or muting but changing what the loss can see — regime-2 anchor content,
+or residual preconditioning (spec-let 3 / the identification program).
 
 ## Successor design (spec for the next cycle)
 
