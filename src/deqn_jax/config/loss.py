@@ -54,6 +54,10 @@ class CompositeLossConfig(_ConfigBase):
         default=64,
         description="Number of anchor points sampled near SS at setup time (deterministic).",
     )
+    anchor_gate: bool = Field(
+        default=False,
+        description="Kink-aware anchor: down-weight anchor points where the model declares its linearization invalid (requires the model to define `anchor_gate_fn`, e.g. disaster's interest-rate floor). Off = legacy unweighted anchor, bit-identical.",
+    )
     anchor_sigma: float = Field(
         default=1.0,
         description="Scale of the Gaussian spread around SS for anchor-point sampling.",

@@ -60,6 +60,10 @@ class CompositeData(NamedTuple):
     anchor_deviations: Array
     anchor_lin_policy: Array
     aux_constants: Dict[str, Any]
+    # Per-anchor-point weights in [0, 1] (kink-aware anchor gate), or None
+    # for the legacy unweighted anchor. Computed ONCE at build time from
+    # ModelSpec.anchor_gate_fn when composite_loss.anchor_gate is enabled.
+    anchor_weights: Optional[Array] = None
 
 
 def prepare_composite_data(
@@ -70,6 +74,7 @@ def prepare_composite_data(
     anchor_sigma: float = 1.0,
     seed: int = 12345,
     verbose: bool = True,
+    anchor_gate_fn: Optional[Callable[..., Array]] = None,
 ) -> CompositeData:
     """Build CompositeData from linearization results.
 
@@ -113,8 +118,30 @@ def prepare_composite_data(
     if aux_const_fn is not None:
         aux_constants = dict(aux_const_fn(model))
 
+    # Kink-aware anchor gate: per-point weights computed ONCE on the fixed
+    # cloud (build time, pre-JIT — zero runtime cost). None = legacy path.
+    anchor_weights = None
+    if anchor_gate_fn is not None:
+        anchor_weights = jnp.clip(
+            jnp.asarray(
+                anchor_gate_fn(anchor_points, anchor_lin_policy, model.constants)
+            ).reshape(-1),
+            0.0,
+            1.0,
+        )
+        assert anchor_weights.shape[0] == n_anchor_points, (
+            f"anchor_gate_fn returned {anchor_weights.shape[0]} weights for "
+            f"{n_anchor_points} anchor points"
+        )
+
     if verbose:
         print(f"  Anchor: {n_anchor_points} fixed points, sigma={anchor_sigma}")
+        if anchor_weights is not None:
+            n_down = int(jnp.sum(anchor_weights < 0.5))
+            print(
+                f"  Anchor gate: mean weight {float(jnp.mean(anchor_weights)):.3f}, "
+                f"{n_down}/{n_anchor_points} points down-weighted (<0.5)"
+            )
         if aux_constants:
             print(f"  Aux constants: {list(aux_constants.keys())}")
 
@@ -127,6 +154,7 @@ def prepare_composite_data(
         anchor_deviations=deviations,
         anchor_lin_policy=anchor_lin_policy,
         aux_constants=aux_constants,
+        anchor_weights=anchor_weights,
     )
 
 
@@ -160,10 +188,20 @@ def _anchor_loss(
 
     Uses fixed sample points (precomputed in prepare_composite_data) so the
     anchor loss is deterministic — no per-step random sampling noise in gradients.
+
+    When ``data.anchor_weights`` is set (kink-aware anchor gate), each
+    point's squared error is scaled by its weight and the mean is taken
+    over the weight mass — points where the linearization is the wrong
+    local model (e.g. beyond the disaster model's rate floor) stop
+    teaching. ``None`` reproduces the legacy unweighted mean exactly.
     """
     markov_fn = _make_markov_wrapper(policy_fn, history_len)
     net_policy = jax.vmap(markov_fn)(data.anchor_points)  # [n_anchor, n_policies]
-    return jnp.mean((net_policy - data.anchor_lin_policy) ** 2)
+    sq = (net_policy - data.anchor_lin_policy) ** 2
+    if data.anchor_weights is None:
+        return jnp.mean(sq)
+    w = data.anchor_weights[:, None]
+    return jnp.sum(w * sq) / (jnp.sum(w) * sq.shape[1] + 1e-12)
 
 
 def _jac_loss(
@@ -205,7 +243,13 @@ def _sobolev_anchor_loss(
     jac_single = jax.jacfwd(markov_fn)
     # Jacobians at every anchor: [n_anchor, n_policies, n_states]
     J_all = jax.vmap(jac_single)(data.anchor_points)
-    return jnp.mean((J_all - data.P[None, :, :]) ** 2)
+    sq = (J_all - data.P[None, :, :]) ** 2
+    if data.anchor_weights is None:
+        return jnp.mean(sq)
+    w = data.anchor_weights[:, None, None]
+    return jnp.sum(w * sq) / (
+        jnp.sum(data.anchor_weights) * sq.shape[1] * sq.shape[2] + 1e-12
+    )
 
 
 def make_composite_loss(
@@ -389,6 +433,17 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
         )
         from deqn_jax.training.linearize import linearize_model
 
+        gate_fn = None
+        if config.composite_loss.anchor_gate:
+            gate_fn = getattr(model, "anchor_gate_fn", None)
+            if gate_fn is None:
+                raise ValueError(
+                    f"composite_loss.anchor_gate=true but model "
+                    f"'{model.name}' declares no anchor_gate_fn. Only models "
+                    "with a known linearization-invalid region define one "
+                    "(e.g. disaster's interest-rate floor)."
+                )
+
         if config.verbose:
             print("  Building composite loss (linearize + ergodic cov)...")
         P, Q = linearize_model(model, verbose=config.verbose)
@@ -412,6 +467,7 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
             anchor_sigma=comp_cfg.anchor_sigma,
             seed=config.seed,
             verbose=config.verbose,
+            anchor_gate_fn=gate_fn,
         )
         custom_loss_fn = make_composite_loss(
             model,

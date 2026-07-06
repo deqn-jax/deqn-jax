@@ -302,6 +302,34 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     }
 
 
+def anchor_gate(
+    anchor_points: Array,
+    anchor_lin_policy: Array,
+    constants: Dict,
+) -> Array:
+    """Kink-aware anchor gate (composite_loss.anchor_gate=true).
+
+    Down-weights anchor points where the BK linearization is the WRONG local
+    model: wherever the linearized policy puts the Taylor prescription at or
+    below the rate floor, the true policy obeys floor dynamics the linear
+    anchor cannot represent (the floor kink has slope ~1 above, ~0 below;
+    the linearization is blind to it — 2026-07 audit: the economy visits
+    that region ~12% of quarters). Teaching the no-floor linearization there
+    is teaching lies; this gate stops it.
+
+    weight = sigmoid(k * (R_taylor - R_lb - margin)), evaluated ONCE on the
+    fixed anchor cloud at trainer setup (pre-JIT, zero runtime cost).
+    margin=0.005 and k=400 are fixed a priori (EWM protocol style, never
+    tuned on reported metrics): at the SS gap (~0.018) weight ≈ 0.995; at
+    the floor ≈ 0.12; below → 0. Non-finite R_taylor (linear policy
+    extrapolated into infeasibility) → weight 0.
+    """
+    defs = definitions(anchor_points, anchor_lin_policy, constants)
+    r_gap = defs["R_taylor"] - constants.get("R_lb", 1.0) - 0.005
+    w = jax.nn.sigmoid(400.0 * r_gap)
+    return jnp.where(jnp.isfinite(w), w, 0.0)
+
+
 def equations(
     state: Array,
     policy: Array,

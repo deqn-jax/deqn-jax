@@ -59,6 +59,8 @@ scripts/*
 !scripts/fetch_sweep_results.sh
 !scripts/ewm_seed_sweep.sh
 !scripts/ewm_stress_table.py
+!scripts/disaster_cert_sweep.sh
+!scripts/disaster_ss_probe.py
 dynare/
 PLAN.md
 docs/session_log.md

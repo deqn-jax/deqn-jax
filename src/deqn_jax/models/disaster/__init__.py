@@ -16,7 +16,12 @@ from deqn_jax.models.disaster.composite_aux import (
 )
 from deqn_jax.models.disaster.diagnostics import scalar_diagnostics
 from deqn_jax.models.disaster.dynamics import clip_state, compute_state_barrier, step
-from deqn_jax.models.disaster.equations import EQUATION_NAMES, definitions, equations
+from deqn_jax.models.disaster.equations import (
+    EQUATION_NAMES,
+    anchor_gate,
+    definitions,
+    equations,
+)
 from deqn_jax.models.disaster.steady_state import init_state, steady_state
 from deqn_jax.models.disaster.variables import (
     CONSTANTS,
@@ -97,4 +102,5 @@ MODEL = ModelSpec(
     scalar_diagnostics_fn=scalar_diagnostics,
     composite_aux_fn=composite_aux,
     composite_aux_constants_fn=composite_aux_constants,
+    anchor_gate_fn=anchor_gate,
 )

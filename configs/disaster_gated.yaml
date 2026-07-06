@@ -1,0 +1,54 @@
+# Disaster — GATED-ANCHOR arm (spec-let 1a, kink-aware anchor).
+# = disaster.yaml + composite_loss.anchor_gate: true. Anchor points where the
+# LINEARIZED Taylor rate sits at/below the rate floor stop teaching: the BK
+# linearization is the wrong local model there (slope blind to the kink), and
+# the economy visits that region ~12% of quarters (2026-07 audit). Gate
+# weights are computed once on the fixed anchor cloud (models/disaster/
+# equations.py::anchor_gate; margin/sharpness fixed a priori).
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0      # supervised: match linearized policy at anchor points
+  jac_weight: 0.1         # supervised: match dπ/ds(SS) = P
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0    # keep anchor active throughout training
+  anchor_gate: true       # kink-aware: mute anchor points past the rate floor
+
+checkpoint_dir: checkpoints/disaster_gated
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_gated

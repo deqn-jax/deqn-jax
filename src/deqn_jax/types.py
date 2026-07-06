@@ -218,6 +218,23 @@ class ModelSpec(NamedTuple):
     #   composite_aux_constants_fn(model: ModelSpec) -> Dict[str, Any]
     composite_aux_constants_fn: Optional[Callable[..., Dict[str, Any]]] = None
 
+    # Optional: per-anchor-point weight for the composite anchor loss
+    # ("kink-aware anchor"). Called once at trainer setup, OUTSIDE jit, on
+    # the fixed anchor cloud; returns weights in [0, 1] per point. Purpose:
+    # down-weight anchor points where the model's LINEARIZATION is known to
+    # be the wrong local model (e.g. the disaster model's interest-rate
+    # floor: the BK linearization is blind to the kink, so teaching it
+    # there poisons the policy — see docs/dev/handoff_2026_07_06.md,
+    # spec-let 1). Only consumed when ``composite_loss.anchor_gate`` is
+    # enabled in config; ``None`` (default) or flag-off preserves the
+    # legacy unweighted anchor exactly.
+    #
+    # Signature:
+    #   anchor_gate_fn(anchor_points [n, n_states],
+    #                  anchor_lin_policy [n, n_policies],
+    #                  constants) -> weights [n]
+    anchor_gate_fn: Optional[Callable[..., Array]] = None
+
 
 class ReweightState(NamedTuple):
     """Running statistics for adaptive loss reweighting.
