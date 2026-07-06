@@ -1,0 +1,133 @@
+# Disaster certification experiment — night report, 2026-07-06/07
+
+**Question:** does the kink-aware treatment (gated anchor and/or ELB-targeted coverage) give the
+disasterless model the certificates irbc earned on 2026-07-06 — closed-loop stability
+(ρ(SS) < 1), steady-state level consistency, dying drift, and seed agreement?
+
+**Status:** three of four arms complete; the composed arm was running at the time of writing —
+its section is marked and will be updated. Everything below is measured, fp64, with the in-repo
+probe (`scripts/disaster_ss_probe.py`); raw checkpoints under `runs/disaster_cert/` on the DGX.
+
+## Design
+
+Four arms × 3 seeds × the full 3000-episode production recipe (`configs/disaster.yaml`
+derivatives; GPU container, ~16 min/run, coverage arms ~3× slower):
+
+| arm | config | lever |
+|---|---|---|
+| baseline | `disaster.yaml` | BK anchor as shipped (teaches the no-floor linearization everywhere) |
+| gated | `disaster_gated.yaml` | + `composite_loss.anchor_gate`: anchor muted where the linearized Taylor rate ≤ floor (21/128 anchor points, matching the audit's ~12% floor mass) |
+| elbcov | `disaster_elbcov.yaml` | + EWM coverage: stress seeds in the floor region (m_p/R_lag/pi_lag box), rolled 5 steps, repaired; ρ_stress = 0.5 |
+| gated+elbcov | `disaster_gated_elbcov.yaml` | both |
+
+Certificates per (arm, seed), all at the final checkpoint: ρ(SS) (spectral radius of the
+closed-loop map at SS), max |policy(SS) − policy\*| / |policy\*|, zero-shock drift from SS at
+horizons 5–100. Knobs fixed a priori; seeds 0–2 fixed a priori; failures reported.
+
+**Context (the bar):** the model's math is verified clean (2026-07-06 tex audit); the failure
+under study is training-side. Pre-experiment baseline at HEAD (1500 eps): ρ ≈ 1.1–1.22, SS
+levels off up to 13.8%, worst errors in the monetary block — consistent with the ELB-conflict
+hypothesis (the anchor teaches a linearization that is blind to a kink the economy visits ~12%
+of quarters).
+
+## Results
+
+### Baseline: the lottery, quantified (3/3 complete)
+
+| seed | ρ(SS) | max SS err | drift@100 |
+|---|---|---|---|
+| 0 | 1.220 | 4.17% | 50% |
+| 1 | 0.987 | 2.01% | 15% |
+| 2 | 1.225 | 0.88% | 529% |
+
+**1/3 stable; median ρ = 1.22; no two seeds fail the same way.** Seed 1's ρ = 0.987 is the
+exogenous ρ_μ_ups root — i.e. an endogenously stable draw — yet its levels are 2% off and it
+drifts to a displaced rest point. Seed 2 is near-perfect *at* the SS and violently unstable
+*around* it. Levels and stability are separable failures, visible in one table. Additional
+recurring observation: `checkpoint_best` (lowest training loss) is consistently *worse* on
+certificates than the final checkpoint — training loss is not a certificate, measured again.
+
+### Gated anchor: the lottery closes — on the wrong number (3/3 complete)
+
+| seed | ρ(SS) | max SS err | drift@100 |
+|---|---|---|---|
+| 0 | 1.049 | 2.26% | 47% |
+| 1 | 1.064 | 2.54% | 51% |
+| 2 | 1.052 | 2.59% | 50% |
+
+Three findings in one small table:
+
+1. **Causal, matched-seed stability shift**: seed 0 differs from baseline seed 0 by the gate
+   alone; ρ moves 1.220 → 1.049. The anchor's floor-region lies were genuinely destabilizing.
+2. **Variance collapse**: baseline seeds scatter (1.22 / 0.99 / 1.22); gated seeds agree to two
+   decimals — *including* seed 2, whose training had the wildest gradient spikes of the night.
+   This is the same lottery-abolition signature the anchor produced on irbc.
+3. **The shared basin sits above 1** (ρ ≈ 1.055). Muting the bad teacher makes the outcome
+   deterministic but leaves the floor region taught by nobody; the residual loss alone there is
+   exactly the self-confirming trap. Determinism without correctness.
+
+### ELB coverage: the training measure chases the policy (1 seed; seeds 1–2 cut as redundant)
+
+Training loss stuck at ~4×10⁵ (vs ~0.08 healthy) from episode 500 onward. The diagnosis is the
+night's most instructive result:
+
+- **The stress pool is innocent.** The checkpoint's residuals *on its own stress landings* are
+  fine (total 0.017; worst equation 7.6e-2).
+- **The landings tell the story:** every rolled landing has `pi_lag` pinned at exactly
+  **0.95 — the policy's own lower bound**. Under the coverage-trained policy, rolling five
+  steps from any floor-region seed deflates the economy to the π-wall.
+- Therefore the 4×10⁵ is the **base pool** — the policy's own on-policy trajectory. Coverage
+  taught floor-region behavior; the policy's simulated economy then *migrated to the floor*;
+  the on-policy training measure followed it into a deflationary spiral pinned at the π bound.
+
+**This is a known villain in a new costume.** The 2026-06-10 zombie-paths finding was 55/64
+training paths absorbed at the soft-clip ceiling; tonight the absorption is at the π lower
+bound, with coverage pressure as the driver. General form: **on this model, policy bounds are
+attractors of the on-policy training measure** — any training pressure that pushes the policy
+toward a bound can drag the sampling distribution with it, and the loss explodes on the
+migrated measure. On irbc this could not happen: its kink is off-path, so coverage taught a
+region the base measure never followed it into. The disaster model's kink is on-path — the
+measure *can* follow.
+
+### Gated + coverage (composed) — PENDING at time of writing
+
+_Expected to inherit the coverage arm's measure-migration unless the gate changes the
+interaction; result to be appended. [UPDATE HERE]_
+
+## Verdict so far, against the hypothesis
+
+The ELB-conflict mechanism is **half-confirmed, precisely**:
+
+- Confirmed: the anchor's floor-region teaching is causally destabilizing (matched-seed ρ
+  1.22 → 1.05) and is a source of the seed lottery (variance collapse when removed).
+- Refuted (v1 form): "just add residual pressure at the floor" — the paper-faithful coverage
+  design that worked on irbc's off-path kink destabilizes the *training measure* when the kink
+  is on-path. Silence at the floor is insufficient; naive teaching at the floor is toxic.
+
+## Successor design (spec for the next cycle)
+
+1. **Gentler coverage**: ρ_stress 0.5 → ~0.1; seeds on `m_p` only (pure monetary shock, no
+   compound deflation seeds); shorter rollout (H = 2–3); consider freezing the base measure
+   (`initialize_each_episode: true`) for coverage arms so the sampler cannot chase the policy.
+2. **A true teacher at the floor, not just pressure**: the gate creates a taught-by-nobody
+   region; the principled filler is regime-2 *content* — anchor targets from floor-consistent
+   dynamics (OccBin-style piecewise local model) rather than residual-only signal. This is the
+   full spec-let 1 design the gate approximated.
+3. **Bound-attractor guard**: a diagnostic that flags when the trajectory pool's quantiles
+   touch policy bounds (the zombie-paths/π-wall family deserves an alarm, not an autopsy).
+4. Keep: the certification protocol itself (this table format, 3+ seeds, final checkpoints,
+   a-priori knobs) — it resolved three distinct mechanisms in one night.
+
+## Reproduce
+
+```bash
+# training (DGX, NGC container):
+LAUNCHER=scripts/cert_sweep_container.py ./scripts/run_sweep_in_container.sh
+# certificates:
+JAX_ENABLE_X64=1 uv run python scripts/disaster_ss_probe.py \
+    --runs-dir runs/disaster_cert --json-out runs/disaster_cert/probe.json
+```
+
+Artifacts: `runs/disaster_cert/<arm>_s<seed>/` (checkpoints + config), sweep log
+`logs/cert_container.log`. Implementation: gate 5585bf8, configs/probe same commit; baseline
+HEAD probe in `runs/disaster_head_probe`.
