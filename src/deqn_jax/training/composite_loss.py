@@ -221,12 +221,21 @@ def make_composite_loss(
     history_len: int = 1,
     loss_choice: str = "mse",
     huber_delta: float = 1.0,
+    base_loss_fn: Optional[Callable] = None,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
     Returns a function with the same signature as compute_loss():
         (model, policy_fn, states, key, mc_samples, weights, shock_scale,
          quad_nodes, quad_weights) -> (total_loss, eq_losses_dict)
+
+    ``base_loss_fn`` (default: plain ``compute_loss``) computes the base
+    residual term; it must accept the full compute_loss signature including
+    ``loss_choice``/``huber_delta``. Passing the EWM coverage wrapper here
+    imposes the residual on the base+stress+local mixture while the
+    anchor/jac terms are added ONCE on top (composite ∘ coverage) — the
+    reverse order would multiply-count the state-independent anchor terms
+    across pools.
 
     Anchor and Jacobian losses decay with shock_scale but maintain a floor:
         decay = max(floor, 1 - shock_scale)
@@ -236,6 +245,7 @@ def make_composite_loss(
 
     Auxiliary loss entries are keyed with "aux_" prefix.
     """
+    _base_loss_fn = base_loss_fn if base_loss_fn is not None else compute_loss
 
     def composite_loss_fn(
         model_: ModelSpec,
@@ -256,7 +266,7 @@ def make_composite_loss(
         # barrier weight from composite training. Do not reintroduce it
         # as a parameter here -- the trainer does not thread it through.
         # 1. Base residual loss — MSE or Huber on per-state mean residual.
-        base_loss, eq_losses = compute_loss(
+        base_loss, eq_losses = _base_loss_fn(
             model_,
             policy_fn,
             states,
@@ -353,13 +363,18 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
     Returns the custom loss callable (or None if the default MSE
     `compute_loss` should be used as-is). Handles three layered cases:
     composite loss, state-barrier penalty, and Huber loss for the bare
-    path — plus EWM coverage sampling, which wraps plain compute_loss
-    and is mutually exclusive with the others (validated in
-    _validate_train_config).
+    path — plus EWM coverage sampling, which wraps plain compute_loss.
+    Coverage composes with the composite loss (composite ∘ coverage: the
+    base residual term becomes the base+stress+local mixture, anchor/jac
+    added once on top); the remaining exclusions are validated in
+    _validate_train_config.
     """
     from functools import partial
 
-    if getattr(config, "coverage", None) is not None and config.coverage.enabled:
+    cov_enabled = (
+        getattr(config, "coverage", None) is not None and config.coverage.enabled
+    )
+    if cov_enabled and config.loss_type != "composite":
         from deqn_jax.training.coverage import make_coverage_loss
 
         if config.verbose:
@@ -377,6 +392,16 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
         if config.verbose:
             print("  Building composite loss (linearize + ergodic cov)...")
         P, Q = linearize_model(model, verbose=config.verbose)
+
+        cov_base_loss_fn = None
+        if cov_enabled:
+            from deqn_jax.training.coverage import make_coverage_loss
+
+            if config.verbose:
+                print(
+                    "  Coverage sampling (composite base): base + stress + local pools"
+                )
+            cov_base_loss_fn = make_coverage_loss(compute_loss, model, config.coverage)
 
         comp_cfg = config.composite_loss
         comp_data = prepare_composite_data(
@@ -401,6 +426,7 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
             history_len=history_len,
             loss_choice=config.loss_choice,
             huber_delta=config.huber_delta,
+            base_loss_fn=cov_base_loss_fn,
         )
         if config.verbose:
             extras = []

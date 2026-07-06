@@ -407,11 +407,10 @@ def _validate_train_config(config) -> None:
             )
 
     if config.coverage.enabled:
-        if config.loss_type == "composite":
-            raise ValueError(
-                "coverage.enabled is not supported with loss_type='composite' "
-                "in v1 (both are compute_loss wrappers). Use loss_type='mse'."
-            )
+        # coverage × composite COMPOSES since 2026-07-06: the composite
+        # loss's base residual term becomes the coverage mixture
+        # (composite ∘ coverage in _build_custom_loss_fn); anchor/jac
+        # terms are added once on top. The v1 mutual exclusion is gone.
         _cov_bad = {"mao", "lm", "gn", "ign", "lbfgs"}
         _cov_pcgrad = config.gradient_surgery == "pcgrad"
         if config.optimizer.name.lower() in _cov_bad or _cov_pcgrad:
@@ -424,15 +423,22 @@ def _validate_train_config(config) -> None:
                 "silently dropped from the gradient. Use adam/sgd/adamw/lion/"
                 "muon/ngd/shampoo."
             )
-        if (
-            config.barrier_weight > 0
-            or config.loss_choice != "mse"
-            or config.moment_matching.enabled
+        if config.loss_type != "composite" and (
+            config.barrier_weight > 0 or config.loss_choice != "mse"
         ):
+            # Under loss_type='mse' the coverage wrapper replaces the
+            # partial() that would thread these through; under composite
+            # they thread through make_composite_loss (barrier_weight>0 is
+            # separately rejected for composite above).
             raise ValueError(
-                "coverage.enabled wraps plain MSE compute_loss in v1; disable "
-                "barrier_weight / loss_choice!='mse' / moment_matching (they "
-                "would be silently dropped on the coverage path)."
+                "coverage.enabled wraps plain MSE compute_loss when "
+                "loss_type='mse'; disable barrier_weight / loss_choice!='mse' "
+                "(they would be silently dropped on the coverage path)."
+            )
+        if config.moment_matching.enabled:
+            raise ValueError(
+                "coverage.enabled with moment_matching.enabled is untested; "
+                "disable one."
             )
         if config.network.history_len > 1:
             raise NotImplementedError(

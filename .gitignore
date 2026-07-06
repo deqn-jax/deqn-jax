@@ -57,6 +57,8 @@ scripts/*
 !scripts/disaster_anchor_diagnostic.py
 !scripts/run_sweep_in_container.sh
 !scripts/fetch_sweep_results.sh
+!scripts/ewm_seed_sweep.sh
+!scripts/ewm_stress_table.py
 dynare/
 PLAN.md
 docs/session_log.md

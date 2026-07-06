@@ -26,9 +26,19 @@ def _cfg(**over):
     return TrainConfig.from_dict(base)
 
 
-def test_coverage_plus_composite_rejected():
+def test_coverage_plus_composite_validates():
+    # The v1 mutual exclusion was relaxed 2026-07-06: composite∘coverage
+    # composes (base residual term = coverage mixture, anchor/jac on top).
     cfg = _cfg(
         loss_type="composite",
+        coverage={"enabled": True, "stress_ranges": {"z": (-0.1, -0.05)}},
+    )
+    _validate_train_config(cfg)  # must not raise
+
+
+def test_coverage_plus_moment_matching_rejected():
+    cfg = _cfg(
+        moment_matching={"enabled": True, "dynare_dir": "dynare/brock_mirman"},
         coverage={"enabled": True, "stress_ranges": {"z": (-0.1, -0.05)}},
     )
     with pytest.raises(ValueError):

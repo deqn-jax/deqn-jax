@@ -3,13 +3,13 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+from deqn_jax.models import load_model
 from deqn_jax.training.coverage import (
     make_local_pool,
     roll_states,
     sample_stress_seeds,
 )
-
-from deqn_jax.models import load_model
 
 
 def _irbc():
@@ -120,8 +120,20 @@ def test_wrapper_forwards_quad_kwargs_to_all_pools():
     model = _irbc()
     calls = []
 
-    def spy(model_, pf, states, key, mc_samples=5, weights=None, shock_scale=1.0,
-            quad_nodes=None, quad_weights=None, target_policy_fn=None):
+    def spy(
+        model_,
+        pf,
+        states,
+        key,
+        mc_samples=5,
+        weights=None,
+        shock_scale=1.0,
+        quad_nodes=None,
+        quad_weights=None,
+        target_policy_fn=None,
+        loss_choice="mse",
+        huber_delta=1.0,
+    ):
         calls.append({"quad_nodes": quad_nodes, "n": int(states.shape[0])})
         return jnp.array(float(len(calls)) * 10.0), {"euler": jnp.array(1.0)}
 
@@ -130,8 +142,9 @@ def test_wrapper_forwards_quad_kwargs_to_all_pools():
     states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
     qn = jnp.zeros((4, model.n_shocks))
     qw = jnp.ones((4,)) / 4
-    total, eq = fn(model, net, states, jax.random.PRNGKey(0),
-                   quad_nodes=qn, quad_weights=qw)
+    total, eq = fn(
+        model, net, states, jax.random.PRNGKey(0), quad_nodes=qn, quad_weights=qw
+    )
     # all three pools were evaluated, each got the quadrature nodes
     assert len(calls) == 3
     assert all(c["quad_nodes"] is not None for c in calls)
@@ -150,8 +163,9 @@ def test_wrapper_real_compute_loss_runs():
     states = jnp.tile(jnp.array([1.0, 1.0, 0.0, 0.0]), (16, 1))
     qn = jnp.zeros((4, model.n_shocks))
     qw = jnp.ones((4,)) / 4
-    total, eq = fn(model, net, states, jax.random.PRNGKey(0),
-                   quad_nodes=qn, quad_weights=qw)
+    total, eq = fn(
+        model, net, states, jax.random.PRNGKey(0), quad_nodes=qn, quad_weights=qw
+    )
     assert np.isfinite(float(total))
     assert np.isfinite(float(eq["aux_cov_stress"]))
 
@@ -171,6 +185,8 @@ def test_kappa_zero_collapses_to_plain_loss():
     qw = jnp.ones((4,)) / 4
     key = jax.random.PRNGKey(0)
     t_wrap, eq_wrap = fn(model, net, states, key, quad_nodes=qn, quad_weights=qw)
-    t_plain, _ = compute_loss(model, net, states, key, 5, quad_nodes=qn, quad_weights=qw)
+    t_plain, _ = compute_loss(
+        model, net, states, key, 5, quad_nodes=qn, quad_weights=qw
+    )
     assert float(t_wrap) == float(t_plain)  # exact, not allclose
     assert "aux_cov_stress" not in eq_wrap  # zero-weight pools skipped at build time

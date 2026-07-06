@@ -152,6 +152,8 @@ def make_coverage_loss(
         quad_nodes=None,
         quad_weights=None,
         target_policy_fn=None,
+        loss_choice: str = "mse",
+        huber_delta: float = 1.0,
     ):
         # One independent subkey per random consumer: the three pools' loss
         # expectations must not share a shock stream under MC (identical keys
@@ -178,6 +180,8 @@ def make_coverage_loss(
                 quad_nodes=quad_nodes,
                 quad_weights=quad_weights,
                 target_policy_fn=target_policy_fn,
+                loss_choice=loss_choice,
+                huber_delta=huber_delta,
             )
 
         l_base, eq = _loss(states, k_base)
