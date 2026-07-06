@@ -91,7 +91,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 
 </details>
 
-**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **571 tests pass**, `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `active-subspace`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **612 tests pass** (plus 4 skips without local Dynare fixtures; count as of 2026-07-06), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `active-subspace`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
 
 ## What's implemented
 
@@ -258,7 +258,7 @@ src/deqn_jax/
 
 ## Design principles
 
-- **Single JIT boundary** around the entire train step (loss + grad + opt-step) — keeps XLA fusion opportunities alive.
+- **Two JIT boundaries per cycle** — one JIT'd rollout plus a JIT'd grad-step swept over minibatches, composed in a thin Python loop; everything runtime-variable is resolved before tracing.
 - **Pytree-everywhere** state. `TrainState` is a `NamedTuple`; `jax.jit`, `vmap`, `grad` compose cleanly.
 - **Equinox modules** for networks: `eqx.filter(model, eqx.is_array)` separates trainable from static.
 - **Optax optimizers** for gradient transformations, with a thin registry on top for DEQN-specific extras (NGD, MAO, GN).
@@ -267,7 +267,7 @@ src/deqn_jax/
 ## Tests
 
 ```bash
-uv run pytest tests/ -v               # 571 tests
+uv run pytest tests/ -v               # 612 passed / 4 skipped (2026-07-06)
 uv run pytest tests/test_basic.py     # 12 core tests
 uv run pytest tests/test_optimizers.py # optimizer + short training tests
 ```

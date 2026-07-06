@@ -15,7 +15,7 @@ Stack: JAX + Equinox (networks) + Optax (optimizers). No TensorFlow, no PyTorch,
 ## Commands
 
 ```bash
-uv run pytest tests/ -v                              # 168 tests
+uv run pytest tests/ -v                              # 612 passed / 4 skipped (2026-07-06)
 uv run deqn-jax train brock_mirman -n 1000            # train a model
 uv run deqn-jax train brock_mirman -n 50 -o ngd -q    # quick smoke test
 uv run deqn-jax train --config configs/brock_mirman.yaml -n 100
@@ -82,9 +82,9 @@ tests/                    # test_basic, test_config, test_config_validation, tes
 
 ## Architecture
 
-### Single JIT Boundary
+### Two JIT Boundaries
 
-The entire train step is one `@jax.jit` function. This is the core performance decision -- do not break it into multiple JIT calls.
+Each training cycle is a Python-level loop composing two separately-JIT'd pieces: one rollout call plus a minibatch sweep of grad_step calls (see `training/cycle.py` and the `training/trainer.py` header). Everything runtime-variable is resolved at construction time, before tracing. (An earlier "single JIT boundary" claim here was stale — corrected 2026-07-06.)
 
 ### Five Train Step Variants
 
@@ -110,7 +110,7 @@ MAO uses `_MAOFactory` for deferred `n_tasks` resolution (resolved in `create_tr
 --set overrides  >  CLI args  >  YAML file  >  dataclass defaults
 ```
 
-`load_config()` in `config.py` handles merging. Dot-notation for nested fields: `--set optimizer.learning_rate=0.01`.
+`load_config()` in `config/io.py` handles merging. Dot-notation for nested fields: `--set optimizer.learning_rate=0.01`.
 
 ### Types
 
@@ -142,13 +142,12 @@ Everything is a `NamedTuple` for JAX pytree compatibility. `TrainState` bundles 
 ## Testing
 
 ```bash
-uv run pytest tests/ -v                         # all 168 tests
-uv run pytest tests/test_basic.py -v            # 12 core tests
-uv run pytest tests/test_config.py -v           # 18 config tests
-uv run pytest tests/test_config_validation.py -v # 109 validation + coercion tests
-uv run pytest tests/test_optimizers.py -v       # 23 optimizer + training tests
-uv run pytest tests/test_convergence.py -v      # 5 convergence tests
-uv run pytest tests/test_warm_start.py -v       # 1 warm start test
+uv run pytest tests/ -v                         # full suite: 612 passed / 4 skipped (2026-07-06;
+                                                # the 4 skips are Dynare-fixture tests, data absent)
+uv run pytest tests/test_basic.py -v            # core tests
+uv run pytest tests/test_config_validation.py -v # config validation + coercion
+uv run pytest tests/test_optimizers.py -v       # optimizer + training
+uv run pytest tests/test_coverage*.py -v        # EWM coverage (unit/wiring/smoke)
 ```
 
 Short training smoke tests use: 3 episodes, hidden=(16,), batch=16, mc_samples=2.
