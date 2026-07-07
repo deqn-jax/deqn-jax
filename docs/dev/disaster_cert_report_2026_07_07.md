@@ -45,7 +45,7 @@ single-convention record (final checkpoints, all arms, fp64;
 | elbcov (1 seed) | 1.060 | 0/1 | 7.4% |
 | gated+elbcov | 1.064 / 1.148 / 1.293 | 0/3 | 0.9% / 1.3% / 6.2% |
 | gated+drift | 1.044 / 1.107 / 1.033 | 0/3 | 1.5% / 2.0% / 1.6% |
-| gated+rsob w=1 (day 2) | 1.052 / 1.278 / — | 0/2 | 1.6% / 34.3% / — |
+| gated+rsob w=1 (day 2) | 1.052 / 1.278 / 1.122 | 0/3 | 1.6% / 34.3% / 2.2% |
 
 **What actually survives, ranked by robustness:**
 
@@ -93,9 +93,10 @@ and leave, the objective is indicted, not the starting point.
 along fixed ergodic directions; the true policy zeroes E[r] on a neighborhood, impostors keep
 values small with finite gradients. The impostor signature is REAL and measured: aux floor
 4.7e-3 at the trained basin. But at weight 1.0 it is ~7% of the loss — a regularizer, not a
-selector. Certificates above (s0 1.052 = unchanged basin; s1 1.278 with 34% SS displacement =
-added noise). Escalation arm `disaster_gated_rsob25` (weight 25, 8 directions — knobs fixed a
-priori before these probes) is queued.
+selector. Certificates above (s0 1.052 = unchanged basin; s1 1.278 with 34% SS displacement;
+s2 1.122): 0/3, median ρ *above* the gate-only arm — at this dose the term adds gradient
+noise without changing selection. Escalation arm `disaster_gated_rsob25` (weight 25,
+8 directions — knobs fixed a priori before these probes) is queued.
 
 **The gradient-conflict diagnostic (the afternoon's headline).** If the ρ≈1.05 basin were a
 joint zero of all 11 equations, per-equation gradients there would all be ≈0. Measured at
