@@ -30,7 +30,52 @@ levels off up to 13.8%, worst errors in the monetary block — consistent with t
 hypothesis (the anchor teaches a linearization that is blind to a kink the economy visits ~12%
 of quarters).
 
-## Results
+## FINAL RESULT (consistent protocol) — supersedes the per-arm narratives below
+
+**Protocol correction, and it is the headline.** The per-arm sections below were written live
+as runs finished and MIX CHECKPOINT CONVENTIONS: early baseline probes used
+`checkpoint_best.eqx`, later arms `checkpoint_003000.eqx`. The table here is the single-command,
+single-convention record (final checkpoints, all arms, fp64;
+`runs/disaster_cert/probe_final.json`):
+
+| arm (final ckpt, 3 seeds) | ρ(SS) per seed | pass ρ<1 | max SS err per seed |
+|---|---|---|---|
+| baseline | 1.057 / 1.021 / 1.023 | 0/3 | 1.1% / 2.8% / 0.7% |
+| gated | 1.049 / 1.064 / 1.052 | 0/3 | 2.3% / 2.5% / 2.6% |
+| elbcov (1 seed) | 1.060 | 0/1 | 7.4% |
+| gated+elbcov | 1.064 / 1.148 / 1.293 | 0/3 | 0.9% / 1.3% / 6.2% |
+| gated+drift | 1.044 / 1.107 / 1.033 | 0/3 | 1.5% / 2.0% / 1.6% |
+
+**What actually survives, ranked by robustness:**
+
+1. **15/15 runs, five treatments, zero crossings of ρ(SS) < 1.** The ~1.02–1.06 mildly
+   unstable attractor is reached by the *baseline itself* at final checkpoints; treatments at
+   best match it and at worst (v1 coverage) scatter upward. Selection on this model is not a
+   sampling, anchor-placement, or (at this calibration) direct-spectral-pressure problem —
+   at minimum it needs a longer drift horizon; possibly it is a genuine conflict between the
+   residual objective and the stability certificate.
+2. **Checkpoint selection is a larger certificate lever than any loss treatment tried
+   tonight.** Best-by-loss checkpoints are systematically certificate-worse than final ones
+   (baseline s0: ρ 1.22 at best vs 1.057 at final). `save_best_checkpoint` selects AGAINST
+   the certificates. Immediate cheap fix: certificate-aware checkpoint selection (probe ρ and
+   SS error at every save; keep the certificate-best).
+3. **The drift term moves what it sees** (within-run, convention-immune): drift@20 halved
+   (23–27% vs 40–50% gate-only). Its horizon (T=20) sees non-normal transient, not the
+   asymptotic radius — successor calibration T=50–100, weight 5, target 0.97.
+4. **The π-wall measure-migration is real** (training-log evidence): v1 ELB coverage sent the
+   on-policy sampler into a 2500-episode deflationary transient (bound-attractor,
+   zombie-paths family), and composed arms inherit elevated seed variance from it.
+5. The earlier "gate causally moves ρ 1.22→1.05" claim was a convention artifact (best vs
+   final checkpoints). What the gate demonstrably did NOT do is hurt anything; its 21/128
+   down-weighting matches the audit's floor mass and its arm is the tightest-variance treated
+   row — but the baseline's own final checkpoints land in the same basin.
+
+**The method lesson, self-inflicted and kept:** three hours of live per-arm narrative built a
+causal story that one consistent-protocol table dissolved. Certificates need frozen conventions
+*before* the experiment — the probe script now defaults to final checkpoints for exactly this
+reason.
+
+## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)
 

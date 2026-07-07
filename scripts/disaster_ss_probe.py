@@ -83,7 +83,11 @@ def main() -> None:
         default="disaster,disaster_gated,disaster_elbcov,disaster_gated_elbcov",
     )
     ap.add_argument("--seeds", default="0,1,2")
-    ap.add_argument("--ckpt-name", default="checkpoint_best.eqx")
+    ap.add_argument(
+        "--ckpt-name",
+        default="checkpoint_003000.eqx",
+        help="FINAL checkpoint by default: best-by-loss checkpoints are systematically certificate-worse (2026-07-07 report); pass checkpoint_best.eqx only to measure that gap.",
+    )
     ap.add_argument("--json-out", default=None)
     args = ap.parse_args()
 
