@@ -15,7 +15,13 @@ from pathlib import Path
 from deqn_jax.config import TrainConfig
 from deqn_jax.training.trainer import train_from_config
 
-ARMS = ["disaster", "disaster_gated", "disaster_elbcov", "disaster_gated_elbcov"]
+ARMS = [
+    "disaster",
+    "disaster_gated",
+    "disaster_elbcov",
+    "disaster_gated_elbcov",
+    "disaster_gated_drift",
+]
 SEEDS = [0, 1, 2]
 
 

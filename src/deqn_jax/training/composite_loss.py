@@ -252,6 +252,50 @@ def _sobolev_anchor_loss(
     )
 
 
+def _drift_loss(
+    model: ModelSpec,
+    policy_fn: Callable[[Array], Array],
+    data: CompositeData,
+    probes: Array,
+    horizon: int,
+    log_target: float,
+    history_len: int = 1,
+) -> Array:
+    """Certificate-in-the-loop stability loss ("the new loss", 2026-07-07).
+
+    Rolls the DETERMINISTIC closed loop (zero shocks) `horizon` steps from
+    small ergodic-shaped perturbations of the SS and penalizes the average
+    per-period log growth of the relative deviation above ``log_target``.
+    For moderate horizons this approximates log rho(SS) — the exact
+    certificate the 2026-07-07 disaster experiment showed no
+    anchor/sampling treatment could move (shared basin rho = 1.057 ± 0.008
+    across five treated runs, while the Frobenius aux_jac term is blind to
+    the spectrum of the non-normal closed-loop map). Smooth, eig-free,
+    non-normality-robust; hinge is linear above threshold.
+
+    Gradients flow through the policy at every rollout step
+    (backprop-through-scan). Probes are FIXED at build time (a priori,
+    never tuned). Deviations are measured relative per state dim
+    (heterogeneous scales: k ~ 27 vs m_p ~ 0).
+    """
+    markov_fn = _make_markov_wrapper(policy_fn, history_len)
+    ss = data.ss_state
+    scale = jnp.abs(ss) + 1e-8
+    zero_shock = jnp.zeros((probes.shape[0], model.n_shocks))
+    s0 = ss[None, :] + probes  # [n_probes, n_states]
+
+    def _step(s, _):
+        pol = jax.vmap(markov_fn)(s)
+        return model.step_fn(s, pol, zero_shock, model.constants), None
+
+    sT, _ = jax.lax.scan(_step, s0, None, length=horizon)
+    rel0 = jnp.linalg.norm((s0 - ss[None, :]) / scale[None, :], axis=1)
+    relT = jnp.linalg.norm((sT - ss[None, :]) / scale[None, :], axis=1)
+    g = (jnp.log(relT + 1e-30) - jnp.log(rel0 + 1e-30)) / horizon
+    # linear hinge above log_target (softplus with sharpness 50 ≈ max(,0))
+    return jnp.mean(jax.nn.softplus(50.0 * (g - log_target)) / 50.0)
+
+
 def make_composite_loss(
     model: ModelSpec,
     data: CompositeData,
@@ -266,6 +310,11 @@ def make_composite_loss(
     loss_choice: str = "mse",
     huber_delta: float = 1.0,
     base_loss_fn: Optional[Callable] = None,
+    drift_weight: float = 0.0,
+    drift_horizon: int = 20,
+    drift_eps: float = 1e-3,
+    drift_n_probes: int = 4,
+    drift_target: float = 0.99,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
@@ -290,6 +339,18 @@ def make_composite_loss(
     Auxiliary loss entries are keyed with "aux_" prefix.
     """
     _base_loss_fn = base_loss_fn if base_loss_fn is not None else compute_loss
+
+    # Drift-loss probes: fixed a priori at build time (deterministic key),
+    # ergodic-shaped so heterogeneous state scales are respected. Built only
+    # when the term is on — drift_weight == 0 is bit-identical to before.
+    _drift_probes = None
+    _drift_log_target = 0.0
+    if drift_weight > 0.0:
+        _dz = jax.random.normal(
+            jax.random.PRNGKey(20260707), (drift_n_probes, data.ss_state.shape[0])
+        )
+        _drift_probes = drift_eps * _dz @ data.ergodic_cov_chol.T
+        _drift_log_target = float(jnp.log(drift_target))
 
     def composite_loss_fn(
         model_: ModelSpec,
@@ -366,12 +427,29 @@ def make_composite_loss(
                 )
             )(current_states)
 
+        # 4b. Certificate-in-the-loop drift loss: penalize closed-loop
+        # growth from SS probes. No curriculum decay (stability is not a
+        # warm-up concern); build-time skip keeps drift_weight=0 exact.
+        if _drift_probes is not None:
+            drift = _drift_loss(
+                model_,
+                policy_fn,
+                data,
+                _drift_probes,
+                drift_horizon,
+                _drift_log_target,
+                history_len=history_len,
+            )
+            eq_losses["aux_drift"] = drift
+
         # 5. Weighted total (anchor/jac decay with curriculum)
         total = base_loss
         total = total + aux_decay * anchor_weight * anchor
         total = total + aux_decay * jac_weight * jac
         if jac_anchor_weight > 0.0:
             total = total + aux_decay * jac_anchor_weight * jac_anchor
+        if _drift_probes is not None:
+            total = total + drift_weight * drift
 
         # Model-specific auxiliary terms (barriers, Newton diagnostics, etc).
         # Hook applies its own weighting via ``weights``; generic side just
@@ -483,6 +561,11 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
             loss_choice=config.loss_choice,
             huber_delta=config.huber_delta,
             base_loss_fn=cov_base_loss_fn,
+            drift_weight=comp_cfg.drift_weight,
+            drift_horizon=comp_cfg.drift_horizon,
+            drift_eps=comp_cfg.drift_eps,
+            drift_n_probes=comp_cfg.drift_n_probes,
+            drift_target=comp_cfg.drift_target,
         )
         if config.verbose:
             extras = []

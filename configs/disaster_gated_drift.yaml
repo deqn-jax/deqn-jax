@@ -1,0 +1,61 @@
+# Disaster — GATED + DRIFT arm ("the new loss", 2026-07-07).
+# = disaster_gated.yaml + the certificate-in-the-loop stability term:
+# aux_drift penalizes the average per-period log growth of the DETERMINISTIC
+# closed loop rolled 20 steps from small ergodic-shaped SS perturbations —
+# i.e. ~log rho(SS), the exact certificate the 2026-07-07 experiment showed
+# no anchor/sampling treatment could move (shared basin rho = 1.057 +- 0.008
+# across five treated runs; the Frobenius aux_jac is blind to the spectrum
+# of the non-normal closed-loop map). Knobs fixed a priori, never tuned on
+# reported metrics: weight 1.0, T=20, eps 1e-3, 4 probes, target 0.99.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0      # supervised: match linearized policy at anchor points
+  jac_weight: 0.1         # supervised: match dπ/ds(SS) = P
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0    # keep anchor active throughout training
+  anchor_gate: true       # kink-aware: mute anchor points past the rate floor
+  drift_weight: 1.0       # certificate-in-the-loop: penalize closed-loop growth
+  drift_horizon: 20
+  drift_eps: 1.0e-3
+  drift_n_probes: 4
+  drift_target: 0.99
+
+checkpoint_dir: checkpoints/disaster_gated_drift
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_gated_drift

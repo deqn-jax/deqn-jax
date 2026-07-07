@@ -58,6 +58,26 @@ class CompositeLossConfig(_ConfigBase):
         default=False,
         description="Kink-aware anchor: down-weight anchor points where the model declares its linearization invalid (requires the model to define `anchor_gate_fn`, e.g. disaster's interest-rate floor). Off = legacy unweighted anchor, bit-identical.",
     )
+    drift_weight: float = Field(
+        default=0.0,
+        description="Certificate-in-the-loop stability loss: penalize average per-period log growth of the deterministic closed loop from small SS perturbations (≈ log rho(SS)). 0 = off, bit-identical. Does not decay with curriculum.",
+    )
+    drift_horizon: int = Field(
+        default=20,
+        description="Closed-loop rollout length T for the drift loss (gradient flows through all T steps).",
+    )
+    drift_eps: float = Field(
+        default=1.0e-3,
+        description="Scale of the ergodic-shaped SS perturbations used as drift probes.",
+    )
+    drift_n_probes: int = Field(
+        default=4,
+        description="Number of fixed probe directions (drawn once at build time, a priori).",
+    )
+    drift_target: float = Field(
+        default=0.99,
+        description="Growth-factor target: the hinge fires when the per-period growth exceeds log(drift_target). 0.99 asks for mild contraction.",
+    )
     anchor_sigma: float = Field(
         default=1.0,
         description="Scale of the Gaussian spread around SS for anchor-point sampling.",
@@ -80,13 +100,18 @@ class CompositeLossConfig(_ConfigBase):
         "anchor_sigma",
         "leverage_mult",
         "aux_decay_floor",
+        "drift_weight",
+        "drift_eps",
+        "drift_target",
         mode="before",
     )
     @classmethod
     def _coerce_float_reject_bool(cls, v, info):
         return _coerce_float(v, f"composite_loss.{info.field_name}")
 
-    @field_validator("n_anchor_points", mode="before")
+    @field_validator(
+        "n_anchor_points", "drift_horizon", "drift_n_probes", mode="before"
+    )
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
         return _coerce_int(v, f"composite_loss.{info.field_name}")
@@ -113,6 +138,21 @@ class CompositeLossConfig(_ConfigBase):
             raise ValueError(
                 f"aux_decay_floor must be in [0, 1], got {self.aux_decay_floor}"
             )
+        if self.drift_weight < 0:
+            raise ValueError(f"drift_weight must be >= 0, got {self.drift_weight}")
+        if self.drift_weight > 0:
+            if self.drift_horizon <= 0:
+                raise ValueError(f"drift_horizon must be > 0, got {self.drift_horizon}")
+            if self.drift_eps <= 0:
+                raise ValueError(f"drift_eps must be > 0, got {self.drift_eps}")
+            if self.drift_n_probes <= 0:
+                raise ValueError(
+                    f"drift_n_probes must be > 0, got {self.drift_n_probes}"
+                )
+            if not (0 < self.drift_target <= 1.5):
+                raise ValueError(
+                    f"drift_target must be in (0, 1.5], got {self.drift_target}"
+                )
         return self
 
 
