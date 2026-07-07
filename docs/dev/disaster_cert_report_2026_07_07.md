@@ -103,10 +103,24 @@ were spent inside it.
 Best loss, worst treated-arm levels — the most dramatic loss-is-not-a-certificate instance of
 the night, in an experiment that had already demonstrated it twice.
 
-### Gated + coverage (composed) — PENDING at time of writing
+### Gated + coverage (composed): best levels, shortest transient, same basin (s0; s1–2 in flight)
 
-_Expected to inherit the coverage arm's measure-migration unless the gate changes the
-interaction; result to be appended. [UPDATE HERE]_
+| seed | ρ(SS) | max SS err | drift@5 | drift@100 |
+|---|---|---|---|---|
+| 0 | 1.064 | **0.89%** (λ_z −0.9, i +0.8) | 4.4% | 529% |
+
+Three things at once:
+
+1. **The levers compose on levels**: 0.89% max SS error is the best of the night (gated alone
+   2.3–2.6%, coverage alone 7.4%, baseline 0.9–4.2% scattered). Sub-1% across all eleven
+   policies, worst offenders no longer the monetary block.
+2. **The gate tames the coverage transient**: the composed arm entered the same π-wall spiral
+   (2.7×10⁵ at ep 400) and escaped by ep 900 — the ungated coverage arm stayed trapped for
+   ~2000 episodes. Muting the anchor's floor-region lies evidently removes most of the force
+   that was feeding the measure-migration.
+3. **ρ(SS) = 1.064 — the shared basin, fifth measurement.** Gated 1.049/1.064/1.052, coverage
+   1.060, composed 1.064. Every treated run of the night, through wildly different training
+   histories, lands within ±0.008 of ρ ≈ 1.057.
 
 ## Verdict so far, against the hypothesis
 
@@ -119,14 +133,19 @@ The ELB-conflict mechanism is **half-confirmed, precisely**:
   is on-path (a 2500-episode bound-attractor transient), and even after recovering to the best
   loss of the night, its certificates are the worst of the treated arms.
 
-**The emerging pattern above the arms:** every treated run that converges lands in the same
-ρ(SS) ≈ 1.05–1.06 basin — gated (1.049/1.064/1.052) and coverage (1.060) alike. The
-treatments control the *variance* of the outcome (the lottery) but not the *location* of the
-attractor. That is the signature of the loss surface itself preferring a specific
-mildly-unstable solution — the disaster-model analogue of irbc's identification finding: a
-direction the residual objective barely penalizes. If the composed arm confirms it, the next
-lever is not sampling or muting but changing what the loss can see — regime-2 anchor content,
-or residual preconditioning (spec-let 3 / the identification program).
+**The pattern above the arms — now confirmed five times:** every treated run of the night
+lands at ρ(SS) = 1.057 ± 0.008 — gated (1.049/1.064/1.052), coverage (1.060), composed
+(1.064). The treatments decisively control the outcome's *variance* (lottery abolished), its
+*levels* (composed: sub-1%), and its *transients* (gate cuts the π-wall spiral ~4×) — and do
+not move the attractor's *location* at all. That is the signature of the loss surface itself
+preferring one specific mildly-unstable solution: the disaster-model analogue of irbc's
+identification finding, a solution the residual objective barely distinguishes from the true
+one. **Conclusion: on this model, selection is not a sampling problem and not an
+anchor-placement problem. The next lever must change what the loss can see** — regime-2 anchor
+*content* at the floor (true piecewise dynamics as targets, not silence), or preconditioned /
+reparametrized residuals (the identification program, spec-let 3). The night's dissection:
+variance ← gate; levels ← composition; transient ← gate; attractor location ← none of the
+above, by construction of five independent measurements.
 
 ## Successor design (spec for the next cycle)
 
