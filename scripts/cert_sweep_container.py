@@ -21,6 +21,8 @@ ARMS = [
     "disaster_elbcov",
     "disaster_gated_elbcov",
     "disaster_gated_drift",
+    "disaster_gated_rsob",
+    "disaster_gated_drift_rsob",
 ]
 SEEDS = [0, 1, 2]
 

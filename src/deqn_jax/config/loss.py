@@ -78,6 +78,18 @@ class CompositeLossConfig(_ConfigBase):
         default=0.99,
         description="Growth-factor target: the hinge fires when the per-period growth exceeds log(drift_target). 0.99 asks for mild contraction.",
     )
+    res_sobolev_weight: float = Field(
+        default=0.0,
+        description="Residual-Sobolev loss: penalize directional derivatives of the per-state EXPECTED residual toward zero (the true policy zeroes E[r] on a neighborhood; impostors keep values small with finite gradients). Adds selection information the value loss cannot see. 0 = off, bit-identical. Quadrature expectations + single-stage models only.",
+    )
+    res_sobolev_n_states: int = Field(
+        default=16,
+        description="Batch subsample size for the residual-Sobolev term (cost control).",
+    )
+    res_sobolev_n_dirs: int = Field(
+        default=2,
+        description="Number of fixed ergodic-shaped unit directions for the JVPs (drawn once at build time).",
+    )
     anchor_sigma: float = Field(
         default=1.0,
         description="Scale of the Gaussian spread around SS for anchor-point sampling.",
@@ -103,6 +115,7 @@ class CompositeLossConfig(_ConfigBase):
         "drift_weight",
         "drift_eps",
         "drift_target",
+        "res_sobolev_weight",
         mode="before",
     )
     @classmethod
@@ -138,6 +151,19 @@ class CompositeLossConfig(_ConfigBase):
             raise ValueError(
                 f"aux_decay_floor must be in [0, 1], got {self.aux_decay_floor}"
             )
+        if self.res_sobolev_weight < 0:
+            raise ValueError(
+                f"res_sobolev_weight must be >= 0, got {self.res_sobolev_weight}"
+            )
+        if self.res_sobolev_weight > 0:
+            if self.res_sobolev_n_states <= 0:
+                raise ValueError(
+                    f"res_sobolev_n_states must be > 0, got {self.res_sobolev_n_states}"
+                )
+            if self.res_sobolev_n_dirs <= 0:
+                raise ValueError(
+                    f"res_sobolev_n_dirs must be > 0, got {self.res_sobolev_n_dirs}"
+                )
         if self.drift_weight < 0:
             raise ValueError(f"drift_weight must be >= 0, got {self.drift_weight}")
         if self.drift_weight > 0:

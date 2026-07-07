@@ -456,6 +456,18 @@ def _validate_train_config(config) -> None:
                 "mixture. Disable one."
             )
 
+    if (
+        config.loss_type == "composite"
+        and config.composite_loss.res_sobolev_weight > 0
+        and config.expectation_type not in ("quadrature", "gh", "gauss_hermite")
+    ):
+        raise ValueError(
+            "composite_loss.res_sobolev_weight > 0 requires quadrature "
+            "expectations in v1 (the residual-Sobolev term rebuilds the "
+            "per-state expected residual from quadrature nodes). Set "
+            "expectation_type: gauss_hermite."
+        )
+
     if config.episode_length == 1 and not config.initialize_each_episode:
         raise ValueError(
             "episode_length=1 requires initialize_each_episode=True. "
@@ -533,6 +545,19 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
     # LOGGING the correct f(E[r]) loss. Reject rather than silently training
     # the wrong objective. MAO/LBFGS differentiate compute_loss (which takes
     # the two-stage path) and are fine.
+    if config.loss_type == "composite" and config.composite_loss.res_sobolev_weight > 0:
+        if model.combine_fn is not None:
+            raise ValueError(
+                "composite_loss.res_sobolev_weight > 0 is v1-single-stage: "
+                f"model '{model.name}' declares inside_fn/combine_fn (two-stage "
+                "E[fb] vs fb(E) path), which the residual-Sobolev term bypasses."
+            )
+        if getattr(model, "transition_matrix", None) is not None:
+            raise ValueError(
+                "composite_loss.res_sobolev_weight > 0 does not support "
+                "discrete-chain shock models in v1 (Gaussian quadrature only)."
+            )
+
     if (
         config.optimizer.name.lower() in {"gn", "lm", "ign"}
         and model.combine_fn is not None

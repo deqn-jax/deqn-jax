@@ -296,6 +296,66 @@ def _drift_loss(
     return jnp.mean(jax.nn.softplus(50.0 * (g - log_target)) / 50.0)
 
 
+def _residual_sobolev_loss(
+    model: ModelSpec,
+    policy_fn: Callable[[Array], Array],
+    states: Array,
+    quad_nodes: Array,
+    quad_weights: Array,
+    shock_scale,
+    dirs: Array,
+    history_len: int = 1,
+) -> Array:
+    """Residual-Sobolev loss: ||∇_s E[r]||² along fixed directions ("Simon's
+    Sobolev", implemented 2026-07-07).
+
+    The true policy zeroes the expected residual on a NEIGHBORHOOD, so its
+    residual-gradient is zero too; an impostor keeps residual VALUES small
+    at sampled states while its residual-gradient stays finite. The
+    directional derivative d/dt E[r](s + t v) therefore carries selection
+    information the value-based (E[r])² loss cannot see — it chains through
+    the policy AND dynamics Jacobians, constraining the closed-loop
+    eigenstructure through the equations themselves, with no linearization
+    oracle and no validity region. Cheap form: forward-mode JVPs along a few
+    fixed ergodic-shaped unit directions, on a subsample of the batch.
+
+    v1: Gaussian-quadrature expectations only; single-stage models only
+    (equations_fn is called directly). Gated in _validate_train_config.
+    """
+    markov_fn = _make_markov_wrapper(policy_fn, history_len)
+    eq_names = list(model.equation_names)
+
+    def e_resid(s):
+        p = markov_fn(s)
+
+        def per_node(eps):
+            sb = s[None, :]
+            pb = p[None, :]
+            s_next = model.step_fn(
+                sb, pb, (eps * shock_scale)[None, :], model.constants
+            )
+            p_next = markov_fn(s_next[0])[None, :]
+            r = model.equations_fn(sb, pb, s_next, p_next, model.constants)
+            return jnp.stack(
+                [
+                    jnp.reshape(r[k], ())
+                    if jnp.ndim(r[k]) == 0
+                    else r[k].reshape(-1)[0]
+                    for k in eq_names
+                ]
+            )
+
+        r_nodes = jax.vmap(per_node)(quad_nodes)  # [n_nodes, n_eq]
+        return quad_weights @ r_nodes  # [n_eq]
+
+    def dir_deriv(s, v):
+        _, jv = jax.jvp(e_resid, (s,), (v,))
+        return jv
+
+    jvs = jax.vmap(lambda s: jax.vmap(lambda v: dir_deriv(s, v))(dirs))(states)
+    return jnp.mean(jvs**2)
+
+
 def make_composite_loss(
     model: ModelSpec,
     data: CompositeData,
@@ -315,6 +375,9 @@ def make_composite_loss(
     drift_eps: float = 1e-3,
     drift_n_probes: int = 4,
     drift_target: float = 0.99,
+    res_sobolev_weight: float = 0.0,
+    res_sobolev_n_states: int = 16,
+    res_sobolev_n_dirs: int = 2,
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
@@ -351,6 +414,16 @@ def make_composite_loss(
         )
         _drift_probes = drift_eps * _dz @ data.ergodic_cov_chol.T
         _drift_log_target = float(jnp.log(drift_target))
+
+    # Residual-Sobolev directions: fixed a priori, ergodic-shaped, unit norm.
+    _rsob_dirs = None
+    if res_sobolev_weight > 0.0:
+        _rq = jax.random.normal(
+            jax.random.PRNGKey(20260708),
+            (res_sobolev_n_dirs, data.ss_state.shape[0]),
+        )
+        _rd = _rq @ data.ergodic_cov_chol.T
+        _rsob_dirs = _rd / (jnp.linalg.norm(_rd, axis=1, keepdims=True) + 1e-12)
 
     def composite_loss_fn(
         model_: ModelSpec,
@@ -442,6 +515,23 @@ def make_composite_loss(
             )
             eq_losses["aux_drift"] = drift
 
+        # 4c. Residual-Sobolev: ||directional d/ds E[r]||² on a batch
+        # subsample. No curriculum decay; build-time skip when weight 0.
+        # Quadrature-only v1 (validated in _validate_train_config).
+        if _rsob_dirs is not None:
+            _cur = states[:, -1, :] if states.ndim == 3 else states
+            rsob = _residual_sobolev_loss(
+                model_,
+                policy_fn,
+                _cur[:res_sobolev_n_states],
+                quad_nodes,
+                quad_weights,
+                shock_scale,
+                _rsob_dirs,
+                history_len=history_len,
+            )
+            eq_losses["aux_res_sobolev"] = rsob
+
         # 5. Weighted total (anchor/jac decay with curriculum)
         total = base_loss
         total = total + aux_decay * anchor_weight * anchor
@@ -450,6 +540,8 @@ def make_composite_loss(
             total = total + aux_decay * jac_anchor_weight * jac_anchor
         if _drift_probes is not None:
             total = total + drift_weight * drift
+        if _rsob_dirs is not None:
+            total = total + res_sobolev_weight * rsob
 
         # Model-specific auxiliary terms (barriers, Newton diagnostics, etc).
         # Hook applies its own weighting via ``weights``; generic side just
@@ -566,6 +658,9 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
             drift_eps=comp_cfg.drift_eps,
             drift_n_probes=comp_cfg.drift_n_probes,
             drift_target=comp_cfg.drift_target,
+            res_sobolev_weight=comp_cfg.res_sobolev_weight,
+            res_sobolev_n_states=comp_cfg.res_sobolev_n_states,
+            res_sobolev_n_dirs=comp_cfg.res_sobolev_n_dirs,
         )
         if config.verbose:
             extras = []
