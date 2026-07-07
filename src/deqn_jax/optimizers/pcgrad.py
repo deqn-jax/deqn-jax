@@ -4,6 +4,16 @@ PCGrad (Yu et al. 2020) projects per-equation gradients onto each other
 to remove conflicting components before summing. It's a wrapper around
 any STANDARD-kind optimizer; selected via ``config.pcgrad_enabled``,
 not by optimizer name.
+
+With a custom ``compute_loss_fn`` (composite loss), the step becomes
+aux-compatible surgery: the projection acts only on the per-equation
+core residual gradients, rescaled to the base loss's mean-over-equations
+convention, and the full auxiliary gradient — anchor, Jacobian, barriers,
+Newton, drift, residual-Sobolev — is added unprojected on top, computed
+exactly as grad(total) − grad(base) at the same batch and key. When no
+pair of equations conflicts the projection is the identity and the step
+reduces to the standard composite gradient, so the only behavioural
+delta vs a STANDARD step is the conflict surgery itself.
 """
 
 from typing import Any, Callable, Optional, Tuple
@@ -91,7 +101,50 @@ def make_grad_step_pcgrad(
         coeffs = jnp.where(gram < 0, gram / (norms_sq[None, :] + 1e-8), 0.0)
         coeffs = coeffs.at[jnp.diag_indices(n_eq)].set(0.0)
         projected = flat_eq_grads - coeffs @ flat_eq_grads
-        final_flat_grad = jnp.sum(projected, axis=0)
+        if compute_loss_fn is None:
+            final_flat_grad = jnp.sum(projected, axis=0)
+        else:
+            # Aux-compatible surgery: core equations projected at the base
+            # loss's mean-over-equations scale, plus the exact auxiliary
+            # gradient grad(total) − grad(base). Same batch/key in both
+            # calls, so the base parts cancel analytically.
+            def _base_scalar(params):
+                loss, _ = compute_loss(
+                    model,
+                    params,
+                    batch,
+                    loss_key,
+                    mc_samples,
+                    weights=state.loss_weights,
+                    shock_scale=shock_scale,
+                    quad_nodes=quad_nodes,
+                    quad_weights=quad_weights,
+                    target_policy_fn=target_fn,
+                )
+                return loss
+
+            def _total_scalar(params):
+                loss, _ = _compute_loss_total(
+                    model,
+                    params,
+                    batch,
+                    loss_key,
+                    mc_samples,
+                    weights=state.loss_weights,
+                    shock_scale=shock_scale,
+                    quad_nodes=quad_nodes,
+                    quad_weights=quad_weights,
+                    target_policy_fn=target_fn,
+                )
+                return loss
+
+            total_grad = eqx.filter(jax.grad(_total_scalar)(state.params), eqx.is_array)
+            base_grad = eqx.filter(jax.grad(_base_scalar)(state.params), eqx.is_array)
+            aux_flat = (
+                jax.flatten_util.ravel_pytree(total_grad)[0]
+                - jax.flatten_util.ravel_pytree(base_grad)[0]
+            )
+            final_flat_grad = jnp.sum(projected, axis=0) / n_eq + aux_flat
         grads_arrays = unflatten_fn(final_flat_grad)
 
         updates, new_opt_state = opt.update(

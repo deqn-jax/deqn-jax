@@ -309,19 +309,23 @@ def _validate_train_config(config) -> None:
     # `compute_loss_fn or compute_loss` (optimizers/lbfgs.py), so a
     # composite/custom loss genuinely reaches its gradient and line search.
     if config.loss_type == "composite":
+        # PCGrad × composite is supported since 2026-07-07: the PCGrad step
+        # projects only the per-equation core gradients and adds the exact
+        # auxiliary gradient grad(total) − grad(base) unprojected
+        # (optimizers/pcgrad.py), so the aux stack genuinely reaches the
+        # update. MAO/GN/LM/IGN still differentiate only the base residual
+        # vector — the aux terms would appear in logs but not in updates.
         _bad_opts = {"mao", "lm", "gn", "ign"}
         _opt_name = config.optimizer.name.lower()
-        _is_pcgrad = config.gradient_surgery == "pcgrad"
-        if _opt_name in _bad_opts or _is_pcgrad:
+        if _opt_name in _bad_opts:
             raise ValueError(
                 f"loss_type='composite' is not supported with optimizer "
-                f"'{config.optimizer.name}'"
-                + (" + gradient_surgery='pcgrad'" if _is_pcgrad else "")
-                + ". Composite auxiliary losses (anchor, Jacobian, barriers, "
-                "Newton) would appear in logs but not affect parameter updates "
-                "on this path. Use optimizer 'adam'/'sgd'/'adamw'/'lion'/'muon'/"
-                "'ngd'/'shampoo' with gradient_surgery='none' (the STANDARD "
-                "variant) or 'lbfgs', or switch to loss_type='mse'."
+                f"'{config.optimizer.name}'. Composite auxiliary losses "
+                "(anchor, Jacobian, barriers, Newton) would appear in logs "
+                "but not affect parameter updates on this path. Use optimizer "
+                "'adam'/'sgd'/'adamw'/'lion'/'muon'/'ngd'/'shampoo' (the "
+                "STANDARD variant, with or without gradient_surgery='pcgrad') "
+                "or 'lbfgs', or switch to loss_type='mse'."
             )
 
     # PCGrad is only wired for the STANDARD grad-step variant (the dispatch

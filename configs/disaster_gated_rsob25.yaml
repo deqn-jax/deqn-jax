@@ -1,0 +1,61 @@
+# Disaster — GATED + RESIDUAL-SOBOLEV ESCALATION arm (2026-07-07).
+# = disaster_gated.yaml + aux_res_sobolev: penalize directional derivatives
+# of the per-state EXPECTED residual toward zero. The true policy zeroes
+# E[r] on a neighborhood, so its residual-gradient vanishes; the rho~1.05
+# impostor family keeps residual VALUES small with finite gradients. The
+# derivative chains through policy AND dynamics Jacobians — selection
+# information the value loss cannot see, no linearization oracle, valid at
+# the floor. ESCALATION knobs fixed a priori before any rsob-arm probes:
+# weight 25.0, 16 states, 8 ergodic directions — the weight-1 arm showed the
+# impostor signature (aux floor 4.7e-3 at the trained basin) but delivered
+# only ~7% of total loss; this doses it as a leading term.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0      # supervised: match linearized policy at anchor points
+  jac_weight: 0.1         # supervised: match dπ/ds(SS) = P
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0    # keep anchor active throughout training
+  anchor_gate: true       # kink-aware: mute anchor points past the rate floor
+  res_sobolev_weight: 25.0   # escalation: weight-1 arm showed the signal (aux floor 4.7e-3) but ~7% of loss
+  res_sobolev_n_states: 16
+  res_sobolev_n_dirs: 8      # escalation: 2 dirs -> 8 for fuller directional coverage
+
+checkpoint_dir: checkpoints/disaster_gated_rsob25
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_gated_rsob25

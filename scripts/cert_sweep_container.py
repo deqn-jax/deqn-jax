@@ -23,6 +23,8 @@ ARMS = [
     "disaster_gated_drift",
     "disaster_gated_rsob",
     "disaster_gated_drift_rsob",
+    "disaster_gated_rsob25",  # escalation: rsob as leading term (w=25, 8 dirs)
+    "disaster_gated_pcgrad",  # spec-let 6: per-equation conflict surgery
 ]
 SEEDS = [0, 1, 2]
 
