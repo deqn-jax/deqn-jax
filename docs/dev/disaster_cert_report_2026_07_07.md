@@ -103,24 +103,35 @@ were spent inside it.
 Best loss, worst treated-arm levels — the most dramatic loss-is-not-a-certificate instance of
 the night, in an experiment that had already demonstrated it twice.
 
-### Gated + coverage (composed): best levels, shortest transient, same basin (s0; s1–2 in flight)
+### Gated + coverage (composed): s0 shone; s1–2 reopened the lottery (3/3 complete)
 
 | seed | ρ(SS) | max SS err | drift@5 | drift@100 |
 |---|---|---|---|---|
 | 0 | 1.064 | **0.89%** (λ_z −0.9, i +0.8) | 4.4% | 529% |
+| 1 | 1.148 | 1.31% | — | 529% |
+| 2 | 1.293 | 6.15% | — | 529% |
 
-Three things at once:
+**Amendment (seeds 1–2, post-first-draft):** the composed arm does NOT inherit the gate's
+variance collapse. With the v1 coverage block on top, seed spread returns
+(1.06 / 1.15 / 1.29 vs gate-only 1.049 / 1.052 / 1.064) — the measure-migration transient
+interacts with the seed, and s2 lands nearly at baseline-grade instability. s0's headline
+("best levels of the night") stands but was partly seed luck. **The gate-only arm remains the
+best-behaved treatment of the experiment.**
 
-1. **The levers compose on levels**: 0.89% max SS error is the best of the night (gated alone
-   2.3–2.6%, coverage alone 7.4%, baseline 0.9–4.2% scattered). Sub-1% across all eleven
-   policies, worst offenders no longer the monetary block.
-2. **The gate tames the coverage transient**: the composed arm entered the same π-wall spiral
-   (2.7×10⁵ at ep 400) and escaped by ep 900 — the ungated coverage arm stayed trapped for
-   ~2000 episodes. Muting the anchor's floor-region lies evidently removes most of the force
-   that was feeding the measure-migration.
-3. **ρ(SS) = 1.064 — the shared basin, fifth measurement.** Gated 1.049/1.064/1.052, coverage
-   1.060, composed 1.064. Every treated run of the night, through wildly different training
-   histories, lands within ±0.008 of ρ ≈ 1.057.
+What survives from the s0-era reading, and what doesn't:
+
+1. **Still true — the gate tames the coverage transient on s0**: same π-wall spiral entry
+   (2.7×10⁵ at ep 400), escape by ep 900 vs ~2000 episodes trapped ungated.
+2. **Retracted — "the levers compose on levels"**: s0's sub-1% was not reproduced (1.31%,
+   6.15% on s1/s2). Levels under composition are seed-dependent.
+3. **Revised — the "shared basin ±0.008" was an artifact of which runs had finished**: it
+   holds exactly for the gate-only arm (1.049–1.064) and the first seeds of the coverage
+   arms, but composed s1/s2 sit at 1.15 and 1.29. The invariant across all **fourteen** runs
+   of the experiment is weaker and more important: **no run, under any treatment, has crossed
+   ρ(SS) < 1** (sole exception: baseline s1's 0.987 — the exogenous root — which still fails
+   the drift certificate). The attractor is never crossed by anchor-placement or sampling
+   interventions; where those interventions misbehave (v1 coverage), outcomes scatter *upward*
+   only.
 
 ## Verdict so far, against the hypothesis
 
