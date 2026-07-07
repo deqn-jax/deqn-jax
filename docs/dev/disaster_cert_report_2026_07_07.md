@@ -45,6 +45,7 @@ single-convention record (final checkpoints, all arms, fp64;
 | elbcov (1 seed) | 1.060 | 0/1 | 7.4% |
 | gated+elbcov | 1.064 / 1.148 / 1.293 | 0/3 | 0.9% / 1.3% / 6.2% |
 | gated+drift | 1.044 / 1.107 / 1.033 | 0/3 | 1.5% / 2.0% / 1.6% |
+| gated+rsob w=1 (day 2) | 1.052 / 1.278 / — | 0/2 | 1.6% / 34.3% / — |
 
 **What actually survives, ranked by robustness:**
 
@@ -74,6 +75,58 @@ single-convention record (final checkpoints, all arms, fp64;
 causal story that one consistent-protocol table dissolved. Certificates need frozen conventions
 *before* the experiment — the probe script now defaults to final checkpoints for exactly this
 reason.
+
+## Day 2 (07-07 afternoon): the objective indicted, the war measured
+
+The night ended with "the next lever must change what the loss can see." Day 2 sharpened that
+into an elimination proof and then a measurement.
+
+**Elimination ladder (why the objective, not the walk):** Huber reweighs the same residual
+values — same argmin family, no new selection information. Second-order methods change the
+walk, not the map (and the sweep_so precedent already showed no basin escape). μP/init is
+eliminated by the strongest evidence we own: `init_scale: 0.0` **starts training AT the
+linearized solution** and the optimizer walks *out* to ρ≈1.05 — when you start at the answer
+and leave, the objective is indicted, not the starting point.
+
+**Residual-Sobolev, weight 1 (the first "change what the loss sees" arm):** implemented as
+`aux_res_sobolev` — directional derivatives of the per-state *expected* residual via JVPs
+along fixed ergodic directions; the true policy zeroes E[r] on a neighborhood, impostors keep
+values small with finite gradients. The impostor signature is REAL and measured: aux floor
+4.7e-3 at the trained basin. But at weight 1.0 it is ~7% of the loss — a regularizer, not a
+selector. Certificates above (s0 1.052 = unchanged basin; s1 1.278 with 34% SS displacement =
+added noise). Escalation arm `disaster_gated_rsob25` (weight 25, 8 directions — knobs fixed a
+priori before these probes) is queued.
+
+**The gradient-conflict diagnostic (the afternoon's headline).** If the ρ≈1.05 basin were a
+joint zero of all 11 equations, per-equation gradients there would all be ≈0. Measured at
+`disaster_gated_s0/checkpoint_003000` (64 ergodic states, 3-node GH quadrature, fp64):
+
+- total gradient norm **3.6** — the basin is not calm;
+- per-equation gradient norms 0.07–1.49 (largest: investment Euler 1.49, wage-Phillips
+  recursion 0.96, entrepreneur contract 0.83);
+- pairwise cosines: **price-Phillips block vs wage-Phillips block −0.89 to −0.92**
+  (eq1×eq3 −0.89, eq2b×eq3 −0.92, eq3×eq4a −0.92), with side conflicts against the bond
+  Euler and BGG contract at −0.30 to −0.44.
+
+**The basin is a COMPROMISE POINT, not a solution** — a frozen tug-of-war between the price-
+and wage-setting blocks. The scalar MSE sums these opposing pulls to near-zero and calls it
+converged. This is the sharpest evidence yet for the night's conclusion: the residual
+objective *aggregation* (sum over equations) is what cannot see the difference between truce
+and truth.
+
+**Spec-let 6, implemented (commit eec06c5):** per-equation gradient surgery that carries the
+certified aux stack. PCGrad with a composite loss now projects only the 11 core equation
+gradients against each other (at the base mean-over-equations scale) and adds the exact
+auxiliary gradient grad(total) − grad(base) unprojected — anchor, gate, Jacobian, barriers,
+Newton, drift, rsob all reach the update. Two exact invariants are unit-tested: with no
+conflicts the step equals the plain composite gradient step (delta vs `disaster_gated` is the
+surgery alone), and under total conflict only the aux gradient moves. A/B smoke on the real
+model shows early transients within the family's normal envelope (baseline control was
+*larger*). Arm `disaster_gated_pcgrad` ×3 seeds queued behind rsob25.
+
+**Day-2 queue** (DONE-resumable container relaunch after drift_rsob completes):
+`disaster_gated_rsob` s2 → `disaster_gated_drift_rsob` ×3 → `disaster_gated_rsob25` ×3 →
+`disaster_gated_pcgrad` ×3. Rows to be appended to the table above at the frozen convention.
 
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
