@@ -46,6 +46,7 @@ single-convention record (final checkpoints, all arms, fp64;
 | gated+elbcov | 1.064 / 1.148 / 1.293 | 0/3 | 0.9% / 1.3% / 6.2% |
 | gated+drift | 1.044 / 1.107 / 1.033 | 0/3 | 1.5% / 2.0% / 1.6% |
 | gated+rsob w=1 (day 2) | 1.052 / 1.278 / 1.122 | 0/3 | 1.6% / 34.3% / 2.2% |
+| gated+drift+rsob (day 3) | 1.238 / 1.268 / 1.204 | 0/3 | 9.1% / 4.0% / 20.5% |
 
 **What actually survives, ranked by robustness:**
 
@@ -128,6 +129,14 @@ model shows early transients within the family's normal envelope (baseline contr
 **Day-2 queue** (DONE-resumable container relaunch after drift_rsob completes):
 `disaster_gated_rsob` s2 → `disaster_gated_drift_rsob` ×3 → `disaster_gated_rsob25` ×3 →
 `disaster_gated_pcgrad` ×3. Rows to be appended to the table above at the frozen convention.
+
+**Day-3 addendum (07-09): drift+rsob is additive noise.** The stacked arm (drift T=20 +
+rsob w=1, both underdosed) came back 0/3 at ρ = 1.238/1.268/1.204 with SS errors up to 20% —
+*worse than either term alone and worse than gate-only*. Two weak selection pressures do not
+compose into a strong one; they compose into variance. This sharpens the escalation logic:
+the live question is whether a *dominant* dose (rsob25) or a *different aggregation*
+(pcgrad surgery) moves the attractor, not whether more mild auxiliaries help. Both arms
+launched 07-09 (container log `logs/cert_container_day3.log`).
 
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
