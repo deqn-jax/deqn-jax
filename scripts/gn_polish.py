@@ -60,9 +60,81 @@ def main() -> None:
     ap.add_argument("--grid-seed", type=int, default=20260710)
     ap.add_argument("--chunk", type=int, default=64, help="Jacobian VJP chunk size")
     ap.add_argument("--out", default=None, help="polished net path (.eqx)")
+    ap.add_argument(
+        "--w-ss",
+        type=float,
+        default=0.0,
+        help="constrained polish: weight on SS-consistency rows "
+        "(pi(s*)-pi* and T(s*)-s*); 0 = unconstrained",
+    )
+    ap.add_argument(
+        "--w-rho",
+        type=float,
+        default=0.0,
+        help="constrained polish: weight on stability rows "
+        "softplus(log growth of J^K probes - log target); 0 = off",
+    )
+    ap.add_argument("--rho-target", type=float, default=0.99)
+    ap.add_argument("--rho-k", type=int, default=30)
+    ap.add_argument("--rho-probes", type=int, default=4)
+    ap.add_argument(
+        "--widen",
+        type=int,
+        default=0,
+        help="capacity test: distill the checkpoint into a (N,N) net first",
+    )
+    ap.add_argument("--distill-steps", type=int, default=5000)
     args = ap.parse_args()
 
     net, model = load_policy_from_checkpoint(args.ckpt)
+
+    if args.widen:
+        import optax
+
+        from deqn_jax.models.disaster.network import create_disaster_policy_net
+
+        ss_d, _ = model.steady_state_fn(model.constants)
+        ss_d = jnp.asarray(ss_d)
+        P_d, Q_d = linearize_model(model, verbose=False)
+        data_d = prepare_composite_data(
+            model, P_d, Q_d, n_anchor_points=8, verbose=False
+        )
+        zc = jax.random.normal(
+            jax.random.PRNGKey(20260711), (4096, model.n_states), dtype=ss_d.dtype
+        )
+        cloud = jnp.concatenate(
+            [ss_d[None, :], ss_d[None, :] + zc @ data_d.ergodic_cov_chol.T]
+        )
+        target = net(cloud)
+        wide = create_disaster_policy_net(
+            model,
+            hidden_sizes=(args.widen, args.widen),
+            activation="tanh",
+            init="xavier_normal",
+            init_scale=0.01,
+            key=jax.random.PRNGKey(0),
+        )
+        opt = optax.adam(1e-3)
+        w_arr = eqx.filter(wide, eqx.is_array)
+        opt_state = opt.init(w_arr)
+
+        @jax.jit
+        def distill_step(w_arr, opt_state):
+            def fit_loss(wa):
+                w_net = eqx.combine(wa, wide)
+                return jnp.mean((w_net(cloud) - target) ** 2)
+
+            loss, g = jax.value_and_grad(fit_loss)(w_arr)
+            updates, opt_state = opt.update(g, opt_state, w_arr)
+            return optax.apply_updates(w_arr, updates), opt_state, loss
+
+        for step in range(args.distill_steps):
+            w_arr, opt_state, fit = distill_step(w_arr, opt_state)
+            if step % 1000 == 0:
+                print(f"[distill {step:5d}] fit mse={float(fit):.3e}", flush=True)
+        net = eqx.combine(w_arr, wide)
+        max_err = float(jnp.max(jnp.abs(net(cloud) - target)))
+        print(f"[distill] done: fit mse={float(fit):.3e} max|err|={max_err:.3e}")
     ss, ss_pol = model.steady_state_fn(model.constants)
     ss, ss_pol = jnp.asarray(ss), jnp.asarray(ss_pol)
     n_s, n_p, n_eq = model.n_states, model.n_policies, len(model.equation_names)
@@ -91,6 +163,15 @@ def main() -> None:
     grid_k = jnp.repeat(grid, k, axis=0)  # [m*k, n_s]
     qn_k = jnp.tile(qn, (m, 1))  # [m*k, n_shocks]
 
+    rho_probes = (
+        jax.random.normal(jax.random.PRNGKey(20260712), (args.rho_probes, n_s))
+        if args.w_rho > 0
+        else None
+    )
+    if rho_probes is not None:
+        rho_probes = rho_probes / jnp.linalg.norm(rho_probes, axis=1, keepdims=True)
+    zero_shock = jnp.zeros((1, model.n_shocks))
+
     def residuals(theta):
         net_t = eqx.combine(unravel(theta), net)
         pb = net_t(grid)  # [m, n_p]
@@ -101,9 +182,60 @@ def main() -> None:
             jnp.sum(eq[name].reshape(m, k) * qw[None, :], axis=1)
             for name in model.equation_names
         ]
-        return jnp.concatenate(rows)  # [n_eq * m]
+        parts = [jnp.concatenate(rows)]  # [n_eq * m]
+
+        # Constrained polish: SS-consistency rows (level + fixed point).
+        if args.w_ss > 0:
+            pol_rows = (net_t(ss[None, :])[0] - ss_pol) / jnp.abs(ss_pol)
+            step_rows = (
+                model.step_fn(
+                    ss[None, :], net_t(ss[None, :]), zero_shock, model.constants
+                )[0]
+                - ss
+            ) / (jnp.abs(ss) + 1e-12)
+            parts += [args.w_ss * pol_rows, args.w_ss * step_rows]
+
+        # Constrained polish: stability rows — smooth spectral-growth
+        # penalty. softplus((1/K)·log ||J_cl^K u|| − log target) is ≈0 when
+        # the closed loop contracts faster than target and grows smoothly
+        # with the unstable root; differentiable end-to-end (autodiff
+        # through the closed-loop Jacobian and its matrix powers).
+        if rho_probes is not None:
+
+            def T_theta(s):
+                return model.step_fn(
+                    s[None, :], net_t(s[None, :]), zero_shock, model.constants
+                )[0]
+
+            Jcl = jax.jacobian(T_theta)(ss)
+
+            def grow(u):
+                v = u
+                for _ in range(args.rho_k):
+                    v = Jcl @ v
+                # sharpened softplus: ≈0 when the loop contracts faster
+                # than target (plain softplus(-0.015)≈0.69 would leave a
+                # large permanent residual and hijack the LM objective)
+                arg = jnp.log(jnp.linalg.norm(v) + 1e-300) / args.rho_k - jnp.log(
+                    args.rho_target
+                )
+                return jax.nn.softplus(200.0 * arg) / 200.0
+
+            parts.append(args.w_rho * jax.vmap(grow)(rho_probes))
+
+        return jnp.concatenate(parts)
 
     R_fn = jax.jit(residuals)
+    n_r = (
+        n_r
+        + (n_p + n_s if args.w_ss > 0 else 0)
+        + (args.rho_probes if args.w_rho > 0 else 0)
+    )
+    if args.w_ss > 0 or args.w_rho > 0:
+        print(
+            f"[setup] CONSTRAINED polish: w_ss={args.w_ss} w_rho={args.w_rho} "
+            f"(target {args.rho_target}, K={args.rho_k}) -> residuals={n_r}"
+        )
 
     def jacobian(theta):
         _, vjp = jax.vjp(residuals, theta)

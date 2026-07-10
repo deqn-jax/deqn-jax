@@ -25,6 +25,8 @@ ARMS = [
     "disaster_gated_drift_rsob",
     "disaster_gated_rsob25",  # escalation: rsob as leading term (w=25, 8 dirs)
     "disaster_gated_pcgrad",  # spec-let 6: per-equation conflict surgery
+    "disaster_gated_pcgrad_wide",  # exit 1: capacity 128->256 under surgery
+    "disaster_gated_pcgrad_bkpin",  # exit 3: BK selection by construction
 ]
 SEEDS = [0, 1, 2]
 

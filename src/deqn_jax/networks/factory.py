@@ -124,6 +124,7 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             )
         init_scale = getattr(network_config, "init_scale", 0.0)
         use_zlb_feature = getattr(network_config, "use_zlb_feature", False)
+        bk_pin = getattr(network_config, "bk_pin", False)
         zlb_feature_kind = getattr(network_config, "zlb_feature_kind", "raw")
         kf_names = getattr(network_config, "kf_names", ())
         reparam_q_as_m = getattr(network_config, "reparam_q_as_m", False)
@@ -146,6 +147,7 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             input_scale=input_scale,
             kf_names=kf_names,
             use_zlb_feature=use_zlb_feature,
+            bk_pin=bk_pin,
             zlb_feature_kind=zlb_feature_kind,
             reparam_q_as_m=reparam_q_as_m,
             reparam_pi_as_kp_inner=reparam_pi_as_kp_inner,

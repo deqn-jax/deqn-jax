@@ -99,6 +99,11 @@ class NetworkConfig(_ConfigBase):
         description="`disaster_policy_net` only: prepend `(R_lag - R_lb)` as an extra MLP input feature.",
     )
 
+    bk_pin: bool = Field(
+        default=False,
+        description="`disaster_policy_net` only: Blanchard-Kahn selection by construction — subtract the MLP delta's value and tangent at the steady state, so pi(s*)=pi* and dpi/ds(s*)=P hold exactly for every parameter value. The residual loss then shapes only second-order-and-beyond deviations.",
+    )
+
     zlb_feature_kind: Literal["raw", "kink"] = Field(
         default="raw",
         description="`disaster_policy_net` only, when use_zlb_feature=true: 'raw' = signed distance R_lag - R_lb; 'kink' = max(R_lag - R_lb, 0), PINN-style explicit kink at the floor.",
@@ -195,7 +200,9 @@ class NetworkConfig(_ConfigBase):
             )
         return v
 
-    @field_validator("multi_head", "skip_connections", "use_zlb_feature", mode="before")
+    @field_validator(
+        "multi_head", "skip_connections", "use_zlb_feature", "bk_pin", mode="before"
+    )
     @classmethod
     def _check_bool_type(cls, v, info):
         if not isinstance(v, bool):

@@ -84,6 +84,7 @@ class DisasterPolicyNet(eqx.Module):
     # ELB feature augmentation
     use_zlb_feature: bool = eqx.field(static=True)
     zlb_feature_kind: str = eqx.field(static=True)
+    bk_pin: bool = eqx.field(static=True)
     r_lag_idx: int = eqx.field(static=True)
     r_lb: float = eqx.field(static=True)
 
@@ -146,6 +147,7 @@ class DisasterPolicyNet(eqx.Module):
         input_scale: Optional[Array] = None,
         kf_indices: Sequence[int] = (),
         use_zlb_feature: bool = False,
+        bk_pin: bool = False,
         zlb_feature_kind: Literal["raw", "kink"] = "raw",
         r_lag_idx: int = 5,
         r_lb: float = 1.0,
@@ -181,6 +183,7 @@ class DisasterPolicyNet(eqx.Module):
     ):
         # ELB feature augmentation: extra MLP input dim if enabled.
         self.use_zlb_feature = bool(use_zlb_feature)
+        self.bk_pin = bool(bk_pin)
         if zlb_feature_kind not in ("raw", "kink"):
             raise ValueError(
                 f"zlb_feature_kind must be 'raw' or 'kink', got {zlb_feature_kind!r}"
@@ -465,6 +468,32 @@ class DisasterPolicyNet(eqx.Module):
                     )
         self.output_links = link_codes_tuple
 
+    def _delta_of_state(self, state: Array) -> Array:
+        """MLP delta as a function of the raw state (feature building +
+        MLP + K/F gauge mask). Split out so the BK pin can take its value
+        and JVP at the steady state."""
+        if self.use_zlb_feature:
+            raw_prox = state[self.r_lag_idx] - self.r_lb
+            if self.zlb_feature_kind == "kink":
+                zlb_prox = jnp.maximum(raw_prox, jnp.asarray(0.0, dtype=raw_prox.dtype))
+            else:
+                zlb_prox = raw_prox
+            mlp_input = jnp.concatenate([state, jnp.array([zlb_prox])])
+        else:
+            mlp_input = state
+
+        delta = self.mlp(mlp_input)
+
+        # K/F gauge mask: zero delta at named output positions.
+        if self.kf_indices:
+            mask = (
+                jnp.ones(delta.shape[0], dtype=delta.dtype)
+                .at[jnp.asarray(self.kf_indices)]
+                .set(jnp.asarray(0.0, dtype=delta.dtype))
+            )
+            delta = delta * mask
+        return delta
+
     def _forward_single(self, state: Array) -> Array:
         # BK linear part. ``self.P`` is stored *per-row in natural space*
         # (level for linear/reparam slots, log for log slots — conversion
@@ -532,27 +561,18 @@ class DisasterPolicyNet(eqx.Module):
             M_BK = q_BK * B_BK
             bk_corr = bk_corr.at[self.q_idx].set(M_BK - ss_policy[self.q_idx])
 
-        # ELB feature augmentation on the MLP input.
-        if self.use_zlb_feature:
-            raw_prox = state[self.r_lag_idx] - self.r_lb
-            if self.zlb_feature_kind == "kink":
-                zlb_prox = jnp.maximum(raw_prox, jnp.asarray(0.0, dtype=raw_prox.dtype))
-            else:
-                zlb_prox = raw_prox
-            mlp_input = jnp.concatenate([state, jnp.array([zlb_prox])])
-        else:
-            mlp_input = state
+        delta = self._delta_of_state(state)
 
-        delta = self.mlp(mlp_input)
-
-        # K/F gauge mask: zero delta at named output positions.
-        if self.kf_indices:
-            mask = (
-                jnp.ones(delta.shape[0], dtype=delta.dtype)
-                .at[jnp.asarray(self.kf_indices)]
-                .set(jnp.asarray(0.0, dtype=delta.dtype))
+        # BK pin (selection by construction): remove the delta's value AND
+        # tangent at the steady state, so pi(s*) = pi* and dpi/ds(s*) = P
+        # hold exactly for every parameter value — no training step can
+        # unlearn the Blanchard-Kahn selection. The residual objective then
+        # only shapes second-order-and-beyond deviations.
+        if self.bk_pin:
+            d_ss, d_tan = jax.jvp(
+                self._delta_of_state, (ss_state,), (state - ss_state,)
             )
-            delta = delta * mask
+            delta = delta - d_ss - d_tan
 
         # Per-policy raw assembly. Reparam slots are forced linear-link, so
         # the additive form recovers the level-space K_inner / M values
@@ -673,6 +693,7 @@ def create_disaster_policy_net(
     input_scale: Optional[Array] = None,
     kf_names: Sequence[str] = (),
     use_zlb_feature: bool = False,
+    bk_pin: bool = False,
     zlb_feature_kind: Literal["raw", "kink"] = "raw",
     reparam_q_as_m: bool = False,
     reparam_pi_as_kp_inner: bool = False,
@@ -899,6 +920,7 @@ def create_disaster_policy_net(
         input_scale=input_scale,
         kf_indices=kf_indices,
         use_zlb_feature=use_zlb_feature,
+        bk_pin=bk_pin,
         zlb_feature_kind=zlb_feature_kind,
         r_lag_idx=r_lag_idx,
         r_lb=r_lb,
