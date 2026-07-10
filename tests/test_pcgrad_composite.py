@@ -244,6 +244,15 @@ def test_validator_gates():
     with pytest.raises(ValueError, match="composite"):
         _validate_train_config(cfg_mao)
 
+    # composite + pcgrad + uniform NON-UNIT weights: rejected — the core
+    # is reconstructed unweighted, so a common weight would scale base and
+    # core inconsistently (referee finding, 2026-07-10).
+    cfg_w = TrainConfig.from_dict(
+        {**base, "gradient_surgery": "pcgrad", "loss_weights": [2.0]}
+    )
+    with pytest.raises(ValueError, match="unit loss_weights"):
+        _validate_train_config(cfg_w)
+
     # coverage + pcgrad: still rejected (stress pools fold into the scalar).
     cfg_cov = TrainConfig.from_dict(
         {

@@ -327,6 +327,23 @@ def _validate_train_config(config) -> None:
                 "STANDARD variant, with or without gradient_surgery='pcgrad') "
                 "or 'lbfgs', or switch to loss_type='mse'."
             )
+        # PCGrad×composite reconstructs the projected core from UNWEIGHTED
+        # per-equation gradients at mean scale; a common non-unit weight
+        # would scale the base inside grad(total)-grad(base) but not the
+        # projected core, silently breaking the no-conflict equivalence
+        # with the standard composite step (2026-07-10 referee finding).
+        if (
+            config.gradient_surgery == "pcgrad"
+            and config.loss_weights is not None
+            and any(w != 1.0 for w in config.loss_weights)
+        ):
+            raise ValueError(
+                "gradient_surgery='pcgrad' with loss_type='composite' "
+                "requires unit loss_weights (or none): the surgery path "
+                "reconstructs the core gradient unweighted, so non-unit "
+                "weights would be silently inconsistent between the core "
+                "and auxiliary terms."
+            )
 
     # PCGrad is only wired for the STANDARD grad-step variant (the dispatch
     # in make_train_step requires kind == STANDARD); with any other optimizer

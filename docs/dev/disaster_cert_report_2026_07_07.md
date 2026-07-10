@@ -52,8 +52,12 @@ single-convention record (final checkpoints, all arms, fp64;
 
 † rsob25 s1's ρ<1 is stability of the WRONG economy: the rest point is displaced 49.7%
 (drift@100 converges to the displaced point). It fails the SS-consistency certificate and
-does not count as a pass of the stack. pcgrad s0 is the only run in the program passing
-ALL certificates: ρ(SS)=0.987, SS error 0.29%, drift@100=0.82% (every other run: 130–530%).
+does not count as a pass of the stack. pcgrad s0's corrected reading (see "Referee
+corrections" below): max learned-block eigenvalue 0.975 — the program's only learned
+spectrum inside the unit circle near the truth — converging to a fixed point displaced
+0.83% from the true SS. The probe's ρ column has a floor at 0.987 (the mu_ups exogenous
+root); values at that floor mean "learned block below the exogenous ceiling," not a
+learned 0.987.
 
 **What actually survives, ranked by robustness:**
 
@@ -147,6 +151,10 @@ launched 07-09 (container log `logs/cert_container_day3.log`).
 
 ## Day-3 endgame (07-10): the first crossing — and it's the surgery
 
+> **[Superseded in part by "Referee corrections" below — written before the adversarial
+> review. "Fully certified" and "contracts to the true rest point" are retracted there;
+> the crossing itself survives in corrected form.]**
+
 27/27 runs, program complete (`runs/disaster_cert/probe_day3.json`). The two escalation arms
 answer the night's question — *can anything move the attractor?* — in opposite ways:
 
@@ -175,6 +183,66 @@ certificate-aware checkpoint selection on the pcgrad arm (s1/s2 may pass mid-tra
 best-vs-final lesson says the walk visits better policies than it keeps); (b) pcgrad × more
 seeds (is s0 a 1/3 or a 1/10 event?); (c) pcgrad + rsob at *moderate* weight (surgery removes
 the tug-of-war, Sobolev then selects among the survivors — composition, as on irbc).
+
+## Referee corrections (07-10): what the winner actually is
+
+An external adversarial static review (Codex, prompt designed to refute) produced 8 findings.
+Two attacked the headline directly; both were **confirmed** by decisive checks the same day,
+and both leave a corrected result standing. Checks: full eigendecomposition with an exact
+autonomous/learned block split of the closed-loop Jacobian, Newton solve for the learned
+fixed point ŝ = T(ŝ), and 1000-period zero-shock rollouts (fp64, final checkpoints).
+
+**Correction 1 — the probe's ρ has a floor at 0.987, and the winner's headline number was
+that floor, not a learned quantity.** The closed-loop Jacobian splits exactly into an
+autonomous exogenous block — identical across all checkpoints, AR roots
+{0.809, **0.98699** (mu_ups × soft-clip derivative), 0.940, 0.146, 0} — and the learned 8×8
+endogenous block. The probe reports the max over both, so no run can ever read below 0.987,
+and "ρ(SS)=0.987" means only "learned block at or below the ceiling." The corrected metric is
+the **max learned-block eigenvalue**:
+
+| checkpoint | max learned |λ| at s* | at ŝ | ŝ displacement | ρ(ŝ) stable? |
+|---|---|---|---|---|
+| pcgrad s0 | **0.9750** | **0.9754** | **0.83%** (L_lag) | yes |
+| baseline s1 (the night's "0.987") | 1.0209 | 1.0248 | 10.2% | no → 529% attractor |
+| gated s0 | 1.0492 | 1.0586 | 3.1% | no → 529% attractor |
+| rsob25 s1 (by its probe value 0.9893 > floor) | 0.989 (learned) | — | 49.7% | yes (wrong economy) |
+
+The crossing is therefore REAL and learned — 0.975 with genuine margin — and was *masked*,
+not manufactured, by the exogenous ceiling. The night table's dismissal of baseline s1's
+0.987 as "the exogenous root" is likewise confirmed (its learned block is 1.021).
+
+**Correction 2 — "contracts to the true rest point" is retracted.** The drift trajectory
+(which starts exactly at s\*) converges to the *learned* fixed point ŝ: Newton residual
+7e-15, displacement **0.827%** from the true SS (worst dim: leverage lag; then q_lag 0.36%),
+and the 1000-period rollout lands on ŝ to 7e-14. So pcgrad s0 is **a locally stable economy
+0.83% away from the truth** — the rsob25-s1 phenomenon at 60× smaller displacement — not the
+true equilibrium. The corrected hierarchy: it is the only run in the program whose learned
+dynamics have a stable fixed point anywhere near the truth (baseline/gated fixed points are
+3–10% displaced AND unstable; their trajectories escape to the 529% soft-clip attractor).
+
+**Corrected claim, in one sentence:** the surgery arm produced the program's first
+*stable-near-truth* solution (learned spectrum 0.975, rest point 0.83% off, policy levels
+0.29% off at s\*) — "fully certified true equilibrium" is withdrawn, and closing the last
+0.83% is now a concrete, bounded target rather than an existence question.
+
+**Standing (unresolved) findings from the review:** causal attribution to PCGrad remains
+unestablished — 1/3 vs 0/24, one-sided Fisher p ≈ 0.11, with Adam/clip norm-confounding
+uncontrolled; the referee's demanded controls (preregistered matched seed pairs; a sham
+standard arm rescaled to the surgery's realized update norm; LR/clip sweeps) are the required
+next experiment before any mechanism claim. The certified calibration is the **disasterless**
+one (p_disaster = 0) — as this report's opening says, but the word "disaster solution" must
+carry that qualifier everywhere. The operator is the one-shot simultaneous PCGrad variant,
+not the paper's sequential procedure (docstring corrected; for >2 tasks it is best read as
+data-dependent gradient reweighting).
+
+**Provenance corrections:** 27 DONE markers; 25 runs have final checkpoints — `disaster_elbcov`
+s1/s2 carry DONE but no checkpoint files (night-of-07-07 cut/restart casualties) and appear in
+no table. "Seven treatments" undercounted: nine arms. The sibling drift range is 130–529%
+plus rsob25 s1's 49.7% (which is its displaced rest point, not dying drift). Validator now
+rejects pcgrad×composite with non-unit uniform weights (a hole the review found in the
+no-conflict equivalence). Certificate definition upgraded for successors: report the max
+*learned-block* eigenvalue at ŝ, ‖ŝ − s\*‖, policy levels at s\*, and long-horizon
+convergence — the probe script should compute ŝ and the block split natively.
 
 ## Results (live per-arm narratives — superseded above, kept for the record)
 

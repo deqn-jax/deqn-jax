@@ -1,19 +1,27 @@
 """PCGrad grad-step factory.
 
-PCGrad (Yu et al. 2020) projects per-equation gradients onto each other
-to remove conflicting components before summing. It's a wrapper around
-any STANDARD-kind optimizer; selected via ``config.pcgrad_enabled``,
-not by optimizer name.
+This is the ONE-SHOT simultaneous variant of PCGrad (Yu et al. 2020):
+all pairwise projection coefficients are computed from the original Gram
+matrix and applied in a single pass (``G - C G``), rather than the
+paper's randomized sequential procedure. For two tasks the conflicting
+components are removed exactly; for many tasks the single pass need not
+zero every pairwise conflict and is best read as a data-dependent
+reweighting/rotation of the per-equation gradients (2026-07-10 referee
+note). It's a wrapper around any STANDARD-kind optimizer; selected via
+``config.gradient_surgery``, not by optimizer name.
 
 With a custom ``compute_loss_fn`` (composite loss), the step becomes
 aux-compatible surgery: the projection acts only on the per-equation
 core residual gradients, rescaled to the base loss's mean-over-equations
 convention, and the full auxiliary gradient — anchor, Jacobian, barriers,
 Newton, drift, residual-Sobolev — is added unprojected on top, computed
-exactly as grad(total) − grad(base) at the same batch and key. When no
-pair of equations conflicts the projection is the identity and the step
-reduces to the standard composite gradient, so the only behavioural
-delta vs a STANDARD step is the conflict surgery itself.
+as the floating-point subtraction grad(total) − grad(base) at the same
+batch and key (algebraically exact; subject to fp cancellation when the
+aux gradient is tiny relative to the base). When no pair of equations
+conflicts the projection is the identity and the step reduces to the
+standard composite gradient — this equivalence additionally requires
+UNIT loss weights, which the config validator enforces for this combo —
+so the only behavioural delta vs a STANDARD step is the surgery itself.
 """
 
 from typing import Any, Callable, Optional, Tuple
