@@ -272,6 +272,42 @@ whether a DEQN net can capture a disaster premium no linear anchor can express. 
 Gaussian risk only (p_disaster = 0), first-order future rules (policy-curvature part of the
 true risky SS not captured), 3-node GH per dim.
 
+### Alex's real calibration (07-10): the disaster premium, decomposed
+
+Same solver with the Bernoulli disaster mixture ((1−p)·E[eq | d=0] + p·E[eq | d=1], capital
+destruction exp(−θ) in the d=1 branch) at spec-let 4's calibration **p = 1%, θ = 15%**, with a
+three-system decomposition so each component is separately identified: machinery floor (p=0,
+zero nodes) → +disaster (mixture, zero Gaussian nodes) → +Gaussian (full). Newton residuals
+≤4e-15 throughout.
+
+| dim | disaster | gaussian | TOTAL risk shift |
+|---|---|---|---|
+| leverage L | +0.118% | +0.100% | **+0.217%** |
+| capital k, investment i | −0.124% | +0.009% | **−0.115%** |
+| consumption c | −0.127% | −0.007% | −0.133% |
+| real wage w̃ | −0.124% | −0.013% | −0.137% |
+| inflation π / rate R | +0.066% / +0.063% | +0.005% / +0.007% | +0.071% / +0.070% |
+| Calvo recursions K_p/K_w/F_p/F_w (policies) | +0.35–0.63% | +0.02–0.07% | **+0.41–0.66%** |
+| marginal utility λ_z | +0.119% | +0.006% | +0.125% |
+
+The economics is coherent: disaster risk *taxes capital specifically* (it is what gets
+destroyed), so at the risky rest point capital, investment, consumption, wages, and hours sit
+LOWER, marginal utility and leverage HIGHER, inflation and the policy rate slightly higher —
+a permanent disaster premium concentrated in the Calvo pricing recursions. Dose-response is
+linear in θ as expected for p·(1−e^(−θ)): the θ=0.05 run shows ~⅓ of the θ=0.15 disaster
+component.
+
+Implications: (1) at the real calibration the risk correction (up to 0.66% in policies) is
+the SAME order as the entire pcgrad-s0 error budget — a certainty-equivalent anchor is no
+longer nearly-free but materially wrong, so spec-let 4 training should anchor to the risky
+SS, not s\*. (2) The model's own flat-next-policy heuristic anchor sits 0.42% from the CRW
+point — the future-rules approximation wedge is as large as the shift it approximates, so
+the CRW solver (linear rules) should replace the flat heuristic as the anchor target, and an
+iterated/higher-order CRW would tighten it further. (3) The sharp research question is now
+concrete: train at p=1%/θ=15% and test whether the DEQN policy's rest point lands on the
+risky SS (which no certainty-equivalent anchor can express) — certified with the corrected
+stack (learned-block spectrum at ŝ, ‖ŝ − s_rss‖).
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)

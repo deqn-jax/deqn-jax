@@ -42,13 +42,27 @@ from deqn_jax.training.linearize import linearize_model  # noqa: E402
 from deqn_jax.training.loss import gauss_hermite_nd  # noqa: E402
 
 
-def build_residual_fn(model, ss_state, ss_policy, P, quad_nodes, quad_weights):
-    """F(x) for the 24-unknown risky-SS system; quad with 1 zero node = deterministic."""
+def build_residual_fn(
+    model, ss_state, ss_policy, P, quad_nodes, quad_weights, p_override=None
+):
+    """F(x) for the 24-unknown risky-SS system; quad with 1 zero node = deterministic.
+
+    With ``constants['p_disaster'] > 0`` the F2 expectation is the Bernoulli
+    mixture over the disaster indicator (independent of the Gaussian shocks):
+    (1-p)·E_eps[eq | d=0] + p·E_eps[eq | d=1], where d=1 destroys capital via
+    exp(-theta_disaster) inside step_fn. F1 stays the NO-realized-shock,
+    NO-realized-disaster fixed point — that is the risky-SS definition.
+    """
     n_s, n_p = model.n_states, model.n_policies
     nodes = jnp.asarray(quad_nodes)
     weights = jnp.asarray(quad_weights)
     k = nodes.shape[0]
     zero = jnp.zeros((1, model.n_shocks))
+    p_dis = (
+        float(p_override)
+        if p_override is not None
+        else float(model.constants.get("p_disaster", 0.0))
+    )
 
     def pi_lin(sb):
         return ss_policy[None, :] + (sb - ss_state[None, :]) @ P.T
@@ -56,23 +70,23 @@ def build_residual_fn(model, ss_state, ss_policy, P, quad_nodes, quad_weights):
     def F(x):
         s, p = x[:n_s], x[n_s:]
         sb, pb = s[None, :], p[None, :]
-        # F1: zero-realized-shock fixed point
+        sb_k = jnp.broadcast_to(sb, (k, n_s))
+        pb_k = jnp.broadcast_to(pb, (k, n_p))
+        # F1: zero-realized-shock (and no realized disaster) fixed point
         f1 = model.step_fn(sb, pb, zero, model.constants)[0] - s
+
         # F2: equations in expectation over future shocks, linear future rules
-        s_next = model.step_fn(
-            jnp.broadcast_to(sb, (k, n_s)),
-            jnp.broadcast_to(pb, (k, n_p)),
-            nodes,
-            model.constants,
-        )
-        eq = model.equations_fn(
-            jnp.broadcast_to(sb, (k, n_s)),
-            jnp.broadcast_to(pb, (k, n_p)),
-            s_next,
-            pi_lin(s_next),
-            model.constants,
-        )
-        f2 = jnp.stack([jnp.sum(weights * eq[name]) for name in model.equation_names])
+        def branch(d):
+            s_next = model.step_fn(sb_k, pb_k, nodes, model.constants, d_disaster=d)
+            eq = model.equations_fn(sb_k, pb_k, s_next, pi_lin(s_next), model.constants)
+            return jnp.stack(
+                [jnp.sum(weights * eq[name]) for name in model.equation_names]
+            )
+
+        if p_dis > 0.0:
+            f2 = (1.0 - p_dis) * branch(0.0) + p_dis * branch(1.0)
+        else:
+            f2 = branch(0.0)
         return jnp.concatenate([f1, f2])
 
     return jax.jit(F)
@@ -106,9 +120,32 @@ def main() -> None:
         default=None,
         help="Optional checkpoint: compare the network's rest point s_hat",
     )
+    ap.add_argument(
+        "--p-disaster",
+        type=float,
+        default=None,
+        help="Override constants['p_disaster'] (Alex's real calibration: 0.01)",
+    )
+    ap.add_argument(
+        "--theta",
+        type=float,
+        default=None,
+        help="Override constants['theta_disaster'] (Alex's real calibration: 0.15)",
+    )
     args = ap.parse_args()
 
     model = load_model("disaster")
+    if args.p_disaster is not None or args.theta is not None:
+        c = dict(model.constants)
+        if args.p_disaster is not None:
+            c["p_disaster"] = args.p_disaster
+        if args.theta is not None:
+            c["theta_disaster"] = args.theta
+        model = model._replace(constants=c)
+    print(
+        f"[calib] p_disaster={model.constants.get('p_disaster', 0.0)}  "
+        f"theta_disaster={model.constants.get('theta_disaster', 0.0)}"
+    )
     ss_state, ss_policy = model.steady_state_fn(model.constants)
     ss_state, ss_policy = jnp.asarray(ss_state), jnp.asarray(ss_policy)
     P, _Q = linearize_model(model, verbose=False)
@@ -118,40 +155,73 @@ def main() -> None:
     names_p = list(model.policy_names)
 
     x0 = jnp.concatenate([ss_state, ss_policy])
+    zero_nodes, zero_w = np.zeros((1, model.n_shocks)), np.ones(1)
+    p_cfg = float(model.constants.get("p_disaster", 0.0))
 
-    # --- sanity 1: deterministic system must reproduce (s*, p*) ------------
-    F_det = build_residual_fn(
-        model, ss_state, ss_policy, P, np.zeros((1, model.n_shocks)), np.ones(1)
+    # --- (i) machinery baseline: no Gaussian risk, no disaster risk --------
+    # Deterministic re-solve of the same system; must sit at (s*, p*) up to
+    # the soft-clip + linear-future-rule floor.
+    F_mach = build_residual_fn(
+        model, ss_state, ss_policy, P, zero_nodes, zero_w, p_override=0.0
     )
-    x_det, r_det, it_det, ok_det = newton(F_det, x0)
-    d_det = float(jnp.max(jnp.abs(x_det - x0) / (jnp.abs(x0) + 1e-12)))
+    x_mach, r_m, it_m, ok_m = newton(F_mach, x0)
+    d_m = float(jnp.max(jnp.abs(x_mach - x0) / (jnp.abs(x0) + 1e-12)))
     print(
-        f"[sanity] deterministic re-solve: converged={ok_det} iters={it_det} "
-        f"residual={r_det:.2e}  max-rel drift from (s*,p*) = {d_det:.3e}"
+        f"[machinery] deterministic re-solve (p=0): converged={ok_m} "
+        f"iters={it_m} residual={r_m:.2e}  max-rel drift from (s*,p*) = {d_m:.3e}"
     )
 
-    # --- risky system -------------------------------------------------------
+    # --- (ii) + disaster mixture only (zero Gaussian nodes) ----------------
+    if p_cfg > 0.0:
+        F_dis = build_residual_fn(model, ss_state, ss_policy, P, zero_nodes, zero_w)
+        x_dis, r_d, it_d, ok_d = newton(F_dis, x0)
+        print(
+            f"[disaster-only] mixture at zero Gaussian nodes: converged={ok_d} "
+            f"iters={it_d} residual={r_d:.2e}"
+        )
+    else:
+        x_dis = x_mach
+
+    # --- (iii) full risky: Gaussian quadrature + disaster mixture ----------
     qn, qw = gauss_hermite_nd(args.nodes, model.n_shocks)
     print(f"[quad] {args.nodes}^{model.n_shocks} = {len(qw)} GH nodes")
     F_risk = build_residual_fn(model, ss_state, ss_policy, P, qn, qw)
     wedge = F_risk(x0)
     print(
-        f"[wedge] max |E-residual| at deterministic SS under risk: "
+        f"[wedge] max |E-residual| at deterministic SS under full risk: "
         f"{float(jnp.max(jnp.abs(wedge[n_s:]))):.3e}"
     )
     x_rss, r_rss, it_rss, ok_rss = newton(F_risk, x0)
     print(f"[risky SS] converged={ok_rss} iters={it_rss} residual={r_rss:.2e}\n")
 
-    s_rss, p_rss = x_rss[:n_s], x_rss[n_s:]
-    # Risk-ISOLATED shifts: measure the risky solution against the
-    # deterministic re-solve of the SAME system (x_det), not against
-    # steady_state_fn's s*. This subtracts the machinery floor
-    # (soft-clip regularization, linear-future-rule wedge) which is the
-    # same in both solves; scale by |s*| for readability.
-    s_det, p_det = x_det[:n_s], x_det[n_s:]
-    det_s = np.asarray((s_det - ss_state) / (jnp.abs(ss_state) + 1e-12))
-    rel_s = np.asarray((s_rss - s_det) / (jnp.abs(ss_state) + 1e-12))
-    rel_p = np.asarray((p_rss - p_det) / (jnp.abs(ss_policy) + 1e-12))
+    # --- compare with the model's own flat-next-policy heuristic anchor -----
+    if float(model.constants.get("p_disaster", 0.0)) > 0.0:
+        from deqn_jax.models.disaster.steady_state import risky_steady_state
+
+        h_s, _h_p = risky_steady_state(model.constants)
+        h_s = jnp.asarray(h_s)
+        d_heur = np.asarray((h_s - ss_state) / (jnp.abs(ss_state) + 1e-12))
+        d_gap = np.asarray((h_s - x_rss[:n_s]) / (jnp.abs(ss_state) + 1e-12))
+        print(
+            f"[heuristic anchor] model's flat-next-policy risky SS: "
+            f"max-rel shift vs s* = {np.abs(d_heur).max():.4%}; "
+            f"max-rel gap vs CRW risky SS = {np.abs(d_gap).max():.4%} "
+            f"(the flat-vs-linear future-rules wedge)"
+        )
+
+    # Component decomposition, all scaled by |s*| (resp. |p*|):
+    #   machinery = (i) - (s*, p*)      soft-clip + linear-rule floor
+    #   disaster  = (ii) - (i)          Bernoulli capital-destruction risk
+    #   gaussian  = (iii) - (ii)        business-cycle (GH) risk
+    #   total     = (iii) - (i)         the risky-SS shift proper
+    scale_s = np.asarray(jnp.abs(ss_state) + 1e-12)
+    scale_p = np.asarray(jnp.abs(ss_policy) + 1e-12)
+    det_s = np.asarray(x_mach[:n_s] - ss_state) / scale_s
+    dis_s = np.asarray(x_dis[:n_s] - x_mach[:n_s]) / scale_s
+    gau_s = np.asarray(x_rss[:n_s] - x_dis[:n_s]) / scale_s
+    rel_s = np.asarray(x_rss[:n_s] - x_mach[:n_s]) / scale_s
+    rel_p = np.asarray(x_rss[n_s:] - x_mach[n_s:]) / scale_p
+    dis_p = np.asarray(x_dis[n_s:] - x_mach[n_s:]) / scale_p
 
     # --- optional: network rest point for comparison ------------------------
     rel_hat = None
@@ -180,20 +250,26 @@ def main() -> None:
         rel_hat = np.asarray((s_hat - ss_state) / (jnp.abs(ss_state) + 1e-12))
 
     # --- report --------------------------------------------------------------
-    hdr = f"{'state':>14} {'det machinery':>14} {'risky-SS shift':>15}"
+    hdr = (
+        f"{'state':>14} {'machinery':>11} {'disaster':>11} "
+        f"{'gaussian':>11} {'TOTAL risk':>11}"
+    )
     if rel_hat is not None:
-        hdr += f" {'network shift':>15} {'ratio net/risky':>16}"
+        hdr += f" {'network':>11} {'net/total':>10}"
     print(hdr)
     order = np.argsort(-np.abs(rel_s))
     for i in order:
-        line = f"{names_s[i]:>14} {det_s[i]:>13.4%} {rel_s[i]:>14.4%}"
+        line = (
+            f"{names_s[i]:>14} {det_s[i]:>10.4%} {dis_s[i]:>10.4%} "
+            f"{gau_s[i]:>10.4%} {rel_s[i]:>10.4%}"
+        )
         if rel_hat is not None:
             ratio = rel_hat[i] / rel_s[i] if abs(rel_s[i]) > 1e-12 else float("nan")
-            line += f" {rel_hat[i]:>14.4%} {ratio:>16.2f}"
+            line += f" {rel_hat[i]:>10.4%} {ratio:>10.2f}"
         print(line)
-    print(f"\n{'policy':>14} {'risky-SS shift':>15}")
+    print(f"\n{'policy':>14} {'disaster':>11} {'TOTAL risk':>11}")
     for i in np.argsort(-np.abs(rel_p)):
-        print(f"{names_p[i]:>14} {rel_p[i]:>14.4%}")
+        print(f"{names_p[i]:>14} {dis_p[i]:>10.4%} {rel_p[i]:>10.4%}")
 
 
 if __name__ == "__main__":
