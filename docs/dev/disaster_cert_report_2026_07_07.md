@@ -244,6 +244,34 @@ no-conflict equivalence). Certificate definition upgraded for successors: report
 *learned-block* eigenvalue at ŝ, ‖ŝ − s\*‖, policy levels at s\*, and long-horizon
 convergence — the probe script should compute ŝ and the block split natively.
 
+## Risky steady state (07-10): the 0.83% is error, not economics
+
+The last open reading of pcgrad s0's displaced rest point was the charitable one: the network
+is trained on the *stochastic* model, whose true zero-shock rest point is the **risky steady
+state** — legitimately displaced from the deterministic s\* by precautionary effects the
+certainty-equivalent anchor cannot express. Measured (`scripts/disaster_risky_ss.py`):
+CRW-style risky SS — rest point under zero realized shocks with equations holding in
+expectation over future shocks, first-order (BK) rules for future behavior, 3⁵ Gauss-Hermite
+nodes, damped Newton in fp64. The deterministic re-solve of the same system provides the
+baseline, isolating pure risk from the machinery floor (soft-clip + linear-future-rule wedge,
+≤0.05%/dim).
+
+Result: **the pure Gaussian risky-SS shift at this calibration is ≤0.10% per state**
+(L_lag +0.100%, q_lag −0.057%, all else <0.03%; on the policy side the Calvo pricing
+recursions K_w/F_w/K_p/F_p carry the largest shifts, +0.02–0.07% — risk bites where the
+curvature lives). The network's rest point is displaced **8× more than that in the OPPOSITE
+direction** (L_lag −0.827% vs +0.100%; ratios −2 to −11 across endogenous states).
+
+Conclusions: (1) pcgrad s0's 0.83% displacement is genuine approximation error, not a risk
+premium — the charitable reading is dead by measurement. (2) The certainty-equivalent anchor
+is nearly free at this calibration (the correction it forbids is ~0.1%), so anchoring hard at
+s\* is validated. (3) Referencing certificates to the deterministic s\* is justified here.
+(4) The reusable artifact is the solver itself: at spec-let 4's real disaster calibration
+(p = 1%, θ = 15%) the risky SS should move materially, and the interesting question becomes
+whether a DEQN net can capture a disaster premium no linear anchor can express. Scope:
+Gaussian risk only (p_disaster = 0), first-order future rules (policy-curvature part of the
+true risky SS not captured), 3-node GH per dim.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)

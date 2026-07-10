@@ -106,3 +106,4 @@ docs/*.log
 docs/*.out
 docs/*.toc
 docs/*.synctex.gz
+!scripts/disaster_risky_ss.py
