@@ -190,7 +190,7 @@ certification, evaluator numbers provisional. Distance to done = four specced it
 anchor (spec-let 1), disaster stress-seed map (spec-let 2), the irbc certification protocol run
 on disaster, evaluator overhaul (gated on sign-off).
 
-**Decisions on Aleph's desk:** push to origin; commit/publish the doc + handoff + house audit;
+**Decisions on the maintainer's desk:** push to origin; commit/publish the doc + handoff + house audit;
 adopt `disaster_recal` (couples to ELB fix); evaluator sign-off; spec-let 4 (Alex's restored
 disaster).
 

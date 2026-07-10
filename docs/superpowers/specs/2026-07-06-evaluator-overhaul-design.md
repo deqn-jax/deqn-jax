@@ -102,7 +102,7 @@ Models declare their residual scales; the evaluator stops guessing:
 
 - Every published accuracy number shifts (mostly *down* = better, since noise floors vanish;
   normalized grades can shift either way). Requires the same-day notebook re-run or an explicit
-  "tables predate the evaluator fix" banner — Aleph's call on sequencing.
+  "tables predate the evaluator fix" banner — maintainer's call on sequencing.
 - disaster expectation at 3^5 nodes × long paths is slower; mitigate with node-count knob and
   the MC fallback.
 - Scales are model-authored → they can be wrong; the unit-rescaling invariance test only guards
