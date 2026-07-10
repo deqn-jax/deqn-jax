@@ -308,6 +308,55 @@ concrete: train at p=1%/θ=15% and test whether the DEQN policy's rest point lan
 risky SS (which no certainty-equivalent anchor can express) — certified with the corrected
 stack (learned-block spectrum at ŝ, ‖ŝ − s_rss‖).
 
+## Sharpened diagnosis (07-10): aggregation trap, not (yet) equilibrium multiplicity
+
+The maintainer's re-reading of the program's evidence, adopted here because a same-day
+measurement confirmed it. The taxonomy: (i) optimization trap — a better joint solution exists but the
+walk can't reach it; (ii) **aggregation/identification trap** — ∇L = (2/n)·J_R^T R ≈ 0 with
+R ≠ 0 (a least-squares compromise: opposed equation gradients cancel in the scalar mean, and
+stability directions lie near the residual operator's null space); (iii) genuine equilibrium
+multiplicity — two policies both making ALL equations vanish on the relevant domain, with
+different stability. The program's language ("impostor economy", "selection", "stable wrong
+economy") borrowed connotations of (iii). The evidence supports (ii).
+
+**The decisive measurement (per-equation E-residuals AT each learned fixed point ŝ, 3-node
+GH, fp64 — the check the program had never run):**
+
+| checkpoint | max |E[r]| at s\* | max |E[r]| at its own ŝ | dominant eq at ŝ |
+|---|---|---|---|
+| pcgrad s0 | 3.8e-3 | **3.8e-3** | investment Euler |
+| gated s0 | 1.4e-2 | 2.8e-2 | investment Euler |
+| rsob25 s1 | 2.4e-1 | **1.6e-1** | Kw definition / inv. Euler |
+
+Nobody — including the winner — rests at an approximate joint zero. pcgrad s0's rest point
+carries a persistent few-×10⁻³ equilibrium violation (largest exactly where the conflict
+diagnostic found the largest per-equation gradient); rsob25 s1's "stable wrong economy" is
+retracted — with residuals of 0.16 it is a **stable displaced simulator rest point, not an
+economy in the model's sense at all**. No second equilibrium has been found anywhere in the
+program; the trainer parks at compromise points of the aggregated objective, and the pcgrad
+point is simply the best and only stable compromise (5–10× smaller residuals than gate-only).
+
+Specific claim relabelings: (a) `init_scale=0` walking out indicts nothing about
+multiplicity — the linear policy is not an exact nonlinear solution, so leaving it is
+correct behavior; what remains indicted is the *destination* (ρ>1 compromise points). (b)
+The common ρ≈1.05 basin is a robust attractor of the coupled learning dynamics (θ, on-policy
+measure, Adam state) — the measured total gradient 3.6 ≠ 0 means it is not even a frozen-
+measure stationary point, which strengthens the learning-dynamics (E-stability-style)
+reading. (c) The PCGrad crossing shows update geometry changes the reachable compromise —
+mechanism-consistent with (ii), not evidence of selection among equilibria.
+
+**Deciding experiments, ranked by cost** (1–2 cheap, 3–4 decisive): (1) frozen common state
+grid, per-equation max residuals for all candidates — no policy-chosen evaluation measures;
+(2) done above (residuals at ŝ); (3) singular spectrum of J_R on the frozen grid + search
+for a direction that moves ρ materially at near-zero residual change — the direct
+quantification of underidentification; (4) stringent joint solve (Gauss–Newton on stacked
+frozen-grid residuals, or min–max over equations) from both the stable and unstable
+checkpoints: distinct joint zeros with different stability = real multiplicity; failure to
+reach any joint zero = the identification wedge at network capacity. Remedy fork: under
+(ii), the medicine is multi-equation optimization + off-policy identification (surgery,
+frozen-grid evaluation — already in the stack); only under (iii) does an explicit selection
+condition (BK/jac-anchor/transversality) become *necessary* rather than merely helpful.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)
