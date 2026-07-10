@@ -357,6 +357,37 @@ reach any joint zero = the identification wedge at network capacity. Remedy fork
 frozen-grid evaluation — already in the stack); only under (iii) does an explicit selection
 condition (BK/jac-anchor/transversality) become *necessary* rather than merely helpful.
 
+### Experiment 4 RESULT (07-10 night, `scripts/gn_polish.py`): the wedge is real, and it's one attractor
+
+Levenberg–Marquardt on the stacked 704-residual vector (64 frozen ergodic-shaped states ×
+11 equations, min-norm steps, fp64), from BOTH candidate basins, 40 iterations each:
+
+| start | ‖R‖∞ floor | ρ_learned end | SS err end | ŝ displacement | max E-resid at ŝ |
+|---|---|---|---|---|---|
+| pcgrad s0 (ρ 0.975, 0.29%) | 1.82e-2 | 1.173 | 6.0% | 11.2% | 7.9e-2 |
+| gated s0 (ρ 1.049, 2.9%) | 1.63e-2 | 1.244 | 8.5% | 9.2% | 5.5e-2 |
+
+Three findings. (a) **No joint zero within network capacity near either basin** — both stall
+at ‖R‖∞ ≈ 1.7e-2 on the frozen grid; the identification wedge is measured, not conjectured.
+(b) **Residual descent monotonically destroys the certificates**: from the stable point,
+every accepted step traded stability and SS-truth for residual improvement (ρ 0.975 → 1.17+,
+SS err 0.29% → 6%). Stability is not merely invisible to R — it is *negatively priced* along
+R's descent directions. (c) **No multiplicity**: the two different basins polish toward the
+SAME unstable displaced family (ρ ≈ 1.2, the old best-by-loss neighborhood) — the
+least-squares geometry has one preferred attractor and it is not an economy (residuals at its
+own rest points: 5–8e-2). Corollary: pcgrad s0's stability was never a residual attractor —
+it was held *against* the objective by the anchor. Selection information must be structural.
+
+**The three exits, all launched 07-10 night:** (1) capacity — `disaster_gated_pcgrad_wide`
+(256×256) ×3 seeds training, plus a distill-to-256 + re-polish fast lane; (2) constrained
+polish — LM on residuals augmented with SS-consistency rows and a smooth spectral-growth
+penalty (softplus-sharpened ‖J^K u‖ probes), w=10 a priori, from pcgrad s0; (3) **selection
+by construction** — `network.bk_pin` (commit 6adadd8): the DisasterPolicyNet delta's value
+and tangent at s\* are subtracted structurally, so π(s\*)=π\* and dπ/ds(s\*)=P hold for every
+parameter value; training cannot unlearn BK. Arm `disaster_gated_pcgrad_bkpin` ×3 training.
+Early bkpin smoke: gradient norms ~2e-3 at episode 8 vs 1e2–1e8 transients on every other
+arm — the pin appears to remove the early wandering entirely.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)
