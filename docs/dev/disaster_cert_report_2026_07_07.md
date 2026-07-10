@@ -47,6 +47,13 @@ single-convention record (final checkpoints, all arms, fp64;
 | gated+drift | 1.044 / 1.107 / 1.033 | 0/3 | 1.5% / 2.0% / 1.6% |
 | gated+rsob w=1 (day 2) | 1.052 / 1.278 / 1.122 | 0/3 | 1.6% / 34.3% / 2.2% |
 | gated+drift+rsob (day 3) | 1.238 / 1.268 / 1.204 | 0/3 | 9.1% / 4.0% / 20.5% |
+| gated+rsob w=25 (day 3) | 1.020 / **0.989**† / 1.105 | 1/3† | 2.9% / **49.7%**† / 1.8% |
+| gated+pcgrad (day 3) | **0.987** / 1.027 / 1.022 | **1/3** | **0.29%** / 4.1% / 7.0% |
+
+† rsob25 s1's ρ<1 is stability of the WRONG economy: the rest point is displaced 49.7%
+(drift@100 converges to the displaced point). It fails the SS-consistency certificate and
+does not count as a pass of the stack. pcgrad s0 is the only run in the program passing
+ALL certificates: ρ(SS)=0.987, SS error 0.29%, drift@100=0.82% (every other run: 130–530%).
 
 **What actually survives, ranked by robustness:**
 
@@ -137,6 +144,37 @@ compose into a strong one; they compose into variance. This sharpens the escalat
 the live question is whether a *dominant* dose (rsob25) or a *different aggregation*
 (pcgrad surgery) moves the attractor, not whether more mild auxiliaries help. Both arms
 launched 07-09 (container log `logs/cert_container_day3.log`).
+
+## Day-3 endgame (07-10): the first crossing — and it's the surgery
+
+27/27 runs, program complete (`runs/disaster_cert/probe_day3.json`). The two escalation arms
+answer the night's question — *can anything move the attractor?* — in opposite ways:
+
+1. **`disaster_gated_pcgrad` s0 is the first fully-certified disaster solution in the
+   program**: ρ(SS) = 0.987 with the steady state reproduced to 0.29% and drift@100 = 0.82%.
+   Two independent certificates (spectral radius at SS; 100-period closed-loop rollout) agree
+   the loop contracts to the *true* rest point. For scale: every one of the other 26 runs has
+   drift@100 between 49% and 529%. Seeds 1–2 land basin-typical (1.027/1.022) — the surgery
+   does not abolish the lottery (it removes the *compromise* pressure, not the multiplicity),
+   but it is the only treatment in three days that ever crossed. Mechanism consistency: the
+   diagnostic said the basin is a price-vs-wage compromise point (cosines −0.9); removing
+   conflicting gradient components is exactly the intervention that should sometimes let the
+   optimizer leave — and it did.
+2. **`disaster_gated_rsob25` prices the naive stability trade**: its ρ<1 seed (s1, 0.989)
+   sits at a rest point displaced 49.7% from the model's SS — the dominant Sobolev dose
+   selected a *stable wrong economy*. s0/s2 (1.020/1.105, small SS error) show the dose also
+   drags ρ down when it stays home, but not through 1. The derivative signal selects for
+   flatness, not for *the truth's* flatness — it needed the anchor to hold the rest point,
+   and at weight 25 it overpowers exactly that anchor.
+
+**Program verdict, 27 runs, seven treatments:** selection on this model is an *aggregation*
+problem before it is a sampling or dose problem. The only crossing came from changing how the
+11 equations' disagreements combine into one direction (PCGrad), precisely as the
+compromise-point diagnostic predicted. Immediate next levers, in order of cheapness: (a)
+certificate-aware checkpoint selection on the pcgrad arm (s1/s2 may pass mid-training — the
+best-vs-final lesson says the walk visits better policies than it keeps); (b) pcgrad × more
+seeds (is s0 a 1/3 or a 1/10 event?); (c) pcgrad + rsob at *moderate* weight (surgery removes
+the tug-of-war, Sobolev then selects among the survivors — composition, as on irbc).
 
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
