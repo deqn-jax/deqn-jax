@@ -388,6 +388,51 @@ parameter value; training cannot unlearn BK. Arm `disaster_gated_pcgrad_bkpin` �
 Early bkpin smoke: gradient norms ~2e-3 at episode 8 vs 1e2–1e8 transients on every other
 arm — the pin appears to remove the early wandering entirely.
 
+### Exit results (07-11)
+
+**Exit 2 — constrained polish: the wedge measured from the stability side.** From pcgrad
+s0, 40 LM iterations with SS + spectral-growth rows (which start *active*: the K=30 probes
+see the non-normal transient, ~9% above the asymptotic ρ): final ρ_learned 0.9274, SS
+policy err 0.0866%, **ŝ displacement 0.83% → 0.222%**, E-resid at ŝ 7.2e-3, grid floor
+4.27e-2 vs 1.82e-2 unconstrained. Where unconstrained descent sold certificates for
+residuals, the constrained geometry improved everything at once for ~20 iterations —
+direct corroboration of near-null ρ-moving directions (experiment 3, obtained free). The
+price of truth+stability: ~2.3× in grid max-residual.
+
+**Exit 1 — capacity: negative, twice.** (a) Distill-to-256² (72k params) + unconstrained
+re-polish: floor 3.5e-2 (no lower), SS err → 24.6%, ŝ → 14.0% — same certificate
+destruction at 4× capacity. (b) Trained wide arm: s0 ρ at floor with 4.0% drift@100
+(stable-but-displaced), s1/s2 basin/unstable (1.034 / 1.117). **The pathology is the
+objective's geometry, not network capacity.**
+
+**Exit 3 — BK pin: the program's result.** First, a loader bug worth its own line: the
+checkpoint loader built its template `NetworkConfig` from a hand-picked field subset,
+silently dropping `bk_pin` (a STATIC field that changes the forward graph) — the first
+probe of the arm returned an *impossible* ρ=8.5 / 476% SS error from a network that pins
+π(s\*)=π\* by construction. Impossibility was the diagnostic; fixed in 6baf368 (full-dict
+passthrough, the audit's silent-drop class). With the loader fixed, **bkpin s0**:
+
+| certificate | pcgrad s0 (was best) | constrained polish | bkpin s0 |
+|---|---|---|---|
+| learned-block ρ at ŝ | 0.9754 | 0.9275 | 0.9768 |
+| ŝ displacement | 0.827% | 0.222% | **0.0525%** |
+| SS policy error | 0.29% | 0.087% | **0 (exact)** |
+| max E-resid at ŝ | 3.8e-3 | 7.2e-3 | **5.2e-4** |
+| training loss (final) | ~1e-1 | — | **~8e-5** |
+
+The investment Euler — the compromise family's worst violator everywhere else (3.8e-3) —
+sits at ~1e-6; the residual's new worst equation is wage-Phillips at 2.8e-4. **For the
+first time in the program, the training loss and the certificates agree.** Reading: the
+pin removes exactly the degrees of freedom the residual objective was proven (experiment
+4) to spend against stability; with nothing to sell, the objective solves the equations.
+Structure beats penalties — the week's lesson, now with its existence proof.
+
+Standing qualifiers: one seed reported (s1 training at the same ~8e-5 loss signature, s2
+queued); stress-grid/off-path certificate not yet run on this arm; residuals are 5.2e-4,
+not zero — still a compromise, an order of magnitude better; the pin certifies behavior
+anchored at s\* — off-manifold behavior needs the held-out stress certificate before any
+"solved" is uttered. The word remains embargoed until 3/3 seeds + stress grid.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)
