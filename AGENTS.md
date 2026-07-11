@@ -1,158 +1,171 @@
-# CLAUDE.md
+# deqn-jax
+Deep Equilibrium Network trainer for economic models (JAX/Equinox port of
+Azinovic–Maliar–Maliar) — for economists solving dynamic stochastic models and
+for the research program certifying those solutions.
 
-## What This Is
+## What this project is
+- **Nature**: research. Relaxations (explicit, per-tool): pyright stays
+  `basic` (authored rationale in `pyproject.toml` — strict mode drowns in
+  JAX/Equinox partial stubs); no coverage threshold; ruff strict-tightening
+  (`B,N,UP,RUF`) measured at 1,652 errors on 2026-07-12 and deliberately
+  deferred to a dedicated branch. Everything else: production discipline.
+- **Knowledge base**: no NKS server wired (deviation from the verstak
+  standard, chosen 2026-07-12). Repo-native substitutes: this file for
+  conventions; `docs/dev/selection_program_chronicle_2026_07.md` (§15 artifact
+  index, §16 open threads) for research state; the private notes repo
+  `mechanicpanic/deqn-research-notes` for research narrative and the paper
+  basis.
+- **Stack**: Python ≥3.10, JAX + Equinox + Optax, Pydantic v2 configs, uv.
+  No TensorFlow, no PyTorch, no Keras.
+- **Production statement**: public research code
+  (github.com/deqn-jax/deqn-jax; docs at deqn-jax.github.io), read by
+  potential collaborators and course students. Cost of breakage: wrong
+  research conclusions and lost collaborator trust — worse than a crash.
+  Solver claims are gated by certificates (see *Certification*), never by
+  green tests alone.
 
-DEQN-JAX is a **Deep Equilibrium Network** trainer for economic models — a JAX/Equinox port of the Azinovic-Maliar-Maliar method. It trains a policy network to satisfy a model's equilibrium conditions across its ergodic distribution, replacing traditional point-by-point solvers (Dynare, time iteration, etc.).
+## Persistence rules
+State lives in the **repo** or the **private notes repo** — never only in
+agent memory, conversation summaries, or `/tmp`.
+- **Repo**: code, configs, conventions, gotchas, dev docs, certification
+  records.
+- **Private notes repo** (`~/Projects/research/deqn-research-notes`, GitHub
+  `mechanicpanic/deqn-research-notes`): research narrative, audits, paper
+  basis — anything not for the public tree.
+- **Claude-side project memory is a recall cache**, not a home: anything
+  load-bearing must be mirrored into one of the two repos the same day.
+- **Fetch state; never reconstruct from recall.** No source for a "we
+  decided…"? Read the chronicle or the dev docs before acting.
 
-```
-State (K, Z) --> Policy Network --> Policy (C, L) --> Equilibrium Equations --> Loss = sum(residuals^2)
-```
+## Session lifecycle
+- **Start**: read this file. Resuming research → chronicle §15/§16. Check
+  `git status` and running DGX jobs (`logs/` on
+  `anna@130.223.169.108:~/projects/deqn-jax`) before launching new work.
+- **Every push**: if the change touches solver behavior or certification
+  claims, update the matching dev doc (cert report for certificates,
+  chronicle for program-level shifts) in the same push.
+- **After a green push — self-review**: re-read your diff for bugs, fragile
+  spots, weak error handling, DRY violations, missing or useless tests,
+  god-units mixing concerns. Fix in the same branch and push again, or state
+  plainly that nothing surfaced. Don't fake findings.
+- **Branch discipline**: one branch through to its merge; small fixes commit
+  to `master` directly (current practice). After merge: `git checkout master
+  && git pull`, delete the merged branch, prune.
 
-It's *PINN-adjacent* but not a PINN: collocation points come from on-policy simulation rather than a fixed spatial domain, the operator is an expectation over shocks rather than a differential operator, and equilibrium equations have multiple fixed points (Blanchard-Kahn-style selection is missing). The closer functional cousin is model-based RL with a known dynamics — that framing predicts the right toolkit (replay, off-policy correction, ensembles) for the failure modes we hit on real research models. (A separate project tracks a true PINN for a related class of problems.)
+## Working principles
+1. **Think before coding.** State assumptions; ask when uncertain — name
+   *what's* unclear. Push back on false premises. Check the repo and the
+   chronicle before writing; fetch, don't recall. Hit the live system before
+   trusting a type, a name, or a doc.
+2. **Simplicity first.** Minimum code for the task. No speculative features,
+   no abstractions for single-use code. Validate at boundaries; trust internal
+   invariants.
+3. **Surgical changes.** Touch only what the task needs. Don't reformat
+   adjacent code; the linter is authoritative. Extend existing classes instead
+   of forking near-duplicates (the LinearPlusMLP/KfAnchoredMLP fork cost a
+   full sweep to diagnose).
+4. **Goal-driven execution.** Bugs: pin with a failing test before patching.
+   Multi-step work: `step → verify` pairs. Solver changes: verify with the
+   certification stack on real checkpoints, not just unit tests.
+5. **Claims need receipts.** Every quantitative claim in a dev doc carries a
+   commit, file, log, or reproduce command. Superseded claims are kept and
+   marked, not deleted.
 
-Stack: JAX + Equinox (networks) + Optax (optimizers). No TensorFlow, no PyTorch, no Keras.
+## Certification (what "solved" means here)
+A small training loss is not a certificate — measured repeatedly (best-by-loss
+checkpoints are certificate-worst). The stack, in order of strictness:
+held-out/stress residuals → **learned-block** spectral radius (the probe's raw
+ρ has a floor at the exogenous root 0.98699 — always report the learned 8×8
+block) → solved fixed point ŝ = T(ŝ): ‖ŝ−s\*‖ and ρ(ŝ) → per-equation
+residuals AT ŝ → long-horizon convergence, multi-seed. Frozen convention:
+**final checkpoints** (`checkpoint_003000.eqx`), fp64. Tool:
+`scripts/disaster_ss_probe.py`.
 
 ## Commands
+| task | command |
+|---|---|
+| test | `uv run pytest tests/ -q` (638 collected @2026-07-12; 4 Dynare-fixture skips when data absent) |
+| lint | `uv run ruff check src/ tests/ scripts/` (zero-error; CI-enforced) |
+| format | `uv run ruff format src/ tests/ scripts/` |
+| typecheck (advisory) | `uv run pyright` (basic mode; not in CI) |
+| train | `uv run deqn-jax train <model> -n 1000` (`-o ngd -q` for smoke) |
+| list models / optimizers | `uv run deqn-jax list` / `uv run deqn-jax optimizers` |
+| certificates | `JAX_ENABLE_X64=1 uv run python scripts/disaster_ss_probe.py --runs-dir runs/disaster_cert --arms <a> --seeds 0,1,2` |
+| DGX sync | `rsync -azR <files> anna@130.223.169.108:~/projects/deqn-jax/` (relative-path form; one rsync per destination) |
+| DGX GPU sweep | `LAUNCHER=scripts/cert_sweep_container.py ./scripts/run_sweep_in_container.sh` (DONE-marker resumable) |
+| docs deploy | `mkdocs gh-deploy --remote-name pages` |
 
-```bash
-uv run pytest tests/ -v                              # 612 passed / 4 skipped (2026-07-06)
-uv run deqn-jax train brock_mirman -n 1000            # train a model
-uv run deqn-jax train brock_mirman -n 50 -o ngd -q    # quick smoke test
-uv run deqn-jax train --config configs/brock_mirman.yaml -n 100
-uv run deqn-jax optimizers                             # list all optimizers
-uv run deqn-jax list                                   # list all models
-```
+Always `uv run`; never activate the venv manually.
 
-Always use `uv run`, never activate the venv manually.
-
-## Project Layout
-
+## Project structure
 ```
 src/deqn_jax/
-  config.py               # TrainConfig, OptimizerConfig, NetworkConfig, CompositeLossConfig
-  cli.py                  # Entry point: train, list, optimizers subcommands
-  types.py                # ModelSpec, TrainState, ReweightState, Metrics (all NamedTuples)
-  metrics.py              # TensorBoard, W&B, NullLogger
-  evaluate.py             # Policy evaluation and residual analysis
-  irf.py                  # Impulse response functions from checkpoints
-  benchmark.py            # Performance benchmarking
-
-  models/
-    __init__.py           # load_model(), list_models(), explicit model registry
-    variable_spec.py      # VariableSpec class for named array access
-    brock_mirman/         # Simple RBC (1 eq, 2 states, 1 policy)
-      variables.py        # SPEC, CONSTANTS, N_SHOCKS, DESCRIPTION
-      equations.py        # equations(), definitions(), EQUATION_NAMES
-      dynamics.py         # step()
-      steady_state.py     # steady_state(), init_state()
-    disaster/             # NK-DSGE with financial frictions (11 eq, 13 states, 11 policies)
-      variables.py        # SPEC, CONSTANTS, N_SHOCKS, DESCRIPTION, POLICY_LOWER/UPPER
-      equations.py        # equations(), definitions(), EQUATION_NAMES
-      dynamics.py         # step()
-      steady_state.py     # steady_state(), init_state()
-
-  networks/
-    common.py             # Shared network utilities
-    mlp.py                # Equinox MLP with per-layer activations, custom init, sigmoid output bounds
-    lstm.py               # Equinox LSTM for history-dependent policies
-    transformer.py        # Transformer with multi-head attention for sequence policies
-
-  optimizers/
-    registry.py           # OptimizerKind enum, @register_optimizer, create_optimizer()
-    ngd.py                # Diagonal Fisher NGD (optax.GradientTransformation)
-    mao.py                # Multi-Adaptive Optimizer (custom class, per-equation moments)
-    shampoo.py            # Kronecker-factored Shampoo (optax.GradientTransformation)
-    lbfgs.py              # Thin wrapper around optax.lbfgs
-    gauss_newton.py       # Gauss-Newton and Levenberg-Marquardt (custom classes)
-
-  training/
-    trainer.py            # train(), train_from_config(), create_train_state(), make_train_step()
-    loss.py               # MC loss with antithetic variates
-    composite_loss.py     # Anchor + Jacobian + barrier + Newton auxiliary losses
-    episode.py            # Trajectory simulation via lax.scan
-    history.py            # History window construction for sequence models
-    linearize.py          # Model linearization for composite loss precomputation
-    warm_start.py         # L-BFGS fitting to steady state (uses optax.lbfgs)
-    steady_state.py       # Analytical or numerical SS solving (uses optax.lbfgs)
-
-configs/                  # Example YAML configs
-tests/                    # test_basic, test_config, test_config_validation, test_optimizers,
-                          # test_convergence, test_warm_start
+  config/        # Pydantic v2: TrainConfig, OptimizerConfig, NetworkConfig, CompositeLossConfig, CoverageConfig
+  types.py       # ModelSpec, TrainState, Metrics — all NamedTuple pytrees
+  cli.py         # train / list / optimizers / check
+  models/        # 10 registered models (see `deqn-jax list`); each: variables, equations, dynamics, steady_state
+  networks/      # factory.py + mlp / lstm / transformer / linear_plus_mlp; models/disaster/network.py (π_BK + δ, bk_pin)
+  optimizers/    # registry + ngd / mao / shampoo / lbfgs / gauss_newton / pcgrad
+  training/      # trainer (orchestrator), state_init (dispatch + validators), cycle, loss, composite_loss, coverage, episode, linearize, warm_start
+  evaluate/      # simulate, diagnostics, dynare, cli
+configs/         # arm configs (disaster_gated_pcgrad_bkpin.yaml etc.)
+scripts/         # gitignored except whitelist: probes, sweeps, risky-SS, GN polish
+tests/           # 638 tests; smoke convention: 3 episodes, hidden=(16,), batch=16, mc_samples=2
+docs/dev/        # certification record + chronicle (research state)
 ```
 
-## Architecture
+## Code conventions
+- Two JIT boundaries per cycle (rollout + grad-step sweep); everything
+  runtime-variable resolves at construction time, before tracing.
+- Five train-step variants (STANDARD/PCGRAD/MAO/LBFGS/GN) dispatched by
+  `OptimizerKind`; they differentiate *different objects* — when adding a loss
+  feature, extend `state_init._validate_train_config` so combos that would
+  silently drop it from the gradient are rejected, not ignored.
+- Loss-dict keys prefixed `aux_` are excluded from reweighting and gradient
+  surgery by contract (`eq_losses_to_array`).
+- Equinox patterns: `eqx.filter(model, eqx.is_array)` → update →
+  `eqx.combine(arrays, model)`.
+- **Test discipline**: unit + regression (bit-identical guards for refactors);
+  certification claims additionally need the probe stack on real checkpoints.
+- **Gotchas**:
+  - *Checkpoint loading*: the template network must be built from the FULL
+    network config — static fields (`bk_pin`, `use_zlb_feature`, reparam
+    flags) change the forward graph and are not repaired by leaf
+    deserialization (`irf.py`, fixed 2026-07-11 after an impossible probe).
+  - *JAX*: `jax.tree.map` treats tuples as containers; `lax.cond` needs an
+    operand; no `float()` inside JIT; Shampoo L/R preconditioners in separate
+    `tree_map` calls.
+  - *Probe ρ floor*: raw closed-loop spectral radius never reads below
+    0.98699 (exogenous mu_ups root × soft-clip); report the learned-block
+    eigenvalue.
+  - *Compute placement*: training, evaluation, and full pytest run on the DGX
+    (host CPU for probes, NGC container for GPU training), not on the
+    maintainer's laptop.
+  - *aarch64 flake*: `test_convergence.py::TestDisasterTraining::
+    test_loss_decreases` is platform-sensitive on the DGX (chaotic bare-MLP
+    lr=1e-2 path, documented last-bit bifurcation) — not a regression signal.
+  - *CI parity gap*: pyright is advisory-only (not in CI) — deliberate, see
+    Nature relaxations.
+  - *Short disaster smokes*: episodes < `lr_warmup` makes the cosine schedule
+    negative — pass `--set optimizer.lr_warmup=5` for runs under ~100
+    episodes.
 
-### Two JIT Boundaries
+## What to update when
+- `AGENTS.md` — commands, structure, conventions, or stack change.
+- `docs/dev/disaster_cert_report_2026_07_07.md` — any certification claim.
+- `docs/dev/selection_program_chronicle_2026_07.md` — program-level shifts
+  (new results, retractions, method lessons).
+- Private notes repo — research narrative not for the public tree.
 
-Each training cycle is a Python-level loop composing two separately-JIT'd pieces: one rollout call plus a minibatch sweep of grad_step calls (see `training/cycle.py` and the `training/trainer.py` header). Everything runtime-variable is resolved at construction time, before tracing. (An earlier "single JIT boundary" claim here was stale — corrected 2026-07-06.)
-
-### Five Train Step Variants
-
-Dispatched at construction time (before JIT), not inside JIT:
-
-- **STANDARD** (adam, sgd, adamw, lion, muon, ngd, shampoo): `jax.grad` -> `opt.update(grads, state, params)`
-- **PCGRAD**: per-equation gradients with conflict projection -> `opt.update(projected_grads, state, params)`
-- **MAO**: `jax.jacrev(per_eq_loss_vector)` -> per-equation Jacobian -> `mao.update(eq_jac, state, params)`
-- **LBFGS**: `optax.lbfgs` (GradientTransformationExtraArgs) -> needs `value`, `grad`, `value_fn` for line search
-- **GN**: Gauss-Newton / Levenberg-Marquardt -> residual Jacobian `J`, update = `-(J^T J)^{-1} J^T r`
-
-`OptimizerKind` enum selects which variant; `make_train_step()` dispatches.
-
-### Optimizer Registry
-
-`@register_optimizer(name, kind)` in each module. All modules imported in `optimizers/__init__.py` to trigger registration. `create_optimizer(config)` looks up the registry and chains grad clipping for STANDARD optimizers automatically.
-
-MAO uses `_MAOFactory` for deferred `n_tasks` resolution (resolved in `create_train_state` when the model's equation count is known).
-
-### Config Priority
-
-```
---set overrides  >  CLI args  >  YAML file  >  dataclass defaults
-```
-
-`load_config()` in `config/io.py` handles merging. Dot-notation for nested fields: `--set optimizer.learning_rate=0.01`.
-
-### Types
-
-Everything is a `NamedTuple` for JAX pytree compatibility. `TrainState` bundles all mutable state (params, opt_state, episode_state, key, step, weights) so `train_step` is a pure function.
-
-## Key Patterns
-
-- **Equinox models**: `eqx.filter(model, eqx.is_array)` to get trainable params, `eqx.combine(updated_arrays, model)` to reconstruct
-- **Antithetic variates**: shock sampling pairs each epsilon with -epsilon for variance reduction
-- **Adaptive reweighting**: `lr_annealing` (inverse EMA) and `relobralo` (softmax of loss ratios) for multi-equation balancing
-- **L-BFGS warm start**: fits network to steady state policy in ~10-50 steps using `optax.lbfgs` with flat-parameter loop
-- **Composite loss**: optional `loss_type: composite` adds anchor, Jacobian, barrier, and Newton auxiliary terms (see `CompositeLossConfig`)
-
-## Common JAX Gotchas
-
-- `jax.tree.map` treats Python tuples as pytree containers -- don't return tuples from mapped functions if you want them as leaves
-- `jax.lax.cond` branches need an operand argument (use `None` as dummy)
-- Python-level `ndim` checks inside `tree_map` callbacks are fine (resolved at trace time, not run time)
-- No `float()` calls inside JIT-traced functions
-- Shampoo: create L and R preconditioners with separate `tree_map` calls, never a single call returning a tuple pair
-
-## Models
-
-| Model | States | Policies | Equations | Shocks | Steady State |
-|-------|--------|----------|-----------|--------|--------------|
-| `brock_mirman` | 2 (k, z) | 1 (sav_rate) | 1 (euler) | 1 | Analytical |
-| `disaster` | 13 (8 endo + 5 exo) | 11 | 11 | 5 | Numerical |
-
-## Testing
-
-```bash
-uv run pytest tests/ -v                         # full suite: 612 passed / 4 skipped (2026-07-06;
-                                                # the 4 skips are Dynare-fixture tests, data absent)
-uv run pytest tests/test_basic.py -v            # core tests
-uv run pytest tests/test_config_validation.py -v # config validation + coercion
-uv run pytest tests/test_optimizers.py -v       # optimizer + training
-uv run pytest tests/test_coverage*.py -v        # EWM coverage (unit/wiring/smoke)
-```
-
-Short training smoke tests use: 3 episodes, hidden=(16,), batch=16, mc_samples=2.
-
-## Git
-
-- Author: Anna Smirnova <anna@example.com>
-- Main branch: `main`, current work on `master`
+## Git workflow
+- Conventional commits (`feat:`/`fix:`/`docs:`/`chore:`/`test:`); bland
+  messages; no session-metadata lines. Claude agents append their standard
+  co-author trailer.
+- Local gate: ruff runs on every edit via the committed `.claude` hook; run
+  lint + tests before pushing regardless. CI enforces both.
+- Definition of done: CI green (tests + lint); for solver changes,
+  certificates unregressed at the frozen convention; docs updated per *What
+  to update when*.
+- **Never** `--no-verify`, `--force`, `--no-gpg-sign`, or `git reset --hard`
+  without explicit user instruction. Pushing `master` is the maintainer's
+  call unless explicitly delegated.

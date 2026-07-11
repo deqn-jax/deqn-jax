@@ -27,6 +27,9 @@ jobs:
       - name: Sync dependencies (CPU-only JAX)
         run: uv sync --all-extras
 
+      - name: Lint (ruff, zero-error)
+        run: uv run ruff check src/ tests/ scripts/
+
       - name: Run unit tests
         run: uv run pytest tests/ -q
 
