@@ -9,12 +9,15 @@ for the research program certifying those solutions.
   JAX/Equinox partial stubs); no coverage threshold; ruff strict-tightening
   (`B,N,UP,RUF`) measured at 1,652 errors on 2026-07-12 and deliberately
   deferred to a dedicated branch. Everything else: production discipline.
-- **Knowledge base**: no NKS server wired (deviation from the verstak
-  standard, chosen 2026-07-12). Repo-native substitutes: this file for
-  conventions; `docs/dev/selection_program_chronicle_2026_07.md` (§15 artifact
-  index, §16 open threads) for research state; the private notes repo
-  `mechanicpanic/deqn-research-notes` for research narrative and the paper
-  basis.
+- **NKS realm**: `deqn` — orient at session start
+  (`nks_orient(realm="deqn")`); focus holon `#1 «🧮 deqn-jax solver»`. Open
+  research questions live there as vimarshas; close (visarjana) the ones your
+  push resolves. Repo remains canonical for conventions (this file),
+  certification records (cert report), research state
+  (`docs/dev/selection_program_chronicle_2026_07.md`, §15/§16), and narrative
+  (private notes repo `mechanicpanic/deqn-research-notes`). When no NKS
+  server is connected (headless runs), the chronicle is the fallback
+  orientation.
 - **Stack**: Python ≥3.10, JAX + Equinox + Optax, Pydantic v2 configs, uv.
   No TensorFlow, no PyTorch, no Keras.
 - **Production statement**: public research code
@@ -38,12 +41,14 @@ agent memory, conversation summaries, or `/tmp`.
   decided…"? Read the chronicle or the dev docs before acting.
 
 ## Session lifecycle
-- **Start**: read this file. Resuming research → chronicle §15/§16. Check
-  `git status` and running DGX jobs (`logs/` on
-  `anna@130.223.169.108:~/projects/deqn-jax`) before launching new work.
+- **Start**: read this file; `nks_orient(realm="deqn")` when the server is
+  connected (chronicle §15/§16 otherwise). Check `git status` and running
+  DGX jobs (`logs/` on `anna@130.223.169.108:~/projects/deqn-jax`) before
+  launching new work.
 - **Every push**: if the change touches solver behavior or certification
   claims, update the matching dev doc (cert report for certificates,
-  chronicle for program-level shifts) in the same push.
+  chronicle for program-level shifts) in the same push; close the NKS
+  vimarshas the push resolved.
 - **After a green push — self-review**: re-read your diff for bugs, fragile
   spots, weak error handling, DRY violations, missing or useless tests,
   god-units mixing concerns. Fix in the same branch and push again, or state

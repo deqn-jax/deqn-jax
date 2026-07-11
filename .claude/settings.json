@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Orient before acting: read AGENTS.md. Resuming research: docs/dev/selection_program_chronicle_2026_07.md (sec 15 artifact index, sec 16 open threads). Check git status and running DGX jobs (logs/ on anna@130.223.169.108:~/projects/deqn-jax) before launching new work.\"}}'"
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Orient before acting: read AGENTS.md, then nks_orient(realm=deqn) — focus holon #1 (deqn-jax solver); fallback when NKS is absent: docs/dev/selection_program_chronicle_2026_07.md (sec 15 artifact index, sec 16 open threads). Check git status and running DGX jobs (logs/ on anna@130.223.169.108:~/projects/deqn-jax) before launching new work.\"}}'"
           }
         ]
       }
@@ -43,7 +43,21 @@
       "Bash(git log:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "mcp__nks__nks_orient",
+      "mcp__nks__nks_look",
+      "mcp__nks__nks_search",
+      "mcp__nks__nks_semantic_search",
+      "mcp__nks__nks_me",
+      "mcp__nks__nks_org",
+      "mcp__nks__nks_add_vimarsha",
+      "mcp__nks__nks_add_kriya",
+      "mcp__nks__nks_add_phenomenon",
+      "mcp__nks__nks_add_holon",
+      "mcp__nks__nks_add_karta",
+      "mcp__nks__nks_update",
+      "mcp__nks__nks_arrow",
+      "mcp__nks__nks_batch"
     ]
   }
 }
