@@ -114,6 +114,11 @@ def main() -> None:
     )
     ap.add_argument("--n-quadrature-points", type=int, default=3)
     ap.add_argument("--json-out", default=None, help="also dump rows as JSON")
+    ap.add_argument(
+        "--linear-baseline",
+        action="store_true",
+        help="append the linearized (BK) policy, unclipped, as reference row linear_bk",
+    )
     args = ap.parse_args()
 
     with open(args.stress_config) as f:
@@ -162,6 +167,38 @@ def main() -> None:
                 f"base total={row['base_total']:.3e}"
             )
 
+    if args.linear_baseline and grids is not None:
+        from deqn_jax.training.linearize import linearize_model
+
+        P, _ = linearize_model(model, verbose=False)
+        ss_state, ss_policy = model.steady_state_fn(model.constants)
+        ss_state = jnp.asarray(ss_state)
+        ss_policy = jnp.asarray(ss_policy)
+        P = jnp.asarray(P)
+
+        def linear_policy(sb):
+            return ss_policy[None, :] + (sb - ss_state[None, :]) @ P.T
+
+        stress_grid, base_grid, quad = grids
+        stress_eq = eq_table(linear_policy, model, stress_grid, quad)
+        base_eq = eq_table(linear_policy, model, base_grid, quad)
+        headline = [k for k in HEADLINE_EQS if k in stress_eq] or sorted(stress_eq)
+        row = {
+            "arm": "linear_bk",
+            "seed": -1,
+            "rho_ss": rho_ss(linear_policy, model),
+            "stress_max_fb_arc": max(stress_eq[k] for k in headline),
+            "stress_eq": stress_eq,
+            "base_total": sum(base_eq.values()),
+            "base_eq": base_eq,
+        }
+        rows.append(row)
+        print(
+            f"{'linear_bk':>18} ref  rho(SS)={row['rho_ss']:.4f}  "
+            f"stress max={row['stress_max_fb_arc']:.3e}  "
+            f"base total={row['base_total']:.3e}"
+        )
+
     if not rows:
         print("No checkpoints found.")
         return
@@ -170,7 +207,8 @@ def main() -> None:
         "\n| arm | median rho(SS) | pass rho<1 | median stress max(fb_0,fb_1,arc) | median base total |"
     )
     print("|---|---|---|---|---|")
-    for arm in arms:
+    summary_arms = arms + (["linear_bk"] if args.linear_baseline else [])
+    for arm in summary_arms:
         arm_rows = [r for r in rows if r["arm"] == arm]
         if not arm_rows:
             continue

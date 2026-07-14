@@ -476,6 +476,42 @@ residuals-at-ŝ via `scripts/gn_polish.py --iters 0` (`logs/resid_shat_bkpin_s{1
 all on the DGX under `~/projects/deqn-jax`. Stress table: `scripts/ewm_stress_table.py`
 (headline made model-generic in this push). Training sweep log `logs/cert_container_day4.log`.
 
+### Gain over BK, curvature, and the risky-SS grading (07-14, same day)
+
+Three measurements answering "what does the certified network buy over its own pin's
+donor" (`stress_bk_baseline.json`, `logs/curvature_bkpin_s0.log`,
+`logs/srss_{shipped,real}_bkpin.log`; linear baseline via
+`ewm_stress_table.py --linear-baseline`, added this push):
+
+1. **Gain over BK.** The linearized policy, unclipped, on the same pinned grids:
+   stress max (E[r])² 1.64e-2 vs bkpin median 1.50e-3 (**11×**); base-grid total
+   3.94e-2 vs 7.67e-3 (**5×**). The linear rule passes the selection legs by
+   definition (raw ρ at the exogenous floor) and loses the accuracy legs — the
+   division of labor stated by the stack itself.
+
+2. **Curvature is now a measured object.** Under the pin, net − linear has zero value
+   and slope at s\*, so it *is* the learned higher-order content. On the base grid its
+   magnitude scales with log-log slope **2.26** vs distance from s\* (2.0 = pure
+   quadratic): the correction is second-order clean. Magnitudes: medians 0.05–0.5% of
+   policy scale; largest heads q (max 7.3%), i (3.9%). The four Calvo recursion heads
+   read ~1e-15 — BK-linear **by design** (the K/F gauge mask zeroes their MLP delta;
+   `network.py` docstring). Caveat: the stress-grid slope (1.15) is not interpretable —
+   the relative-distance metric degenerates on m_p (s\*≈0); base-grid slope is the
+   valid one.
+
+3. **Risky-SS grading of the certified policy** (`--ckpt bkpin_s0`). At the shipped
+   calibration the network's ŝ column tracks the *machinery* column almost
+   state-for-state (k_lag −0.0525% vs −0.0496%, i_lag −0.0524% vs −0.0495%, c_lag
+   −0.0237% vs −0.0229%): **the certified 0.0525% displacement is dominated by the
+   shared soft-clip/linear-rule machinery floor, not network error.** And the network
+   carries only ~0.3 of the Gaussian risky shift (L_lag +0.0298% vs +0.0996%) — the CE
+   pin holds it at s\* by construction, suppressing risk economics; harmless at p = 0
+   (≤0.1%), and exactly the mechanism that forces the pin retarget at p = 1%. At the
+   real calibration (p = 1%, θ = 15%) the totals to hit are: states L_lag +0.217%,
+   c_lag −0.133%, k_lag −0.115%; policies K_p +0.66%, K_w +0.64%, F_p +0.56%,
+   F_w +0.41% — the p=0-trained policy carries 14–46% of them. That is the measured
+   gap spec-let-4 training (risky-anchored, risky-pinned) must close.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)
