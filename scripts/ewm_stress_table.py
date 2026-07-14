@@ -145,11 +145,12 @@ def main() -> None:
 
             stress_eq = eq_table(policy_net, model, stress_grid, quad)
             base_eq = eq_table(policy_net, model, base_grid, quad)
+            headline = [k for k in HEADLINE_EQS if k in stress_eq] or sorted(stress_eq)
             row = {
                 "arm": arm,
                 "seed": seed,
                 "rho_ss": rho_ss(policy_net, model),
-                "stress_max_fb_arc": max(stress_eq[k] for k in HEADLINE_EQS),
+                "stress_max_fb_arc": max(stress_eq[k] for k in headline),
                 "stress_eq": stress_eq,
                 "base_total": sum(base_eq.values()),
                 "base_eq": base_eq,

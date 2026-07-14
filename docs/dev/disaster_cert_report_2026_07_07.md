@@ -433,6 +433,49 @@ not zero — still a compromise, an order of magnitude better; the pin certifies
 anchored at s\* — off-manifold behavior needs the held-out stress certificate before any
 "solved" is uttered. The word remains embargoed until 3/3 seeds + stress grid.
 
+### Certification verdict (07-14): bkpin 3/3 + stress grid — the embargo lifts
+
+Both pre-registered legs of the embargo criterion (above) completed at the frozen
+convention (`checkpoint_003000.eqx`, fp64, DGX host CPU):
+
+| certificate | bkpin s0 | bkpin s1 | bkpin s2 |
+|---|---|---|---|
+| SS policy error | 0 (exact) | 1.2e-14 | 9.0e-15 |
+| learned-block ρ at s\* | 0.976851 | 0.976851 | 0.976851 |
+| learned-block ρ at ŝ | 0.9768 | 0.976751 | 0.976788 |
+| ŝ displacement (max-rel) | 0.0525% | 0.0525% | 0.0525% |
+| max \|E[r]\| at ŝ | 5.2e-4 | 4.3e-4 | 6.4e-4 |
+| convergence to ŝ @t=1000 | 7e-14 | 8.4e-14 | 3.8e-14 |
+| stress grid, max per-eq (E[r])² | 1.50e-3 | 2.11e-3 | 9.8e-4 |
+
+The learned spectrum at s\* is **identical across seeds to six digits** — not luck but
+mechanism: the pin fixes the policy's value and tangent at s\* for *all* parameter values,
+so the closed-loop linearization is seed-invariant by construction. The seed lottery that
+defined every other arm (baseline ρ ∈ {0.99, 1.22, 1.23}) is abolished at the level of the
+certificate itself.
+
+Held-out stress grid (ELB corner from `configs/disaster_gated_elbcov.yaml`: m_p ∈
+[−0.03, −0.01], low R_lag, below-target π_lag; 512 points, pinned seed 1234, GH
+quadrature, fp64): bkpin max per-eq (E[r])² 0.98–2.1e-3 across seeds (worst eqs:
+K_w definition / investment Euler), vs the pcgrad reference 4.9–8.5e-3 with s1/s2
+**unstable** (raw ρ 1.027, 1.022). On-measure base grid: bkpin 0.007–0.014 total vs
+pcgrad 0.021–0.052. The pinned arm dominates every column with zero instability.
+
+**Verdict: `disaster_gated_pcgrad_bkpin` is certified at the shipped (disasterless,
+p_disaster = 0) calibration** — SS-exact by construction, uniquely stable learned
+spectrum, one fixed point 0.0525% from s\*, residuals at ŝ ~5e-4, stress-dominant,
+3/3 seeds, zero seed variance. The embargo on "solved" is lifted for exactly this claim
+and no wider: *the disaster model at the shipped calibration is solved by selection by
+construction, per the full certification stack.* Not yet covered by any certificate:
+the real calibration (p = 1%, θ = 15%), where the target must be the CRW risky steady
+state (§ Risky steady state) — that is the successor program's first experiment.
+
+Receipts: probe `probe_bkpin_s12.json`, stress `stress_bkpin.json` (+ per-eq tables),
+learned-block/fixed-point logs `logs/blocks_bkpin_s12.log`, `logs/checks_bkpin_s12.log`,
+residuals-at-ŝ via `scripts/gn_polish.py --iters 0` (`logs/resid_shat_bkpin_s{1,2}.log`),
+all on the DGX under `~/projects/deqn-jax`. Stress table: `scripts/ewm_stress_table.py`
+(headline made model-generic in this push). Training sweep log `logs/cert_container_day4.log`.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)

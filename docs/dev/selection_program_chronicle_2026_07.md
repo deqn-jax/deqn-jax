@@ -1,4 +1,4 @@
-# The Selection Program — a chronicle (2026-07-06 → 2026-07-10)
+# The Selection Program — a chronicle (2026-07-06 → 2026-07-14)
 
 **What this is.** The complete record of five days of research on one question that grew out
 of another: *can deqn-jax produce a certified solution of the disaster model — and when it
@@ -8,9 +8,9 @@ residual objectives can and cannot see, three engineered exits, and the first ev
 one of them works. Every claim below carries a receipt (commit, file, log, or command).
 Superseded claims are kept and marked — the corrections are themselves results.
 
-**How to use it.** §1–2 are context. §3–14 are chronological. §15 is the artifact index —
-if this file is the only thing you have, §15 rebuilds everything else. §16 is what remains
-open. The companion narratives are `docs/how_it_all_works.md` (framework, for outsiders)
+**How to use it.** §1–2 are context. §3–14 are chronological; §18 is the closing verdict
+(07-14). §15 is the artifact index — if this file is the only thing you have, §15 rebuilds
+everything else. §16 is what remains open. The companion narratives are `docs/how_it_all_works.md` (framework, for outsiders)
 and `docs/dev/disaster_cert_report_2026_07_07.md` (the certification experiment's live
 record, with all amendments in place).
 
@@ -316,8 +316,8 @@ fada158, 91335aa, b22350b, 4b8b04b, 108ece7, 7b2a5d1, 35049f0.
 
 ## 16. Open threads, ranked
 
-1. **Read the three exits** when they land (probe at `checkpoint_003000`; for bkpin also
-   verify π(s\*)=π\* exactly at every checkpoint — it cannot fail, which is the point).
+1. ~~**Read the three exits** when they land~~ **DONE 07-14 — see §18: bkpin 3/3 + stress
+   grid passed; the embargo lifted at the shipped calibration.**
 2. **Experiment 3** (designed, not run): singular spectrum of J_R + the ρ-moving
    near-null direction — the direct underidentification quantifier. The constrained
    polish's iter-5 behavior already corroborates it indirectly.
@@ -352,3 +352,29 @@ fada158, 91335aa, b22350b, 4b8b04b, 108ece7, 7b2a5d1, 35049f0.
    pressure (weights, doses, penalties) either underdosed or overpowered something it
    needed; the interventions that worked changed *structure* (gate, surgery geometry,
    pin).
+
+## 18. The verdict (07-14) — the embargo lifts
+
+The day-4 container finished bkpin s1/s2; both were probed at the frozen convention the
+same day, plus the held-out ELB stress grid on all three seeds (full tables and receipts:
+cert report, "Certification verdict (07-14)").
+
+The signature is *identical* across seeds: SS error at machine precision (the pin's
+guarantee, now verified 3/3), learned-block ρ(s\*) = 0.976851 to six digits on every
+seed — the pin fixes the policy tangent at s\*, so the closed-loop linearization is
+seed-invariant by construction, and the seed lottery that defined this program's first
+week is abolished at the certificate level — ŝ displaced 0.0525% (all three), max
+|E[r]| at ŝ 4.3–6.4e-4, trajectories converging to ŝ at 1e-14 by t=1000. The stress
+grid (ELB corner, 512 held-out points, fp64) has bkpin 3–5× below the pcgrad reference
+per-equation, with pcgrad s1/s2 unstable outright.
+
+**The pre-registered embargo criterion (§14, cert report Exit 3) is met: 3/3 seeds with
+the s0 signature plus a held-out stress-grid certificate. The word is no longer
+embargoed, for exactly this claim: the disaster model at the shipped (disasterless,
+p_disaster = 0) calibration is SOLVED by selection-by-construction (`network.bk_pin`),
+per the full certification stack.** What the claim does not cover: the real calibration
+(p = 1%, θ = 15%), where the certification target must move to the CRW risky steady
+state (§10) — the successor program's opening experiment (§16 thread 4).
+
+Program epitaph, one line: residuals do not select; structure does — and when the
+structure is right, the residuals finally agree with it.
