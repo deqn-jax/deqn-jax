@@ -153,6 +153,22 @@ class TestNetworkConfigValidation:
         with pytest.raises(ValueError, match="Unknown init"):
             NetworkConfig(init="glorot")
 
+    def test_disaster_only_flag_on_other_type_raises(self):
+        # Silent-drop gate: these flags are read only by the disaster net
+        # factory branch; on any other type they must be rejected, not ignored.
+        for flag in (
+            "bk_pin",
+            "use_zlb_feature",
+            "reparam_q_as_m",
+            "reparam_pi_as_kp_inner",
+            "reparam_wtilda_as_kw_inner",
+        ):
+            with pytest.raises(ValueError, match="silently ignored"):
+                NetworkConfig(type="linear_plus_mlp", **{flag: True})
+
+    def test_disaster_only_flag_on_disaster_type_passes(self):
+        NetworkConfig(type="disaster_policy_net", bk_pin=True, use_zlb_feature=True)
+
     def test_empty_hidden_sizes_raises(self):
         with pytest.raises(ValueError, match="hidden_sizes must be non-empty"):
             NetworkConfig(hidden_sizes=())

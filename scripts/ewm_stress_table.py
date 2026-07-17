@@ -16,9 +16,12 @@ it reports:
   - the same on a fixed base grid drawn from the model's init rect
     (the on-measure cost check).
 
-Headline stress number = max over {fb_0, fb_1, arc}. When comparing to
-the paper, convert to residual (unsquared) units: factor F in (E[r])^2
-is sqrt(F) in |E[r]|.
+Headline stress number = max over {fb_0, fb_1, arc} when those equations
+exist (irbc); for other models it falls back to the max over ALL
+equations, and every print/JSON row is labeled accordingly
+(stress_headline_eqs records exactly which keys were used). When
+comparing to the paper, convert to residual (unsquared) units: factor F
+in (E[r])^2 is sqrt(F) in |E[r]|.
 
 Usage:
   uv run python scripts/ewm_stress_table.py \
@@ -130,6 +133,8 @@ def main() -> None:
 
     rows = []
     grids = None  # built once from the first loadable model (shared across arms)
+    grid_model = None  # the model that owns the grids; all rows must match it
+    headline_label = None  # set once from the first row's equation keys
     for arm in arms:
         for seed in seeds:
             ckpt = runs_dir / f"{arm}_s{seed}" / args.ckpt_name
@@ -138,6 +143,7 @@ def main() -> None:
                 continue
             policy_net, model = load_policy_from_checkpoint(str(ckpt))
             if grids is None:
+                grid_model = model
                 k_stress, k_base = jax.random.split(jax.random.PRNGKey(args.grid_seed))
                 stress_grid = sample_box_grid(
                     k_stress, args.n_grid, model, stress_ranges
@@ -146,16 +152,29 @@ def main() -> None:
                 quad = gauss_hermite_nd(args.n_quadrature_points, model.n_shocks)
                 quad = (jnp.array(quad[0]), jnp.array(quad[1]))
                 grids = (stress_grid, base_grid, quad)
+            elif model.name != grid_model.name:
+                # The held-out grids are model-specific; a mixed-arm invocation
+                # would evaluate one model's policy on another model's states.
+                raise SystemExit(
+                    f"Mixed models in one invocation: grids were built for "
+                    f"'{grid_model.name}' but {arm}_s{seed} is '{model.name}'. "
+                    f"Run one model per invocation."
+                )
             stress_grid, base_grid, quad = grids
 
             stress_eq = eq_table(policy_net, model, stress_grid, quad)
             base_eq = eq_table(policy_net, model, base_grid, quad)
             headline = [k for k in HEADLINE_EQS if k in stress_eq] or sorted(stress_eq)
+            if headline_label is None:
+                headline_label = (
+                    "max(fb,arc)" if headline[0] in HEADLINE_EQS else "max(all eqs)"
+                )
             row = {
                 "arm": arm,
                 "seed": seed,
                 "rho_ss": rho_ss(policy_net, model),
-                "stress_max_fb_arc": max(stress_eq[k] for k in headline),
+                "stress_max": max(stress_eq[k] for k in headline),
+                "stress_headline_eqs": headline,
                 "stress_eq": stress_eq,
                 "base_total": sum(base_eq.values()),
                 "base_eq": base_eq,
@@ -163,15 +182,20 @@ def main() -> None:
             rows.append(row)
             print(
                 f"{arm:>18} s{seed}  rho(SS)={row['rho_ss']:.4f}  "
-                f"stress max(fb,arc)={row['stress_max_fb_arc']:.3e}  "
+                f"stress {headline_label}={row['stress_max']:.3e}  "
                 f"base total={row['base_total']:.3e}"
             )
 
+    if args.linear_baseline and grids is None:
+        print(
+            "[warn] --linear-baseline requested but no checkpoint loaded — "
+            "the linear_bk reference row was NOT produced."
+        )
     if args.linear_baseline and grids is not None:
         from deqn_jax.training.linearize import linearize_model
 
-        P, _ = linearize_model(model, verbose=False)
-        ss_state, ss_policy = model.steady_state_fn(model.constants)
+        P, _ = linearize_model(grid_model, verbose=False)
+        ss_state, ss_policy = grid_model.steady_state_fn(grid_model.constants)
         ss_state = jnp.asarray(ss_state)
         ss_policy = jnp.asarray(ss_policy)
         P = jnp.asarray(P)
@@ -180,14 +204,15 @@ def main() -> None:
             return ss_policy[None, :] + (sb - ss_state[None, :]) @ P.T
 
         stress_grid, base_grid, quad = grids
-        stress_eq = eq_table(linear_policy, model, stress_grid, quad)
-        base_eq = eq_table(linear_policy, model, base_grid, quad)
+        stress_eq = eq_table(linear_policy, grid_model, stress_grid, quad)
+        base_eq = eq_table(linear_policy, grid_model, base_grid, quad)
         headline = [k for k in HEADLINE_EQS if k in stress_eq] or sorted(stress_eq)
         row = {
             "arm": "linear_bk",
             "seed": -1,
-            "rho_ss": rho_ss(linear_policy, model),
-            "stress_max_fb_arc": max(stress_eq[k] for k in headline),
+            "rho_ss": rho_ss(linear_policy, grid_model),
+            "stress_max": max(stress_eq[k] for k in headline),
+            "stress_headline_eqs": headline,
             "stress_eq": stress_eq,
             "base_total": sum(base_eq.values()),
             "base_eq": base_eq,
@@ -195,7 +220,7 @@ def main() -> None:
         rows.append(row)
         print(
             f"{'linear_bk':>18} ref  rho(SS)={row['rho_ss']:.4f}  "
-            f"stress max={row['stress_max_fb_arc']:.3e}  "
+            f"stress {headline_label}={row['stress_max']:.3e}  "
             f"base total={row['base_total']:.3e}"
         )
 
@@ -204,7 +229,8 @@ def main() -> None:
         return
 
     print(
-        "\n| arm | median rho(SS) | pass rho<1 | median stress max(fb_0,fb_1,arc) | median base total |"
+        f"\n| arm | median rho(SS) | pass rho<1 "
+        f"| median stress {headline_label} | median base total |"
     )
     print("|---|---|---|---|---|")
     summary_arms = arms + (["linear_bk"] if args.linear_baseline else [])
@@ -213,7 +239,7 @@ def main() -> None:
         if not arm_rows:
             continue
         rho = np.array([r["rho_ss"] for r in arm_rows])
-        stress = np.array([r["stress_max_fb_arc"] for r in arm_rows])
+        stress = np.array([r["stress_max"] for r in arm_rows])
         base = np.array([r["base_total"] for r in arm_rows])
         print(
             f"| {arm} | {np.median(rho):.4f} [{rho.min():.3f}, {rho.max():.3f}] "

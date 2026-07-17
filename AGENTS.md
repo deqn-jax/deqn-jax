@@ -120,6 +120,10 @@ docs/dev/        # certification record + chronicle (research state)
 ```
 
 ## Code conventions
+- Config precedence: `--set` overrides > CLI args > YAML file > defaults
+  (`load_config()` in `config/io.py` merges; dot-notation for nested fields,
+  e.g. `--set optimizer.learning_rate=0.01`). When a hyperparameter "didn't
+  take", check for a `--set` in the launcher before editing the YAML.
 - Two JIT boundaries per cycle (rollout + grad-step sweep); everything
   runtime-variable resolves at construction time, before tracing.
 - Five train-step variants (STANDARD/PCGRAD/MAO/LBFGS/GN) dispatched by

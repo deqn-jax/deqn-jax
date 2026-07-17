@@ -21,9 +21,14 @@ Per-iteration certificates are printed (learned-block spectral radius at
 s*, max SS policy error) and a full certification block runs at the end
 (learned fixed point ŝ, ρ at ŝ, per-equation residuals at ŝ).
 
-The polished net is saved net-only via eqx.tree_serialise_leaves; reload
+The polished net is saved net-only via eqx.tree_serialise_leaves (only
+when at least one LM step was accepted, or --out is given). Reload
 with: net, model = load_policy_from_checkpoint(<orig ckpt>);
 net = eqx.tree_deserialise_leaves(<polished path>, net).
+For --widen runs that recipe does NOT apply (the polished net has
+different layer shapes): rebuild the wide template exactly as the
+--widen branch does (checkpoint's network config with hidden_sizes
+overridden to (N, N)), then deserialise into that.
 
 Usage (DGX):
   uv run python scripts/gn_polish.py \
@@ -90,8 +95,10 @@ def main() -> None:
 
     if args.widen:
         import optax
+        import yaml
 
-        from deqn_jax.models.disaster.network import create_disaster_policy_net
+        from deqn_jax.config import NetworkConfig
+        from deqn_jax.networks.factory import build_policy_net
 
         ss_d, _ = model.steady_state_fn(model.constants)
         ss_d = jnp.asarray(ss_d)
@@ -106,13 +113,24 @@ def main() -> None:
             [ss_d[None, :], ss_d[None, :] + zc @ data_d.ergodic_cov_chol.T]
         )
         target = net(cloud)
-        wide = create_disaster_policy_net(
-            model,
-            hidden_sizes=(args.widen, args.widen),
-            activation="tanh",
-            init="xavier_normal",
-            init_scale=0.01,
-            key=jax.random.PRNGKey(0),
+        # Build the wide template from the checkpoint's FULL network config
+        # (only hidden_sizes overridden): static fields (bk_pin, zlb feature,
+        # reparam flags, kf_names, output_links) change the forward graph, and
+        # a hand-picked kwargs subset silently produced a structurally
+        # different net — the same template class of bug as the irf.py loader.
+        with open(Path(args.ckpt).parent / "config.yaml") as f:
+            run_cfg = yaml.safe_load(f)
+        wide_cfg_dict = dict(run_cfg.get("network", {}))
+        wide_cfg_dict["hidden_sizes"] = (args.widen, args.widen)
+        wide_config = NetworkConfig(
+            **{
+                k: v
+                for k, v in wide_cfg_dict.items()
+                if k in NetworkConfig.model_fields
+            }
+        )
+        wide = build_policy_net(
+            model, jax.random.PRNGKey(0), (args.widen, args.widen), wide_config
         )
         opt = optax.adam(1e-3)
         w_arr = eqx.filter(wide, eqx.is_array)
@@ -128,6 +146,7 @@ def main() -> None:
             updates, opt_state = opt.update(g, opt_state, w_arr)
             return optax.apply_updates(w_arr, updates), opt_state, loss
 
+        fit = jnp.nan  # --distill-steps 0: report nan rather than NameError
         for step in range(args.distill_steps):
             w_arr, opt_state, fit = distill_step(w_arr, opt_state)
             if step % 1000 == 0:
@@ -279,6 +298,7 @@ def main() -> None:
     theta = theta0
     R = R_fn(theta)
     lam = args.lam0
+    accepted_any = False
     rho, perr = certs(theta)
     print(
         f"[iter  0] |R|inf={float(jnp.max(jnp.abs(R))):.3e} "
@@ -297,6 +317,7 @@ def main() -> None:
                 theta, R = cand, Rc
                 lam = max(lam / 3.0, 1e-12)
                 accepted = True
+                accepted_any = True
                 break
             lam *= 10.0
             if lam > 1e8:
@@ -345,9 +366,17 @@ def main() -> None:
         f"   max |E[r]| at shat = {max_r_hat:.3e}"
     )
 
-    out = args.out or str(Path(args.ckpt).parent / "polished_gn.eqx")
-    eqx.tree_serialise_leaves(out, net_f)
-    print(f"[saved] {out}")
+    # Save guard: --iters 0 (cert-only probe mode) or a run that never
+    # accepted an LM step leaves net_f == the unpolished checkpoint net;
+    # writing it to the default path would silently clobber a previously
+    # produced genuinely-polished artifact. Save only when polishing
+    # happened, or when the user asked for a path explicitly.
+    if accepted_any or args.out:
+        out = args.out or str(Path(args.ckpt).parent / "polished_gn.eqx")
+        eqx.tree_serialise_leaves(out, net_f)
+        print(f"[saved] {out}")
+    else:
+        print("[not saved] no accepted LM step (cert-only run); pass --out to force")
 
 
 if __name__ == "__main__":

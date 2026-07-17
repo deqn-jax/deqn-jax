@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -q 'git push' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Post-push ritual (AGENTS.md Session lifecycle): (1) if solver behavior or certification claims changed, update the cert report / chronicle in the same push; (2) after-green-push self-review of the diff — fix in the same branch or state plainly that nothing surfaced.\"}}' || true"
+            "command": "jq -r '.tool_input.command // \"\"' | grep -Eq '(^|[;&|[:space:]])(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?([[:space:]]+[a-z-]+=[^[:space:]]+)*[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+(create|merge))([[:space:]]|$)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Post-push ritual (AGENTS.md Session lifecycle): (1) if solver behavior or certification claims changed, update the cert report / chronicle in the same push; (2) after-green-push self-review of the diff — fix in the same branch or state plainly that nothing surfaced.\"}}' || true"
           }
         ]
       }

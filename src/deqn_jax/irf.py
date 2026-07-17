@@ -336,6 +336,16 @@ def load_policy_from_checkpoint(
         **{k: v for k, v in net_cfg.items() if k in NetworkConfig.model_fields}
     )
 
+    # sim_batch and replay_buffer also shape the TrainState pytree
+    # (episode_state carries sim_batch trajectories; replay_state is a
+    # whole subtree) — same silent-drop class as the network fields above.
+    from deqn_jax.config import ReplayBufferConfig
+
+    replay_dict = cfg.get("replay_buffer") or {}
+    replay_cfg = ReplayBufferConfig(
+        **{k: v for k, v in replay_dict.items() if k in ReplayBufferConfig.model_fields}
+    )
+
     template_state, _, _ = create_train_state(
         model,
         key,
@@ -345,6 +355,8 @@ def load_policy_from_checkpoint(
         n_equations=n_equations,
         optimizer_config=opt_cfg,
         network_config=net_config,
+        sim_batch=cfg.get("sim_batch"),
+        replay_config=replay_cfg,
     )
 
     state = eqx.tree_deserialise_leaves(checkpoint_path, template_state)

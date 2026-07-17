@@ -250,4 +250,23 @@ class NetworkConfig(_ConfigBase):
                     f"For transformer, hidden_dim ({hidden_dim}) must be divisible "
                     f"by num_heads ({self.num_heads})"
                 )
+        if self.type != "disaster_policy_net":
+            dropped = [
+                name
+                for name in (
+                    "bk_pin",
+                    "use_zlb_feature",
+                    "reparam_q_as_m",
+                    "reparam_pi_as_kp_inner",
+                    "reparam_wtilda_as_kw_inner",
+                )
+                if getattr(self, name)
+            ]
+            if dropped:
+                raise ValueError(
+                    f"network.{dropped[0]} is only read by "
+                    f"network.type='disaster_policy_net'; with type='{self.type}' "
+                    f"it would be silently ignored. Remove the flag or switch the "
+                    f"network type."
+                )
         return self
