@@ -169,11 +169,59 @@ def euler_equation_errors(
         row = jnp.einsum("k,kn->n", weights, all_r)  # [n_eq]
         return next_state, row, state[0]
 
+    # Two-stage models (inside_fn/combine_fn, e.g. the olg_lifecycle family):
+    # the FB nonlinearity wraps an EXPECTATION, so a single-draw residual is
+    # biased (E[fb] != fb(E)). Mirror the trainer: Gauss-Hermite E[inside]
+    # first, then combine_fn — the rollout still advances on a drawn shock.
+    use_two_stage = (
+        not use_discrete
+        and p_disaster == 0.0
+        and model.inside_fn is not None
+        and model.combine_fn is not None
+    )
+    if use_two_stage:
+        from deqn_jax.training.loss import gauss_hermite_nd
+
+        nodes_per_dim = 16 if n_shocks == 1 else 3
+        qn, qw = gauss_hermite_nd(nodes_per_dim, n_shocks)
+        qn, qw = jnp.asarray(qn), jnp.asarray(qw)
+
+        @eqx.filter_jit
+        def _sim_step_two_stage(state, shock):
+            policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+            if policy.ndim == 1:
+                policy = policy[None, :]
+            next_state = model.step_fn(state, policy, shock, constants)
+
+            def _inside_at(node):
+                ns = model.step_fn(state, policy, node[None, :], constants)
+                npol = policy_net(ns)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+                if npol.ndim == 1:
+                    npol = npol[None, :]
+                return model.inside_fn(state, policy, ns, npol, constants)
+
+            ins_all = jax.vmap(_inside_at)(qn)  # dict of [n_nodes, 1]
+            expectations = {
+                k2: jnp.sum(qw[:, None] * v, axis=0) for k2, v in ins_all.items()
+            }
+            resid = model.combine_fn(state, policy, expectations, constants)
+            row = jnp.stack(
+                [
+                    resid[name][0] if resid[name].ndim > 0 else resid[name]
+                    for name in eq_names
+                ]
+            )
+            return next_state, row, state[0]
+
     all_residuals = []
     all_states = []
 
     for t in range(n_periods):
-        if use_discrete:
+        if use_two_stage:
+            key, shock_key = jax.random.split(key)
+            shock = jax.random.normal(shock_key, (1, n_shocks))
+            next_state, row, st = _sim_step_two_stage(state, shock)
+        elif use_discrete:
             key, shock_key = jax.random.split(key)
             shock = _draw_eval_shock(model, shock_key, state)
             next_state, row, st = _sim_step_discrete(state, shock)
