@@ -8,6 +8,23 @@ import jax.numpy as jnp
 
 from deqn_jax.evaluate.simulate import _draw_eval_shock, _model_uses_discrete_chain
 
+
+def _sim_seed_state(model, key):
+    """Simulation seed for the ergodic diagnostics.
+
+    Models with a closed-form steady state start there (the historical
+    behavior). Models with ``steady_state_fn=None`` (olg_lifecycle family)
+    start from one ``init_state_fn`` draw — the burn-in then carries the
+    trajectory to the ergodic set. Returns ``(state0 [1, n_states],
+    ss_state | None, ss_policy | None)``.
+    """
+    if model.steady_state_fn is not None:
+        ss_state, ss_policy = model.steady_state_fn(model.constants)
+        return ss_state[None, :], ss_state, ss_policy
+    state0 = model.init_state_fn(key, 1, model.constants)
+    return state0, None, None
+
+
 # ---------------------------------------------------------------------------
 # 1. Euler Equation Errors
 # ---------------------------------------------------------------------------
@@ -47,11 +64,11 @@ def euler_equation_errors(
         # one sample so downstream stack()/mean() don't crash.
         burn_in = max(0, n_periods - 1)
     constants = model.constants
-    ss_state, ss_policy = model.steady_state_fn(constants)
     n_shocks = model.n_shocks
 
-    state = ss_state[None, :]  # [1, n_states]
     key = jax.random.PRNGKey(seed)
+    key, seed_key = jax.random.split(key)
+    state, _ss_state, _ss_policy = _sim_seed_state(model, seed_key)  # [1, n_states]
 
     eq_names = list(model.equation_names) if model.equation_names else []
 
@@ -334,10 +351,9 @@ def simulated_moments(
         burn_in = max(0, n_periods - 1)
 
     constants = model.constants
-    ss_state, ss_policy = model.steady_state_fn(constants)
-
-    state = ss_state[None, :]
     key = jax.random.PRNGKey(seed)
+    key, seed_key = jax.random.split(key)
+    state, ss_state, ss_policy = _sim_seed_state(model, seed_key)
 
     state_names = list(model.state_names)
     policy_names = list(model.policy_names)
@@ -399,7 +415,7 @@ def simulated_moments(
     moments = {}
     for i, name in enumerate(state_names):
         col = states[:, i]
-        ss_val = float(ss_state[i])
+        ss_val = float(ss_state[i]) if ss_state is not None else float("nan")
         moments[name] = {
             "mean": float(jnp.mean(col)),
             "std": float(jnp.std(col)),
@@ -413,7 +429,7 @@ def simulated_moments(
 
     for i, name in enumerate(policy_names):
         col = policies[:, i]
-        ss_val = float(ss_policy[i])
+        ss_val = float(ss_policy[i]) if ss_policy is not None else float("nan")
         moments[name] = {
             "mean": float(jnp.mean(col)),
             "std": float(jnp.std(col)),
@@ -474,10 +490,13 @@ def stability_check(
     - nan: any NaN in simulation
     """
     constants = model.constants
-    ss_state, ss_policy = model.steady_state_fn(constants)
-
-    state = ss_state[None, :]
     key = jax.random.PRNGKey(seed)
+    key, seed_key = jax.random.split(key)
+    state, ss_state, _ss_policy = _sim_seed_state(model, seed_key)
+    # Divergence reference: the SS when the model has one, else the seed
+    # state — for ergodic-only models the check is an explosion canary, not
+    # an SS-consistency claim.
+    ref_state = ss_state if ss_state is not None else state[0]
 
     policy_lower = model.policy_lower
     policy_upper = model.policy_upper
@@ -559,7 +578,7 @@ def stability_check(
     # near zero don't produce spuriously large relative deviations from
     # tiny absolute moves.
     final_state = state[0] if state.ndim == 2 else state
-    ss_dev = jnp.abs(final_state - ss_state) / jnp.maximum(jnp.abs(ss_state), 0.1)
+    ss_dev = jnp.abs(final_state - ref_state) / jnp.maximum(jnp.abs(ref_state), 0.1)
     max_dev = float(jnp.max(ss_dev))
 
     bound_pct = bound_hits / max(total_outputs, 1) * 100

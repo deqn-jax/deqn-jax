@@ -90,3 +90,30 @@ def test_two_stage_keys(batch):
     assert set(combined) == set(MODEL.equation_names)
     for v in combined.values():
         assert jnp.all(jnp.isfinite(v))
+
+
+def test_evaluate_diagnostics_work_without_steady_state():
+    """stability_check / euler_equation_errors / simulated_moments must not
+    require steady_state_fn (regression: they called it unconditionally, so
+    `deqn-jax evaluate` crashed on every olg_lifecycle-family checkpoint)."""
+    from deqn_jax.evaluate.diagnostics import (
+        euler_equation_errors,
+        simulated_moments,
+        stability_check,
+    )
+    from deqn_jax.training.trainer import create_train_state
+
+    state, _, _ = create_train_state(
+        MODEL,
+        jax.random.PRNGKey(0),
+        hidden_sizes=(16,),
+        batch_size=16,
+        n_equations=len(MODEL.equation_names),
+    )
+    net = state.params
+    stab = stability_check(net, MODEL, n_periods=30, seed=0)
+    assert "stable" in stab
+    ee = euler_equation_errors(net, MODEL, n_periods=40, seed=0)
+    assert set(ee["equation_names"]) == set(MODEL.equation_names)
+    mom = simulated_moments(net, MODEL, n_periods=40, seed=0)
+    assert "Z" in mom
