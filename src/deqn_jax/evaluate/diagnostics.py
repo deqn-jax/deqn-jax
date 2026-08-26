@@ -541,10 +541,14 @@ def stability_check(
     key = jax.random.PRNGKey(seed)
     key, seed_key = jax.random.split(key)
     state, ss_state, _ss_policy = _sim_seed_state(model, seed_key)
-    # Divergence reference: the SS when the model has one, else the seed
-    # state — for ergodic-only models the check is an explosion canary, not
-    # an SS-consistency claim.
-    ref_state = ss_state if ss_state is not None else state[0]
+    # Divergence reference: the SS when the model has one. For ergodic-only
+    # models the seed is an ARBITRARY init draw — the trajectory legitimately
+    # travels far from it while converging to the ergodic set — so the
+    # reference is instead the mid-simulation state (captured below): final
+    # vs mid stays bounded for a stationary economy and explodes for a
+    # divergent one.
+    ref_state = ss_state
+    mid_t = n_periods // 2
 
     policy_lower = model.policy_lower
     policy_upper = model.policy_upper
@@ -620,6 +624,11 @@ def stability_check(
             if model.clip_state_fn is not None
             else next_state
         )
+        if ref_state is None and t == mid_t:
+            ref_state = state[0]  # ergodic-only models: mid-trajectory reference
+
+    if ref_state is None:  # early NaN break before mid_t
+        ref_state = state[0] if state.ndim == 2 else state
 
     # Check final state deviation from SS. Floor the normalisation at
     # 0.1 so states with SS = 0 (e.g. m_p, the monetary-policy shock) or
