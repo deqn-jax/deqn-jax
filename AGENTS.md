@@ -108,7 +108,7 @@ src/deqn_jax/
   config/        # Pydantic v2: TrainConfig, OptimizerConfig, NetworkConfig, CompositeLossConfig, CoverageConfig
   types.py       # ModelSpec, TrainState, Metrics — all NamedTuple pytrees
   cli.py         # train / list / optimizers / check
-  models/        # 10 registered models (see `deqn-jax list`); each: variables, equations, dynamics, steady_state
+  models/        # 11 registered models (see `deqn-jax list`); each: variables, equations, dynamics, steady_state
   networks/      # factory.py + mlp / lstm / transformer / linear_plus_mlp; models/disaster/network.py (π_BK + δ, bk_pin)
   optimizers/    # registry + ngd / mao / shampoo / lbfgs / gauss_newton / pcgrad
   training/      # trainer (orchestrator), state_init (dispatch + validators), cycle, loss, composite_loss, coverage, episode, linearize, warm_start

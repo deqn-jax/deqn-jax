@@ -14,12 +14,15 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.olg_lifecycle.variables import H
-
 
 def init_state(key: Array, batch_size: int, constants) -> Array:
-    """Sample ``[batch_size, 1 + H]`` initial states (Z, k0..k5) ~ exp(U(0,1))."""
+    """Sample ``[batch_size, 1 + H]`` initial states (Z, k0..k_{H-1}) ~ exp(U(0,1)).
+
+    H is derived from ``len(constants["l_cycle"])`` — shared by every
+    generation count.
+    """
+    n_gen = len(constants["l_cycle"])
     k_z, k_k = jax.random.split(key)
     Z = jnp.exp(jax.random.uniform(k_z, (batch_size, 1)))
-    k = jnp.exp(jax.random.uniform(k_k, (batch_size, H)))
+    k = jnp.exp(jax.random.uniform(k_k, (batch_size, n_gen)))
     return jnp.concatenate([Z, k], axis=1)

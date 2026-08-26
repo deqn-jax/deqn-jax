@@ -28,6 +28,9 @@ from jax import Array
 from deqn_jax.models._complementarity import fischer_burmeister
 from deqn_jax.models.olg_lifecycle.variables import H
 
+# All functions below derive the generation count from len(constants["l_cycle"])
+# so the same machinery serves any H (olg_lifecycle_56 reuses it verbatim);
+# EQUATION_NAMES here stays the 6-generation model's tuple.
 EQUATION_NAMES = tuple(f"euler_{h}" for h in range(H - 1))
 
 
@@ -78,11 +81,12 @@ def inside_fn(
     ``combine_fn``.
     """
     delta = constants["delta"]
+    n_gen = len(constants["l_cycle"])
     Z_next = next_state[:, :1]
-    k_next = next_state[:, 1 : 1 + H]
+    k_next = next_state[:, 1 : 1 + n_gen]
     blk = _cohort_block(Z_next, k_next, next_policy, constants)
     inside = (1.0 - delta + blk["r"]) / blk["c"]  # [b,H]
-    return {f"inside_{j}": inside[:, j] for j in range(H)}
+    return {f"inside_{j}": inside[:, j] for j in range(n_gen)}
 
 
 def combine_fn(
@@ -99,13 +103,14 @@ def combine_fn(
         residual = fb(a, b)
     """
     beta = constants["beta"]
+    n_gen = len(constants["l_cycle"])
     Z = state[:, :1]
-    k = state[:, 1 : 1 + H]
+    k = state[:, 1 : 1 + n_gen]
     blk = _cohort_block(Z, k, policy, constants)
     c = blk["c"]
     sav = blk["sav"]
     out: Dict[str, Array] = {}
-    for h in range(H - 1):
+    for h in range(n_gen - 1):
         e_next = expectations[f"inside_{h + 1}"]  # E[(1-δ+r')/c'^{h+1}]
         a = 1.0 / (c[:, h] * beta * e_next) - 1.0
         b = sav[:, h] / c[:, h]
@@ -143,7 +148,8 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     single = state.ndim == 1
     s2 = state[None, :] if single else state
     p2 = policy[None, :] if single else policy
-    k = s2[:, 1 : 1 + H]
+    n_gen = len(constants["l_cycle"])
+    k = s2[:, 1 : 1 + n_gen]
     blk = _cohort_block(s2[:, :1], k, p2, constants)
     out = {
         "K_agg": jnp.sum(k, axis=1),

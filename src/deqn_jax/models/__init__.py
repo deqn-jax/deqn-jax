@@ -27,6 +27,7 @@ from deqn_jax.models.disaster import MODEL as _disaster
 from deqn_jax.models.irbc import MODEL as _irbc
 from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
 from deqn_jax.models.olg_lifecycle import MODEL as _olg_lifecycle
+from deqn_jax.models.olg_lifecycle_56 import MODEL as _olg_lifecycle_56
 from deqn_jax.types import ModelSpec
 
 _MODELS = {
@@ -38,6 +39,7 @@ _MODELS = {
     "bm_labor_constrained": _bm_labor_constrained,
     "olg_analytic_6": _olg_analytic_6,
     "olg_lifecycle": _olg_lifecycle,
+    "olg_lifecycle_56": _olg_lifecycle_56,
     "irbc": _irbc,
     "disaster": _disaster,
 }
@@ -51,6 +53,7 @@ _DESCRIPTIONS = {
     "bm_labor_constrained": "Brock-Mirman with endogenous labor and an upper labor cap (Fischer-Burmeister)",
     "olg_analytic_6": "6-agent OLG with closed-form solution (Krueger-Kubler 2004)",
     "olg_lifecycle": "6-generation life-cycle OLG with borrowing constraints (Fischer-Burmeister, two-stage loss)",
+    "olg_lifecycle_56": "56-generation life-cycle OLG with borrowing constraints (annual frequency, 57-dim state)",
     "irbc": "2-country International RBC with irreversibility (Fischer-Burmeister)",
     "disaster": "NK-DSGE with financial frictions",
 }

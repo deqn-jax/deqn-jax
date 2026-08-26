@@ -6,7 +6,6 @@ import jax.numpy as jnp
 from jax import Array
 
 from deqn_jax.models.olg_lifecycle.equations import _cohort_block
-from deqn_jax.models.olg_lifecycle.variables import H
 
 
 def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
@@ -16,11 +15,15 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     k'^0      = 0                          (newborn enters with no assets)
     k'^{h+1}  = sav^h  for h = 0..H-2      (this period's savings become next
                                             period's capital, aged one cohort)
+
+    H is derived from len(constants["l_cycle"]) so the same transition serves
+    every generation count (olg_lifecycle and olg_lifecycle_56).
     """
     rho_z = constants["rho_z"]
     sigma_z = constants["sigma_z"]
+    n_gen = len(constants["l_cycle"])
     Z = state[:, :1]
-    k = state[:, 1 : 1 + H]
+    k = state[:, 1 : 1 + n_gen]
     blk = _cohort_block(Z, k, policy, constants)
     sav = blk["sav"]  # [b,H]; last column is 0
 
@@ -28,4 +31,4 @@ def step(state: Array, policy: Array, shock: Array, constants: Dict) -> Array:
     Z_next = jnp.exp(rho_z * jnp.log(Z) + sigma_z * eps)
     newborn = jnp.zeros((Z.shape[0], 1))
     # k'^0 = 0; k'^{1..H-1} = savings of cohorts 0..H-2.
-    return jnp.concatenate([Z_next, newborn, sav[:, : H - 1]], axis=1)
+    return jnp.concatenate([Z_next, newborn, sav[:, : n_gen - 1]], axis=1)

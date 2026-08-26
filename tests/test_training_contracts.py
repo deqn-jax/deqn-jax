@@ -247,7 +247,9 @@ def test_train_step_shock_scale_zero_freezes_rollout_shocks():
         ("gn", "none"),
         ("ign", "none"),
         ("lm", "none"),
-        ("adam", "pcgrad"),
+        # NOTE: ("adam", "pcgrad") removed 2026-07: composite x pcgrad is now
+        # SUPPORTED via the exact aux-gradient passthrough (state_init gate
+        # relaxed; behavior pinned in tests/test_pcgrad_composite.py).
     ],
 )
 def test_composite_loss_rejects_update_paths_that_do_not_apply_aux_gradients(
