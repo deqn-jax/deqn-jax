@@ -10,6 +10,16 @@ bounds the simulation only, never penalizes the residual.
 
 Reference: Scheidegger & Schaab (2026), "Equilibrium World Models",
 arXiv:2606.23463 -- the surrogate-free coverage arm.
+
+Variant note (2026-08-27): this is an OPERATOR-faithful port (mixture of
+pools, exact-transition rollouts, repair-as-projection, stop-gradient state
+generation), but the stress MEASURE differs from the paper's: our stress
+seeds are SS-filled states with stress dims drawn uniform in a config box,
+whereas the paper seeds stress from visited path states transformed
+relatively (keeping the joint structure of reachable states). Results using
+this module are results about this variant; comparisons to the paper's
+coverage numbers are approximate. A path-seeded stress mode is the queued
+follow-up.
 """
 
 from __future__ import annotations
