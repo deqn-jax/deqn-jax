@@ -190,3 +190,71 @@ def test_kappa_zero_collapses_to_plain_loss():
     )
     assert float(t_wrap) == float(t_plain)  # exact, not allclose
     assert "aux_cov_stress" not in eq_wrap  # zero-weight pools skipped at build time
+
+
+def test_sample_stress_seeds_from_path_inherits_joint_coords():
+    from deqn_jax.training.coverage import sample_stress_seeds_from_path
+
+    model = _irbc()
+    batch = model.init_state_fn(jax.random.PRNGKey(3), 32, model.constants)
+    stress_idx = jnp.array([2])
+    lows = jnp.array([-0.5])
+    highs = jnp.array([-0.2])
+    seeds = sample_stress_seeds_from_path(
+        jax.random.PRNGKey(0), 64, batch, stress_idx, lows, highs
+    )
+    assert seeds.shape == (64, model.n_states)
+    # stress dim inside its box
+    assert np.all(np.asarray(seeds[:, 2]) >= -0.5 - 1e-6)
+    assert np.all(np.asarray(seeds[:, 2]) <= -0.2 + 1e-6)
+    # every NON-stress coordinate must equal some batch row's value (the seed
+    # inherits realistic joint coordinates, not SS fills): check each seed's
+    # non-stress slice appears verbatim in the batch.
+    non_stress = [i for i in range(model.n_states) if i != 2]
+    b = np.asarray(batch)[:, non_stress]
+    s = np.asarray(seeds)[:, non_stress]
+    for row in s:
+        assert np.any(np.all(np.isclose(b, row[None, :], atol=1e-12), axis=1))
+
+
+def test_roll_states_include_seed_counts():
+    model = _irbc()
+    net = _tiny_net(model)
+    seeds = model.init_state_fn(jax.random.PRNGKey(5), 8, model.constants)
+    H = 3
+    excl = roll_states(model, net, seeds, jax.random.PRNGKey(6), H)
+    incl = roll_states(
+        model, net, seeds, jax.random.PRNGKey(6), H, include_seed=True
+    )
+    assert excl.shape == (8 * H, model.n_states)
+    assert incl.shape == (8 * (H + 1), model.n_states)
+    # with include_seed the first block is the (unclipped) seeds themselves
+    np.testing.assert_allclose(np.asarray(incl[:8]), np.asarray(seeds), rtol=1e-12)
+
+
+def test_wrapper_path_mode_runs_and_differs_from_box():
+    model = _irbc()
+    from deqn_jax.training.loss import compute_loss
+
+    net = _tiny_net(model)
+    states = model.init_state_fn(jax.random.PRNGKey(9), 16, model.constants)
+    qn = jnp.zeros((4, model.n_shocks))
+    qw = jnp.ones((4,)) / 4
+
+    fn_box = make_coverage_loss(compute_loss, model, _cov_cfg())
+    fn_path = make_coverage_loss(
+        compute_loss, model, _cov_cfg(stress_seed_mode="path")
+    )
+    t_box, eq_box = fn_box(
+        model, net, states, jax.random.PRNGKey(0), quad_nodes=qn, quad_weights=qw
+    )
+    t_path, eq_path = fn_path(
+        model, net, states, jax.random.PRNGKey(0), quad_nodes=qn, quad_weights=qw
+    )
+    assert np.isfinite(float(t_box)) and np.isfinite(float(t_path))
+    # same key, different stress measure => different stress loss
+    assert float(eq_box["aux_cov_stress"]) != float(eq_path["aux_cov_stress"])
+    # base pool identical in both modes
+    np.testing.assert_allclose(
+        float(eq_box["aux_cov_base"]), float(eq_path["aux_cov_base"]), rtol=1e-12
+    )

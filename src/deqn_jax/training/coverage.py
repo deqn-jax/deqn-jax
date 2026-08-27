@@ -11,15 +11,14 @@ bounds the simulation only, never penalizes the residual.
 Reference: Scheidegger & Schaab (2026), "Equilibrium World Models",
 arXiv:2606.23463 -- the surrogate-free coverage arm.
 
-Variant note (2026-08-27): this is an OPERATOR-faithful port (mixture of
-pools, exact-transition rollouts, repair-as-projection, stop-gradient state
-generation), but the stress MEASURE differs from the paper's: our stress
-seeds are SS-filled states with stress dims drawn uniform in a config box,
-whereas the paper seeds stress from visited path states transformed
-relatively (keeping the joint structure of reachable states). Results using
-this module are results about this variant; comparisons to the paper's
-coverage numbers are approximate. A path-seeded stress mode is the queued
-follow-up.
+Variant note (2026-08-27): two stress-seed modes. 'box' (historical, the
+default): SS-filled seeds with stress dims uniform in a config box, raw seed
+excluded from the pool — an OPERATOR-faithful variant whose stress MEASURE
+differs from the paper's (non-stressed coordinates sit at SS, not at
+realistic joint values). 'path' (the paper's measure): seeds are visited
+batch states with only the stress dims overridden, and the seed joins the
+pool. Results are labeled by mode; comparisons to the paper's coverage
+numbers are exact only for 'path'.
 """
 
 from __future__ import annotations
@@ -43,10 +42,32 @@ def sample_stress_seeds(
     lows: Array,
     highs: Array,
 ) -> Array:
-    """Draw n stress seeds: SS-filled, with stress dims uniform in their box."""
+    """Draw n stress seeds: SS-filled, with stress dims uniform in their box.
+
+    The historical 'box' mode. Note the joint-structure caveat in the module
+    docstring: every non-stressed coordinate sits at its SS value.
+    """
     seeds = jnp.broadcast_to(ss_state, (n, n_states))
     u = jax.random.uniform(key, (n, stress_idx.shape[0]), minval=lows, maxval=highs)
     return seeds.at[:, stress_idx].set(u)
+
+
+def sample_stress_seeds_from_path(
+    key: Array,
+    n: int,
+    batch_states: Array,
+    stress_idx: Array,
+    lows: Array,
+    highs: Array,
+) -> Array:
+    """Draw n stress seeds the paper's way: visited batch states with ONLY the
+    stress dims overridden by draws in their box — every other coordinate keeps
+    its realistic joint value ("never sampled from a hypercube")."""
+    k_idx, k_u = jax.random.split(key)
+    idx = jax.random.randint(k_idx, (n,), 0, batch_states.shape[0])
+    seeds = batch_states[idx]
+    u = jax.random.uniform(k_u, (n, stress_idx.shape[0]), minval=lows, maxval=highs)
+    return jax.lax.stop_gradient(seeds.at[:, stress_idx].set(u))
 
 
 def roll_states(
@@ -58,10 +79,16 @@ def roll_states(
     shock_scale=1.0,
     lo: Optional[Array] = None,
     hi: Optional[Array] = None,
+    include_seed: bool = False,
 ) -> Array:
     """Roll seeds horizon steps through the EXACT transition; return the
-    projected landings s_1..s_H (raw seed excluded), repaired (clipped to
-    [lo, hi] when given), stop-gradient'd.
+    projected landings s_1..s_H, repaired (clipped to [lo, hi] when given),
+    stop-gradient'd.
+
+    include_seed=False (box mode): the raw seed is excluded — box seeds sit on
+    an SS-slice and are not realistic joint states. include_seed=True (path
+    mode): the (repaired) seed s_0 joins the pool, matching the paper, where
+    seeds are visited states and belong to the coverage measure.
 
     Reuses run_episode (MC shocks even under quadrature: state generation
     is a different object from the loss expectation). trajectory holds
@@ -71,7 +98,8 @@ def roll_states(
     trajectory, final_state = run_episode(
         model, policy_fn, seeds, key, episode_length=horizon, shock_scale=shock_scale
     )
-    landings = jnp.concatenate([trajectory[1:], final_state[None]], axis=0)
+    start = 0 if include_seed else 1
+    landings = jnp.concatenate([trajectory[start:], final_state[None]], axis=0)
     landings = landings.reshape(-1, model.n_states)
     if lo is not None:
         landings = jnp.clip(landings, lo, hi)
@@ -150,6 +178,7 @@ def make_coverage_loss(
     n_local = int(cfg.n_local)
     horizon = int(cfg.rollout_horizon)
     local_sigma = float(cfg.local_sigma)
+    path_seeded = getattr(cfg, "stress_seed_mode", "box") == "path"
 
     def coverage_loss_fn(
         model_,
@@ -199,11 +228,24 @@ def make_coverage_loss(
         eq["aux_cov_base"] = l_base
 
         if use_stress:
-            seeds = sample_stress_seeds(
-                k_seed, n_stress, n_states, ss_state, stress_idx, lows, highs
-            )
+            if path_seeded:
+                seeds = sample_stress_seeds_from_path(
+                    k_seed, n_stress, states, stress_idx, lows, highs
+                )
+            else:
+                seeds = sample_stress_seeds(
+                    k_seed, n_stress, n_states, ss_state, stress_idx, lows, highs
+                )
             stress = roll_states(
-                model_, policy_fn, seeds, k_roll, horizon, shock_scale, lo, hi
+                model_,
+                policy_fn,
+                seeds,
+                k_roll,
+                horizon,
+                shock_scale,
+                lo,
+                hi,
+                include_seed=path_seeded,
             )
             l_stress, _ = _loss(stress, k_stress_loss)
             total = total + w_stress * l_stress

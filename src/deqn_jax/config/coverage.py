@@ -14,7 +14,7 @@ arXiv:2606.23463 — the surrogate-free coverage arm.
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Literal, Tuple
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -65,6 +65,17 @@ class CoverageConfig(_ConfigBase):
     repair_ranges: Dict[str, Tuple[float, float]] = Field(
         default_factory=dict,
         description="Per-state-name feasible box; stress landings and local perturbations are clipped into it before the residual is evaluated (the paper's repair step). Empty = no clipping.",
+    )
+    stress_seed_mode: Literal["box", "path"] = Field(
+        default="box",
+        description=(
+            "'box' (historical variant): stress seeds are SS-filled states with "
+            "the stress dims uniform in stress_ranges; the raw seed is excluded "
+            "from the pool. 'path' (the paper's measure): seeds are visited "
+            "batch states with ONLY the stress dims overridden — every other "
+            "coordinate keeps its realistic joint value — and the seed itself "
+            "joins the pool alongside its rollout landings."
+        ),
     )
 
     @field_validator(

@@ -27,6 +27,7 @@ ARMS = [
     "disaster_gated_pcgrad",  # spec-let 6: per-equation conflict surgery
     "disaster_gated_pcgrad_wide",  # exit 1: capacity 128->256 under surgery
     "disaster_gated_pcgrad_bkpin",  # exit 3: BK selection by construction
+    "disaster_gated_elbcov_pathseed",  # EWM audit: paper's path-seeded stress measure
 ]
 SEEDS = [0, 1, 2]
 
