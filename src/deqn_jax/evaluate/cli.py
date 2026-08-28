@@ -33,6 +33,7 @@ def run_evaluate_cli(args):
     # Enable fp64 if config says so
     ckpt_dir = Path(args.checkpoint).parent
     config_path = args.config or str(ckpt_dir / "config.yaml")
+    cfg = {}
     if Path(config_path).exists():
         with open(config_path) as f:
             cfg = yaml.safe_load(f) or {}
@@ -47,6 +48,11 @@ def run_evaluate_cli(args):
     print(f"Model: {model.name}, params: {n_params}")
 
     label = args.label or Path(args.checkpoint).parent.name
+    expectation_kwargs = {
+        "expectation_type": cfg.get("expectation_type", "mc"),
+        "n_quadrature_points": cfg.get("n_quadrature_points", 3),
+        "mc_samples": cfg.get("mc_samples", 5),
+    }
 
     # 1. Stability check
     print("\n[1/4] Stability check...")
@@ -63,14 +69,22 @@ def run_evaluate_cli(args):
     # 2. Euler equation errors
     print(f"\n[2/4] Euler equation errors ({args.periods} periods)...")
     ee_result = euler_equation_errors(
-        policy_net, model, n_periods=args.periods, seed=args.seed
+        policy_net,
+        model,
+        n_periods=args.periods,
+        seed=args.seed,
+        **expectation_kwargs,
     )
     print_euler_errors(ee_result, label=label)
 
     # 3. Market clearing
     print("[3/4] Market clearing...")
     mc = market_clearing_errors(
-        policy_net, model, n_periods=args.periods, seed=args.seed
+        policy_net,
+        model,
+        n_periods=args.periods,
+        seed=args.seed,
+        **expectation_kwargs,
     )
     if "error" not in mc:
         print(f"  {mc['equation']}:")

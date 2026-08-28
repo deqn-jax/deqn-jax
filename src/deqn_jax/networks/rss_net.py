@@ -98,6 +98,7 @@ class RSSMarketClearingNet(eqx.Module):
     Country-level next-capital outputs receive ``0.1 * softplus``.  Raw bond
     positions are projected onto ``sum_i A_i L_i = 0`` and scaled by ``0.01``.
     Every other Phase-0 policy receives the reference softplus activation.
+    Reference hard policy clips live in the model accessor layer, not this net.
     """
 
     base_layers: tuple[eqx.nn.Linear, ...]
@@ -110,6 +111,10 @@ class RSSMarketClearingNet(eqx.Module):
     eps_corr: float = eqx.field(static=True)
     k_mask: float = eqx.field(static=True)
     a_mask: float = eqx.field(static=True)
+    # Checkpoint parity uses raw state inputs, but shared interp/viz tooling
+    # expects every policy module to expose normalization metadata.
+    input_shift: Optional[tuple] = eqx.field(static=True)
+    input_scale: Optional[tuple] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -174,6 +179,8 @@ class RSSMarketClearingNet(eqx.Module):
         self.eps_corr = EPS_CORR
         self.k_mask = K_MASK
         self.a_mask = A_MASK
+        self.input_shift = None
+        self.input_scale = None
 
     def _forward_single(self, state: Array) -> Array:
         base = jax.nn.sigmoid(self.base_layers[0](state))

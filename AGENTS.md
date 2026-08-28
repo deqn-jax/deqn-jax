@@ -89,7 +89,7 @@ residuals AT ŝ → long-horizon convergence, multi-seed. Frozen convention:
 ## Commands
 | task | command |
 |---|---|
-| test | `uv run pytest tests/ -q` (665 collected @2026-08-28; 4 Dynare-fixture skips when data absent) |
+| test | `uv run pytest tests/ -q` (667 collected @2026-08-28; 4 Dynare-fixture skips when data absent) |
 | lint | `uv run ruff check src/ tests/ scripts/` (zero-error; CI-enforced) |
 | format | `uv run ruff format src/ tests/ scripts/` |
 | typecheck (advisory) | `uv run pyright` (basic mode; not in CI) |
