@@ -378,3 +378,17 @@ state (§10) — the successor program's opening experiment (§16 thread 4).
 
 Program epitaph, one line: residuals do not select; structure does — and when the
 structure is right, the residuals finally agree with it.
+
+## 19. Coda (08-28) — the coverage measure question, closed
+
+After the EWM reference implementation became readable, a fidelity audit found our
+coverage port's one divergence: box-seeded stress (SS-slice) vs the paper's path-seeded
+stress. We implemented the paper's measure (`stress_seed_mode: path`, e27cc0f) and ran
+the registered test on the elbcov arm. Prediction refuted in the inverting direction:
+path seeding removes the *recovery* from measure migration (box: 1 clean / 1 recovered
+/ 1 stuck; path: 1 clean / 0 recovered / 2 stuck), certificates worse (median ρ 1.215
+vs 1.148). Mechanism: SS-anchored seeds resist a drifting path; path-anchored seeds
+follow it. Night-1's verdict stands unnarrowed: coverage destabilizes on-path-kink
+models regardless of seed measure. Cert report "EWM measure experiment (08-28)".
+Method lesson #7: **audit-driven "fixes" get a registered prediction and an arm before
+they get a verdict — this one would have been a confident wrong footnote otherwise.**

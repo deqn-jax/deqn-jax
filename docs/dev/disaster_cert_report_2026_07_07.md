@@ -512,6 +512,45 @@ donor" (`stress_bk_baseline.json`, `logs/curvature_bkpin_s0.log`,
    F_w +0.41% — the p=0-trained policy carries 14–46% of them. That is the measured
    gap spec-let-4 training (risky-anchored, risky-pinned) must close.
 
+### EWM measure experiment (08-28): path-seeded stress does not rescue coverage — it removes recovery
+
+Context: the 08-27 fidelity audit against the reference EWM implementation found our
+coverage port operator-faithful but *measure-divergent* on the stress pool (box-seeded
+SS-slice vs the paper's visited-state seeds). Registered prediction before running:
+path seeding shrinks or removes the night-1 measure-migration transient, narrowing
+"coverage destabilizes on-path-kink models" to "*box* coverage does". Arm
+`disaster_gated_elbcov_pathseed` = the gated+elbcov arm with `stress_seed_mode: path`,
+identical dose (ρ_stress 0.5, same ELB box, H=5), 3 seeds, host-CPU training (GPU
+driver down), frozen convention (`checkpoint_003000`, fp64).
+
+**Result: refuted, and inverted.** Training-loss trajectory (the migration signature is
+a ~10⁵ plateau):
+
+| seed | box (original gated_elbcov) | path-seeded |
+|---|---|---|
+| s0 | clean (8e-2 → 6e-2) | **stuck** (2.5e5 → 3.1e5) |
+| s1 | migrated (1.8e5 @1000) → **recovered** (3.4e-2 @2000) | clean (5.7e-2 → 5.7e-2) |
+| s2 | stuck (4.7e5 → 6.0e5) | **stuck** (2.7e5 → 3.3e5) |
+
+Box: 1 clean, 1 migrated-and-recovered, 1 stuck. Path: 1 clean, 0 recovered, 2 stuck.
+Certificates: path median ρ(SS) 1.215 (1.215/1.063/1.406) vs box 1.148; median max SS
+error 8.5% vs 1.3%; 0/3 stable for both (`probe_pathseed.json`). The stuck seeds *are*
+the bad certificates.
+
+**Mechanism (hypothesis, consistent with both tables):** box seeds are anchored to the
+SS-slice — a fixed reference that pulls the training measure back when the on-policy
+path starts drifting into the deflationary π-wall (s1's recovery). Path seeds inherit
+the *current* path coordinates, so once the path migrates the stress pool migrates with
+it: the coverage measure tracks the pathology instead of resisting it. The reference
+implementation's design principle ("never a hypercube") presumes a healthy ergodic path
+to seed from; on a model whose kink is *on-path*, the path is the unhealthy object.
+
+**Verdict update:** night-1's "coverage destabilizes on-path-kink models" stands
+unnarrowed — it is not a box artifact. The SS-anchored box seeding was, accidentally, a
+stabilizer. Composition with the anchor (irbc-style) remains the only coverage recipe
+with a certificate on this model family. Receipts: `logs/pathseed_s{0,1,2}_cpu.log`,
+`logs/cert_container.log` (box arm), `probe_pathseed.json`; code e27cc0f.
+
 ## Results (live per-arm narratives — superseded above, kept for the record)
 
 ### Baseline: the lottery, quantified (3/3 complete)
