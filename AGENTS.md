@@ -89,7 +89,7 @@ residuals AT ŝ → long-horizon convergence, multi-seed. Frozen convention:
 ## Commands
 | task | command |
 |---|---|
-| test | `uv run pytest tests/ -q` (638 collected @2026-07-12; 4 Dynare-fixture skips when data absent) |
+| test | `uv run pytest tests/ -q` (665 collected @2026-08-28; 4 Dynare-fixture skips when data absent) |
 | lint | `uv run ruff check src/ tests/ scripts/` (zero-error; CI-enforced) |
 | format | `uv run ruff format src/ tests/ scripts/` |
 | typecheck (advisory) | `uv run pyright` (basic mode; not in CI) |
@@ -109,7 +109,7 @@ src/deqn_jax/
   types.py       # ModelSpec, TrainState, Metrics — all NamedTuple pytrees
   cli.py         # train / list / optimizers / check
   models/        # 11 registered models (see `deqn-jax list`); each: variables, equations, dynamics, steady_state
-  networks/      # factory.py + mlp / lstm / transformer / linear_plus_mlp; models/disaster/network.py (π_BK + δ, bk_pin)
+  networks/      # factory.py + mlp / lstm / transformer / linear_plus_mlp / rss_net; models/disaster/network.py (π_BK + δ, bk_pin)
   optimizers/    # registry + ngd / mao / shampoo / lbfgs / gauss_newton / pcgrad
   training/      # trainer (orchestrator), state_init (dispatch + validators), cycle, loss, composite_loss, coverage, episode, linearize, warm_start
   evaluate/      # simulate, diagnostics, dynare, cli

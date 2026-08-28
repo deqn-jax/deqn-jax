@@ -58,7 +58,7 @@ from deqn_jax.training.loop_control import (  # noqa: E402  (re-export)
     _OptimizerRuntime,
     _SaveBestTracker,
 )
-from deqn_jax.training.loss import gauss_hermite_nd
+from deqn_jax.training.loss import gauss_hermite_nd, monomial_nd
 from deqn_jax.training.reporting import (
     count_params as _count_params,
 )
@@ -342,7 +342,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     if has_schedule:
         lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
 
-    # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
+    # ---- Pre-compute deterministic quadrature nodes ----
     quad_nodes_jax = None
     quad_weights_jax = None
     exp_type = config.expectation_type
@@ -362,6 +362,13 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
                 print(
                     f"  Quadrature: {n_total} nodes exceeds limit, falling back to MC"
                 )
+    elif exp_type == "monomial":
+        quad = monomial_nd(model.n_shocks)
+        if quad is not None:
+            quad_nodes_jax = jnp.array(quad[0])
+            quad_weights_jax = jnp.array(quad[1])
+            if config.verbose:
+                print(f"  Quadrature: {quad[0].shape[0]} nodes (degree-3 monomial)")
 
     # ---- Determine history length from network (Python-level, before JIT) ----
     history_len = get_history_len(state.params)

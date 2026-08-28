@@ -59,7 +59,7 @@ class TrainConfig(_ConfigBase):
     )
     mc_samples: int = Field(
         default=5,
-        description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type='gauss_hermite'`.",
+        description="Monte Carlo shock samples per state for the residual expectation. Ignored for deterministic quadrature and discrete expectations.",
     )
     seed: int = Field(
         default=42,
@@ -221,15 +221,17 @@ class TrainConfig(_ConfigBase):
             "How to integrate over shocks in the residual: `mc` (antithetic "
             "Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` "
             "(deterministic tensor-product grid, uses `n_quadrature_points`) "
+            "or `monomial` (degree-3, 2*n_shocks nodes, practical when "
+            "n_shocks > 6) "
             "or `discrete` (exact enumeration over a finite-state Markov chain; "
             "requires `model.transition_matrix` and `model.z_state_idx`). "
-            "Trajectory rollout uses Gaussian draws for `mc`/`quadrature` and "
-            "categorical draws from `Π[z_t]` for `discrete`."
+            "Trajectory rollout uses Gaussian draws for `mc`/`quadrature`/"
+            "`monomial` and categorical draws from `Π[z_t]` for `discrete`."
         ),
     )
     n_quadrature_points: int = Field(
         default=3,
-        description="Quadrature points per shock dimension when `expectation_type='gauss_hermite'`. Total nodes = n_quadrature_points^n_shocks.",
+        description="Quadrature points per shock dimension for Gauss-Hermite. Ignored by `monomial`, whose total nodes are always 2*n_shocks.",
     )
 
     barrier_weight: float = Field(
@@ -321,7 +323,7 @@ class TrainConfig(_ConfigBase):
     )
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
     VALID_EXPECTATION_TYPES: ClassVar[frozenset] = frozenset(
-        {"mc", "quadrature", "gh", "gauss_hermite", "discrete"}
+        {"mc", "quadrature", "gh", "gauss_hermite", "monomial", "discrete"}
     )
 
     # -- before-mode validators for type coercion --

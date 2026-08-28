@@ -480,13 +480,14 @@ def _validate_train_config(config) -> None:
     if (
         config.loss_type == "composite"
         and config.composite_loss.res_sobolev_weight > 0
-        and config.expectation_type not in ("quadrature", "gh", "gauss_hermite")
+        and config.expectation_type
+        not in ("quadrature", "gh", "gauss_hermite", "monomial")
     ):
         raise ValueError(
             "composite_loss.res_sobolev_weight > 0 requires quadrature "
             "expectations in v1 (the residual-Sobolev term rebuilds the "
             "per-state expected residual from quadrature nodes). Set "
-            "expectation_type: gauss_hermite."
+            "expectation_type: gauss_hermite or monomial."
         )
 
     if config.episode_length == 1 and not config.initialize_each_episode:

@@ -35,6 +35,7 @@ class NetworkConfig(_ConfigBase):
             "linear_plus_mlp",
             "kf_anchored_mlp",
             "disaster_policy_net",
+            "rss_market_clearing_net",
         }
     )
     VALID_ACTIVATIONS: ClassVar[frozenset] = frozenset(
@@ -53,7 +54,7 @@ class NetworkConfig(_ConfigBase):
 
     type: str = Field(
         default="mlp",
-        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), or `kf_anchored_mlp` (legacy K/F gauge elimination).",
+        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), `kf_anchored_mlp` (legacy K/F gauge elimination), or `rss_market_clearing_net` (fixed RSS checkpoint-parity architecture).",
     )
     hidden_sizes: Tuple[int, ...] = Field(
         default=(64, 64),

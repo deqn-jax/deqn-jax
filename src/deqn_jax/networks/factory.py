@@ -172,6 +172,18 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             input_scale=input_scale,
             key=net_key,
         )
+    elif net_type == "rss_market_clearing_net":
+        from deqn_jax.networks.rss_net import (
+            BASE_HIDDEN_SIZES,
+            create_rss_market_clearing_net,
+        )
+
+        if tuple(hidden_sizes) != BASE_HIDDEN_SIZES:
+            raise ValueError(
+                "network.type='rss_market_clearing_net' requires "
+                f"hidden_sizes={BASE_HIDDEN_SIZES} for checkpoint parity"
+            )
+        policy_net = create_rss_market_clearing_net(model, key=net_key)
     else:
         policy_net = create_mlp(
             n_states=model.n_states,
