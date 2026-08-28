@@ -1,4 +1,4 @@
-"""Loss computation with Monte Carlo or Gauss-Hermite quadrature expectations.
+"""Loss computation with Monte Carlo or deterministic quadrature expectations.
 
 The DEQN loss is the mean squared residual of equilibrium equations:
 
@@ -10,7 +10,7 @@ where the expectation is over:
 
 Expectation methods:
 - **MC**: Antithetic variates (pair each ε with -ε for variance reduction)
-- **Quadrature**: Gauss-Hermite tensor-product nodes (exact for polynomial integrands)
+- **Quadrature**: Gauss-Hermite tensor-product or degree-3 monomial nodes
 
 Residual aggregation uses (E[r])² (average THEN square):
 - Correct loss for E[r]=0 equilibrium conditions
@@ -79,7 +79,7 @@ def sample_antithetic_shocks(
 
 
 # ---------------------------------------------------------------------------
-# Shock sampling: Gauss-Hermite quadrature
+# Shock sampling: deterministic quadrature
 # ---------------------------------------------------------------------------
 
 
@@ -129,6 +129,35 @@ def gauss_hermite_nd(
     w_grids = np.array(np.meshgrid(*([w] * dim), indexing="ij"))
     weights = np.prod(w_grids, axis=0).reshape(-1)  # [n_nodes]
 
+    return nodes, weights
+
+
+def monomial_nd(dim: int) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Fully symmetric degree-3 cubature rule for a standard normal.
+
+    The ``2 * dim`` nodes are ``+/- sqrt(dim) * e_i``, each with weight
+    ``1 / (2 * dim)``.  Consequently the rule integrates constants, all odd
+    monomials through degree three, and the standard-normal covariance
+    exactly.  Its node count grows linearly rather than exponentially, making
+    it the practical deterministic rule when ``dim > 6``.
+
+    Equivalently, the radius is ``sqrt(dim / 2)`` in the Hermite basis before
+    applying the usual ``sqrt(2)`` conversion to standard-normal coordinates.
+
+    Args:
+        dim: Number of independent standard-normal shocks.
+
+    Returns:
+        Tuple of ``(nodes [2 * dim, dim], weights [2 * dim])``, or ``None``
+        when ``dim`` is not positive.
+    """
+    if dim <= 0:
+        return None
+
+    radius = math.sqrt(float(dim))
+    eye = np.eye(dim)
+    nodes = np.concatenate((radius * eye, -radius * eye), axis=0)
+    weights = np.full(2 * dim, 1.0 / (2.0 * dim))
     return nodes, weights
 
 
@@ -283,7 +312,7 @@ def compute_loss(
     to outlier residuals (averages first, then squares).
 
     For MC:        shocks ~ N(0, shock_scale²), uniform weights 1/N
-    For quadrature: shocks = nodes * shock_scale, Gauss-Hermite weights
+    For quadrature: shocks = nodes * shock_scale, deterministic rule weights
 
     Handles both MLP [batch, n_states] and sequence [batch, H, n_states] inputs
     transparently (dispatched inside compute_residuals via ndim check).
