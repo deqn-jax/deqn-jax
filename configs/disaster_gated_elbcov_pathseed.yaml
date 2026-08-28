@@ -49,7 +49,7 @@ composite_loss:
 checkpoint_dir: checkpoints/disaster_gated_elbcov
 checkpoint_every: 250
 max_checkpoints: 15
-tensorboard_dir: runs/disaster_gated_elbcov
+tensorboard_dir: runs/disaster_gated_elbcov_pathseed
 
 coverage:
   stress_seed_mode: path   # paper's measure: seeds = visited states, stress dims overridden
