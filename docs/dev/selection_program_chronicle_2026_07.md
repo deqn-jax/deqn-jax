@@ -1,4 +1,4 @@
-# The Selection Program — a chronicle (2026-07-06 → 2026-07-14)
+# The Selection Program — a chronicle (2026-07-06 → 2026-07-14, coda 2026-08-28)
 
 **What this is.** The complete record of five days of research on one question that grew out
 of another: *can deqn-jax produce a certified solution of the disaster model — and when it
@@ -9,7 +9,7 @@ one of them works. Every claim below carries a receipt (commit, file, log, or co
 Superseded claims are kept and marked — the corrections are themselves results.
 
 **How to use it.** §1–2 are context. §3–14 are chronological; §18 is the closing verdict
-(07-14). §15 is the artifact index — if this file is the only thing you have, §15 rebuilds
+(07-14); §19 is the 08-28 coda (coverage measure question closed). §15 is the artifact index — if this file is the only thing you have, §15 rebuilds
 everything else. §16 is what remains open. The companion narratives are `docs/how_it_all_works.md` (framework, for outsiders)
 and `docs/dev/disaster_cert_report_2026_07_07.md` (the certification experiment's live
 record, with all amendments in place).
