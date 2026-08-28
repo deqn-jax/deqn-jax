@@ -36,6 +36,7 @@ from deqn_jax.training.cycle import make_cycle_step as _make_cycle_step
 from deqn_jax.training.cycle import make_rollout_fn as _make_rollout_fn
 from deqn_jax.training.episode import sample_initial_states
 from deqn_jax.training.history import get_history_len, make_constant_history
+from deqn_jax.training.loss import QUADRATURE_EXPECTATION_TYPES
 from deqn_jax.types import ModelSpec, TrainState, make_reweight_state
 
 
@@ -483,8 +484,7 @@ def _validate_train_config(config) -> None:
     if (
         config.loss_type == "composite"
         and config.composite_loss.res_sobolev_weight > 0
-        and config.expectation_type
-        not in ("quadrature", "gh", "gauss_hermite", "monomial")
+        and config.expectation_type not in QUADRATURE_EXPECTATION_TYPES
     ):
         raise ValueError(
             "composite_loss.res_sobolev_weight > 0 requires quadrature "

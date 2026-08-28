@@ -174,6 +174,8 @@ def test_factory_registers_fixed_checkpoint_architecture():
     assert network.base_layers[1].weight.shape == (512, 512)
     assert network.base_layers[2].weight.shape == (len(POLICY_NAMES), 512)
     assert network.ansatz_layers[0].weight.shape == (8, len(STATE_NAMES))
+    assert network.input_shift is None
+    assert network.input_scale is None
 
 
 def test_factory_rejects_nonreference_widths():

@@ -29,6 +29,9 @@ from jax import Array
 
 from deqn_jax.types import ModelSpec
 
+GAUSS_HERMITE_EXPECTATION_TYPES = frozenset({"quadrature", "gh", "gauss_hermite"})
+QUADRATURE_EXPECTATION_TYPES = GAUSS_HERMITE_EXPECTATION_TYPES | {"monomial"}
+
 # ---------------------------------------------------------------------------
 # Shock sampling: Monte Carlo
 # ---------------------------------------------------------------------------
@@ -143,6 +146,10 @@ def monomial_nd(dim: int) -> Optional[Tuple[np.ndarray, np.ndarray]]:
 
     Equivalently, the radius is ``sqrt(dim / 2)`` in the Hermite basis before
     applying the usual ``sqrt(2)`` conversion to standard-normal coordinates.
+    The RSS reference instead used ``+/- sqrt(dim / 2) * sigma_i * e_i``
+    directly in shock coordinates, giving a half-variance operator; checkpoint
+    parity is therefore approximate for its expectation-bearing equations under
+    this mathematically correct rule.
 
     Args:
         dim: Number of independent standard-normal shocks.
@@ -159,6 +166,25 @@ def monomial_nd(dim: int) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     nodes = np.concatenate((radius * eye, -radius * eye), axis=0)
     weights = np.full(2 * dim, 1.0 / (2.0 * dim))
     return nodes, weights
+
+
+def build_quadrature(
+    expectation_type: str,
+    n_shocks: int,
+    n_points: int,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Build the deterministic shock rule selected by a training config.
+
+    ``None`` means that the selected rule is stochastic Monte Carlo or an exact
+    discrete chain, or that a deterministic grid exceeds its safety limit.
+    """
+    if expectation_type in GAUSS_HERMITE_EXPECTATION_TYPES:
+        return gauss_hermite_nd(n_points, n_shocks)
+    if expectation_type == "monomial":
+        return monomial_nd(n_shocks)
+    if expectation_type in {"mc", "discrete"}:
+        return None
+    raise ValueError(f"Unknown expectation_type {expectation_type!r}")
 
 
 # ---------------------------------------------------------------------------
