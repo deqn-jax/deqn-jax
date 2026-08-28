@@ -19,12 +19,14 @@ from deqn_jax.config.loss import CompositeLossConfig, MomentMatchingConfig
 from deqn_jax.config.network import NetworkConfig
 from deqn_jax.config.optimizer import OptimizerConfig
 from deqn_jax.config.replay import ReplayBufferConfig
+from deqn_jax.config.surrogate import SurrogateConfig
 from deqn_jax.config.train import TrainConfig
 
 __all__ = [
     "OptimizerConfig",
     "CompositeLossConfig",
     "CoverageConfig",
+    "SurrogateConfig",
     "MomentMatchingConfig",
     "ReplayBufferConfig",
     "NetworkConfig",

@@ -130,6 +130,7 @@ def make_coverage_loss(
     base_compute_loss: Callable,
     model: ModelSpec,
     cfg,
+    base_pool_loss: Optional[Callable] = None,
 ) -> Callable:
     """Wrap base_compute_loss to impose it on a mixture measure.
 
@@ -140,9 +141,32 @@ def make_coverage_loss(
     on irbc). Zero-weight pools are skipped at BUILD time (Python-level,
     pre-JIT), so rho_stress=rho_local=0 collapses to exactly the plain
     base_compute_loss (the paper's kappa=0 => DEQN identity).
+
+    ``base_pool_loss`` (optional): a different loss for the BASE pool only —
+    the EWM world arm scores the path pool with the surrogate Ŵ while the
+    stress/local pools keep the exact expectation (``surrogate.exact_in_coverage``).
+    Loss fns that declare an ``aux_params`` kwarg receive it.
     """
-    ss_state, _ = model.steady_state_fn(model.constants)
-    ss_state = jnp.asarray(ss_state)
+    import inspect
+
+    _base_pool = base_pool_loss or base_compute_loss
+    _aux_ok = {
+        id(f): "aux_params" in inspect.signature(f).parameters
+        for f in (base_compute_loss, _base_pool)
+    }
+    # Box-mode stress seeds are SS-filled, so they need a steady state; path
+    # mode seeds from visited states and works for ergodic-only models too.
+    _path_mode = getattr(cfg, "stress_seed_mode", "box") == "path"
+    if model.steady_state_fn is not None:
+        ss_state, _ = model.steady_state_fn(model.constants)
+        ss_state = jnp.asarray(ss_state)
+    elif _path_mode or not (cfg.rho_stress > 0 and cfg.n_stress > 0):
+        ss_state = None
+    else:
+        raise ValueError(
+            f"coverage stress_seed_mode='box' needs model.steady_state_fn, and "
+            f"'{model.name}' has none; use stress_seed_mode='path'."
+        )
     n_states = model.n_states
     name_to_idx = {n: i for i, n in enumerate(model.state_names)}
 
@@ -193,6 +217,7 @@ def make_coverage_loss(
         target_policy_fn=None,
         loss_choice: str = "mse",
         huber_delta: float = 1.0,
+        aux_params=None,
     ):
         # One independent subkey per random consumer: the three pools' loss
         # expectations must not share a shock stream under MC (identical keys
@@ -207,8 +232,8 @@ def make_coverage_loss(
             k_local,
         ) = jax.random.split(key, 6)
 
-        def _loss(pool_states, k):
-            return base_compute_loss(
+        def _loss(pool_states, k, fn=base_compute_loss):
+            return fn(
                 model_,
                 policy_fn,
                 pool_states,
@@ -221,9 +246,10 @@ def make_coverage_loss(
                 target_policy_fn=target_policy_fn,
                 loss_choice=loss_choice,
                 huber_delta=huber_delta,
+                **({"aux_params": aux_params} if _aux_ok[id(fn)] else {}),
             )
 
-        l_base, eq = _loss(states, k_base)
+        l_base, eq = _loss(states, k_base, _base_pool)
         total = w_base * l_base
         eq["aux_cov_base"] = l_base
 

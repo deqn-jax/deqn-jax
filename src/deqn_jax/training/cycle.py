@@ -128,8 +128,14 @@ def make_cycle_step(
     history_len: int = 1,
     sorted_within_batch: bool = False,
     replay_cfg: Optional[Any] = None,
+    pre_sweep_hook: Optional[Callable] = None,
 ):
     """Generic DEQN-style cycle: 1 rollout + n_epochs × minibatch sweep.
+
+    ``pre_sweep_hook`` (optional): ``(state, dataset, lr_scale) -> state``,
+    called once per cycle after the minibatch dataset is built and before
+    the gradient sweep. The EWM world arm uses it to fit the surrogate on
+    anchors drawn from this cycle's states (outside the per-minibatch JIT).
 
     Works for any ``grad_step`` with signature
     ``(state, batch, lr_scale, shock_scale) → (new_state, metrics)``.
@@ -241,6 +247,9 @@ def make_cycle_step(
                         eps=replay_cfg.priority_eps,
                     )
                     dataset = jnp.concatenate([dataset, buffered], axis=0)
+
+        if pre_sweep_hook is not None:
+            state = pre_sweep_hook(state, dataset, lr_scale)
 
         n_samples = dataset.shape[0]
         n_mbs_available = max(1, n_samples // batch_size)

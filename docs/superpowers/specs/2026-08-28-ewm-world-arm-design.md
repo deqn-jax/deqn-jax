@@ -1,7 +1,8 @@
 # EWM world arm: continuation surrogate for deqn-jax — design spec (v1, 2026-08-28)
 
-**Status:** design; implementer TBD (Codex track 2 or the maintainer's agent); reviewer = the
-maintainer's agent. **Priority: above the RSS port's EWM configs** — the coverage-only
+**Status:** implemented on branch `ewm/world-arm-core` (2026-08-28; PR to master) — §3–§6 as
+specified; §7 validation (irbc reproduction, Ŵ audit, `irbc_disaster` demo model) is the next
+PR. Implementer = the maintainer's agent; reviewer = code-review + the maintainer. **Priority: above the RSS port's EWM configs** — the coverage-only
 implementation (`training/coverage.py`, spec 2026-06-29) is half of Equilibrium World Models;
 this spec adds the other half.
 

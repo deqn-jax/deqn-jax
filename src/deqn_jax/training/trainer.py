@@ -413,6 +413,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         initialize_each_episode=config.initialize_each_episode,
         sorted_within_batch=config.sorted_within_batch,
         replay_cfg=config.replay_buffer,
+        surrogate_cfg=config.surrogate,
+        total_episodes=config.episodes,
+        world_lr=config.optimizer.learning_rate,
     )
 
     if (

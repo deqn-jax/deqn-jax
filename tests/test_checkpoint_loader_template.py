@@ -68,3 +68,35 @@ class TestLoaderTemplateCompleteness:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
+
+
+def test_surrogate_state_roundtrip(tmp_path):
+    """EWM world arm: aux_params (Ŵ + optimizer state) and target_params are
+    part of the pytree; the loader template must rebuild them from the run's
+    config.yaml or deserialization fails on shape/structure mismatch."""
+    from deqn_jax.config import SurrogateConfig
+
+    model = load_model("olg_lifecycle")
+    sur = SurrogateConfig(enabled=True, width=8)
+    state, _, _ = create_train_state(
+        model,
+        jax.random.PRNGKey(0),
+        hidden_sizes=(16,),
+        batch_size=16,
+        n_equations=len(model.equation_names),
+        surrogate_config=sur,
+    )
+    ckpt = tmp_path / "checkpoint_000010.eqx"
+    eqx.tree_serialise_leaves(str(ckpt), state)
+    with open(tmp_path / "config.yaml", "w") as f:
+        yaml.safe_dump(
+            {
+                "model": "olg_lifecycle",
+                "batch_size": 16,
+                "network": {"hidden_sizes": [16]},
+                "surrogate": {"enabled": True, "width": 8},
+            },
+            f,
+        )
+    net, _ = load_policy_from_checkpoint(str(ckpt))
+    assert net is not None

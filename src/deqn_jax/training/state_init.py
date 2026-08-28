@@ -52,6 +52,7 @@ def create_train_state(
     network_config=None,
     sim_batch: Optional[int] = None,
     replay_config=None,
+    surrogate_config=None,
 ) -> Tuple[TrainState, Any, OptimizerKind]:
     """Initialize training state and optimizer.
 
@@ -132,6 +133,22 @@ def create_train_state(
     else:
         replay_state = None
 
+    # EWM world arm: Ŵ + its optimizer state live in aux_params; the Polyak
+    # target policy the anchor targets are computed at lives in target_params.
+    aux_params = None
+    target_params = None
+    if surrogate_config is not None and getattr(surrogate_config, "enabled", False):
+        from deqn_jax.training.surrogate import init_surrogate
+
+        key, sur_key = jax.random.split(key)
+        lr = (
+            optimizer_config.learning_rate
+            if optimizer_config is not None
+            else learning_rate
+        )
+        aux_params, _ = init_surrogate(model, surrogate_config, sur_key, lr)
+        target_params = policy_net
+
     state = TrainState(
         params=policy_net,
         opt_state=opt_state,
@@ -141,6 +158,8 @@ def create_train_state(
         episode=0,
         loss_weights=weights,
         reweight_state=make_reweight_state(n_equations),
+        target_params=target_params,
+        aux_params=aux_params,
         history_state=init_history,
         replay_state=replay_state,
     )
@@ -175,6 +194,9 @@ def make_train_step(
     initialize_each_episode: bool = False,
     sorted_within_batch: bool = False,
     replay_cfg: Any = None,
+    surrogate_cfg: Any = None,
+    total_episodes: int = 1,
+    world_lr: Optional[float] = None,
 ):
     """Create a JIT-compiled training step function.
 
@@ -275,6 +297,38 @@ def make_train_step(
             compute_loss_fn,
         )
 
+    pre_sweep_hook = None
+    if surrogate_cfg is not None and getattr(surrogate_cfg, "enabled", False):
+        # EWM world arm: once per cycle, Polyak-update the target policy, fit
+        # Ŵ on anchors from this cycle's dataset (exact E[inside] at the
+        # target), and store it back — all outside the per-minibatch JIT.
+        import optax
+
+        from deqn_jax.training.surrogate import make_world_update, polyak_update
+
+        w_opt = optax.adam(
+            surrogate_cfg.lr_w if surrogate_cfg.lr_w is not None else (world_lr or 1e-3)
+        )
+        world_update = make_world_update(
+            model,
+            surrogate_cfg,
+            w_opt,
+            mc_samples,
+            quad_nodes,
+            quad_weights,
+            total_episodes,
+            batch_size,
+        )
+        tau = float(surrogate_cfg.polyak_tau)
+
+        def pre_sweep_hook(state, dataset, lr_scale):
+            target = polyak_update(state.target_params, state.params, tau)
+            hook_key, new_key = jax.random.split(state.key)
+            aux = world_update(
+                state.aux_params, target, dataset, hook_key, lr_scale, int(state.episode)
+            )
+            return state._replace(target_params=target, aux_params=aux, key=new_key)
+
     return _make_cycle_step(
         rollout_fn=rollout_fn,
         grad_step=grad_step,
@@ -285,6 +339,7 @@ def make_train_step(
         history_len=history_len,
         sorted_within_batch=sorted_within_batch,
         replay_cfg=replay_cfg,
+        pre_sweep_hook=pre_sweep_hook,
     )
 
 
@@ -477,6 +532,46 @@ def _validate_train_config(config) -> None:
                 "mixture. Disable one."
             )
 
+    if getattr(config, "surrogate", None) is not None and config.surrogate.enabled:
+        # EWM world arm: Ŵ replaces E[inside_fn] in the policy update. It
+        # needs the two-stage hooks, a STANDARD optimizer (the surrogate
+        # loss is a scalar-total wrapper), plain MSE, and — unless the
+        # paper's ablation is explicitly requested — coverage on.
+        sur = config.surrogate
+        if config.optimizer.name.lower() in {"mao", "lm", "gn", "ign", "lbfgs"} or (
+            config.gradient_surgery == "pcgrad"
+        ):
+            raise ValueError(
+                "surrogate.enabled requires a STANDARD optimizer without "
+                "gradient surgery (the world-arm loss is a scalar-total wrapper; "
+                "per-equation/residual-vector optimizers would silently drop Ŵ)."
+            )
+        if config.loss_type != "mse" or config.loss_choice != "mse":
+            raise ValueError(
+                "surrogate.enabled supports loss_type='mse' with loss_choice='mse' "
+                "only (v1); composite/huber/aio would be silently bypassed."
+            )
+        if not config.coverage.enabled and not sur.allow_without_coverage:
+            raise ValueError(
+                "surrogate.enabled without coverage.enabled is the paper's ablation; "
+                "set surrogate.allow_without_coverage=true to run it deliberately."
+            )
+        if config.target_update_every > 0:
+            raise ValueError(
+                "surrogate.enabled owns TrainState.target_params (Polyak target "
+                "policy); disable target_update_every."
+            )
+        if config.network.history_len > 1:
+            raise NotImplementedError("surrogate.enabled is v1-only-MLP.")
+        if sur.polyak_tau < 0.95:
+            import warnings
+
+            warnings.warn(
+                f"surrogate.polyak_tau={sur.polyak_tau} < 0.95: the target policy "
+                "chases the live policy and Ŵ can diverge (reference: 0.90 diverges).",
+                stacklevel=2,
+            )
+
     if (
         config.loss_type == "composite"
         and config.composite_loss.res_sobolev_weight > 0
@@ -657,6 +752,7 @@ def _build_initial_state(
             network_config=orig_config.network,
             sim_batch=orig_config.sim_batch,
             replay_config=orig_config.replay_buffer,
+            surrogate_config=orig_config.surrogate,
         )
 
         state = _resume_from_checkpoint(template_state, config.resume)
@@ -695,6 +791,7 @@ def _build_initial_state(
         network_config=config.network,
         sim_batch=config.sim_batch,
         replay_config=config.replay_buffer,
+        surrogate_config=config.surrogate,
     )
 
     is_linear_plus_mlp = config.network.type == "linear_plus_mlp"
