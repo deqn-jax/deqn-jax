@@ -62,8 +62,22 @@ class _WorldNet(eqx.Module):
         return jax.nn.softplus(out) if self.positive else out
 
 
+def require_two_stage(model: ModelSpec) -> None:
+    """The world arm approximates E[inside_fn]; models on the standard
+    equations_fn path have no such object. Reject with a clear message
+    instead of failing inside inside_keys."""
+    if model.inside_fn is None or model.combine_fn is None:
+        raise ValueError(
+            f"surrogate.enabled requires a two-stage model (inside_fn + "
+            f"combine_fn); '{model.name}' uses the standard equations_fn path. "
+            "Factor its expectation into the two-stage hooks first "
+            "(see models/olg_lifecycle for the pattern)."
+        )
+
+
 def inside_keys(model: ModelSpec) -> Tuple[str, ...]:
     """Sorted keys of ``inside_fn``'s output (the surrogate's output columns)."""
+    require_two_stage(model)
     n_s = model.n_states
     s = jnp.zeros((1, n_s)) + 1.0
     p = jnp.zeros((1, model.n_policies)) + 0.5

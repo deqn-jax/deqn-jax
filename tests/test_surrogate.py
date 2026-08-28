@@ -246,3 +246,19 @@ def test_smoke_train_with_surrogate_runs_and_decreases():
     assert policy is not None
     losses = np.asarray(history["loss"])
     assert losses.shape[0] == 6 and np.isfinite(losses).all()
+
+
+def test_validator_rejects_models_without_two_stage_hooks():
+    """brock_mirman has no inside_fn/combine_fn -> clear error, not a crash."""
+    from deqn_jax.models import load_model as _load
+
+    bm = _load("brock_mirman")
+    with pytest.raises(ValueError, match="two-stage"):
+        create_train_state(
+            bm,
+            jax.random.PRNGKey(0),
+            hidden_sizes=(16,),
+            batch_size=16,
+            n_equations=len(bm.equation_names),
+            surrogate_config=SurrogateConfig(enabled=True),
+        )
