@@ -26,7 +26,11 @@ from deqn_jax.optimizers.gauss_newton import make_grad_step_gn as _make_grad_ste
 from deqn_jax.optimizers.lbfgs import make_grad_step_lbfgs as _make_grad_step_lbfgs
 from deqn_jax.optimizers.mao import make_grad_step_mao as _make_grad_step_mao
 from deqn_jax.optimizers.pcgrad import make_grad_step_pcgrad as _make_grad_step_pcgrad
-from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
+from deqn_jax.optimizers.registry import (
+    OptimizerKind,
+    create_optimizer,
+    get_optimizer_kind,
+)
 from deqn_jax.optimizers.standard import (
     make_grad_step_standard as _make_grad_step_standard,
 )
@@ -302,13 +306,13 @@ def make_train_step(
         # EWM world arm: once per cycle, Polyak-update the target policy, fit
         # Ŵ on anchors from this cycle's dataset (exact E[inside] at the
         # target), and store it back — all outside the per-minibatch JIT.
-        import optax
-
-        from deqn_jax.training.surrogate import make_world_update, polyak_update
-
-        w_opt = optax.adam(
-            surrogate_cfg.lr_w if surrogate_cfg.lr_w is not None else (world_lr or 1e-3)
+        from deqn_jax.training.surrogate import (
+            make_world_update,
+            polyak_update,
+            world_optimizer,
         )
+
+        w_opt = world_optimizer(surrogate_cfg, world_lr or 1e-3)
         world_update = make_world_update(
             model,
             surrogate_cfg,
@@ -325,7 +329,12 @@ def make_train_step(
             target = polyak_update(state.target_params, state.params, tau)
             hook_key, new_key = jax.random.split(state.key)
             aux = world_update(
-                state.aux_params, target, dataset, hook_key, lr_scale, int(state.episode)
+                state.aux_params,
+                target,
+                dataset,
+                hook_key,
+                lr_scale,
+                int(state.episode),
             )
             return state._replace(target_params=target, aux_params=aux, key=new_key)
 
@@ -538,13 +547,21 @@ def _validate_train_config(config) -> None:
         # loss is a scalar-total wrapper), plain MSE, and — unless the
         # paper's ablation is explicitly requested — coverage on.
         sur = config.surrogate
-        if config.optimizer.name.lower() in {"mao", "lm", "gn", "ign", "lbfgs"} or (
-            config.gradient_surgery == "pcgrad"
+        if (
+            get_optimizer_kind(config.optimizer.name) != OptimizerKind.STANDARD
+            or config.gradient_surgery == "pcgrad"
         ):
             raise ValueError(
                 "surrogate.enabled requires a STANDARD optimizer without "
                 "gradient surgery (the world-arm loss is a scalar-total wrapper; "
                 "per-equation/residual-vector optimizers would silently drop Ŵ)."
+            )
+        if not sur.exact_in_coverage:
+            raise NotImplementedError(
+                "surrogate.exact_in_coverage=false: Ŵ is fitted on anchors drawn "
+                "from the path batch only (v1), so it has no support on the "
+                "stress/local pools; scoring them with Ŵ would extrapolate. Keep "
+                "the coverage pools exact."
             )
         if config.loss_type != "mse" or config.loss_choice != "mse":
             raise ValueError(

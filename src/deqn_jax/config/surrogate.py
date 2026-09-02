@@ -35,7 +35,7 @@ class SurrogateConfig(_ConfigBase):
     )
     anchor_frac: Union[float, List[float]] = Field(
         default=[0.1, 0.2, 0.4],
-        description="Fraction of the (path ∪ coverage) batch used as exact anchors per episode. A list is staged over equal thirds of training (paper: 0.1 → 0.2 → 0.4); a scalar is constant. At least one minibatch is always used.",
+        description="Fraction of the cycle's path batch (rollout states, plus replay when enabled) used as exact anchors per episode; coverage pools are generated inside the loss and are not anchor candidates (v1). A list is staged over equal thirds of training (paper: 0.1 → 0.2 → 0.4); a scalar is constant. At least one minibatch is always used.",
     )
     polyak_tau: float = Field(
         default=0.97,
@@ -51,7 +51,7 @@ class SurrogateConfig(_ConfigBase):
     )
     exact_in_coverage: bool = Field(
         default=True,
-        description="Score the coverage (stress/local) pools with the EXACT expectation even in the surrogate arm; only the base (path) pool uses Ŵ. The reference reports surrogate-scored coverage diverging.",
+        description="Score the coverage (stress/local) pools with the EXACT expectation even in the surrogate arm; only the base (path) pool uses Ŵ. The reference reports surrogate-scored coverage diverging. v1 accepts True only: anchors are path states, so Ŵ has no support on the coverage pools.",
     )
     positive_outputs: bool = Field(
         default=True,
@@ -95,7 +95,11 @@ class SurrogateConfig(_ConfigBase):
             raise ValueError("surrogate.epochs_w must be > 0")
         if not (0.0 < self.polyak_tau < 1.0):
             raise ValueError("surrogate.polyak_tau must be in (0, 1)")
-        fracs = self.anchor_frac if isinstance(self.anchor_frac, list) else [self.anchor_frac]
+        fracs = (
+            self.anchor_frac
+            if isinstance(self.anchor_frac, list)
+            else [self.anchor_frac]
+        )
         if not fracs or any(not (0.0 < f <= 1.0) for f in fracs):
             raise ValueError("surrogate.anchor_frac entries must be in (0, 1]")
         if self.lr_w is not None and self.lr_w <= 0:

@@ -37,7 +37,7 @@ class SurrogateState(NamedTuple):
     opt_state: Any  # optax state for net
     mean: Array  # [n_states] input standardization
     std: Array  # [n_states]
-    b_policy: Array  # scalar: exact quadrature evaluations paid (anchors × nodes)
+    b_policy: Array  # scalar: exact expectation evaluations paid for ANCHORS (anchors × nodes; coverage pools' exact evaluations are not counted)
     b_world: Array  # scalar: surrogate fits (anchors × epochs_w)
     fit_mse: Array  # scalar: last anchor-fit MSE (diagnostic)
 
@@ -85,11 +85,20 @@ def inside_keys(model: ModelSpec) -> Tuple[str, ...]:
     return tuple(sorted(out.keys()))
 
 
-def init_surrogate(model: ModelSpec, cfg, key: Array, lr: float) -> Tuple[SurrogateState, Any]:
+def world_optimizer(cfg, policy_lr: float):
+    """Ŵ's optimizer: Adam at ``lr_w`` (policy LR when unset). The single
+    constructor shared by state init and the per-cycle update, so the
+    optimizer state in ``aux_params`` always matches the update rule."""
+    return optax.adam(cfg.lr_w if cfg.lr_w is not None else policy_lr)
+
+
+def init_surrogate(
+    model: ModelSpec, cfg, key: Array, lr: float
+) -> Tuple[SurrogateState, Any]:
     """Fresh world-arm state + its optax optimizer."""
     keys = inside_keys(model)
     net = _WorldNet(model.n_states, cfg.width, len(keys), cfg.positive_outputs, key)
-    opt = optax.adam(cfg.lr_w if cfg.lr_w is not None else lr)
+    opt = world_optimizer(cfg, lr)
     opt_state = opt.init(eqx.filter(net, eqx.is_array))
     zero = jnp.array(0.0)
     sstate = SurrogateState(
@@ -104,7 +113,9 @@ def init_surrogate(model: ModelSpec, cfg, key: Array, lr: float) -> Tuple[Surrog
     return sstate, opt
 
 
-def predict(sstate: SurrogateState, keys: Tuple[str, ...], states: Array) -> Dict[str, Array]:
+def predict(
+    sstate: SurrogateState, keys: Tuple[str, ...], states: Array
+) -> Dict[str, Array]:
     """Ŵ(x) as the expectations dict ``combine_fn`` expects (stop-gradient'd)."""
     x = (states - sstate.mean) / jnp.maximum(sstate.std, 1e-3)
     out = jax.vmap(sstate.net)(x)  # [b, n_keys]
@@ -128,15 +139,22 @@ def exact_expectations(
     b = states.shape[0]
     if quad_nodes is not None and quad_weights is not None:
         n = quad_nodes.shape[0]
-        shocks = jnp.broadcast_to(quad_nodes[:, None, :], (n, b, model.n_shocks)) * shock_scale
+        shocks = (
+            jnp.broadcast_to(quad_nodes[:, None, :], (n, b, model.n_shocks))
+            * shock_scale
+        )
         w = jnp.broadcast_to(quad_weights[:, None], (n, b))
     else:
-        shocks = sample_antithetic_shocks(key, mc_samples, b, model.n_shocks, shock_scale)
+        shocks = sample_antithetic_shocks(
+            key, mc_samples, b, model.n_shocks, shock_scale
+        )
         n = shocks.shape[0]
         w = jnp.broadcast_to((jnp.ones(n) / n)[:, None], (n, b))
 
     def one(shock):
-        return compute_residuals(model, policy_fn, states, shock, residual_fn=model.inside_fn)
+        return compute_residuals(
+            model, policy_fn, states, shock, residual_fn=model.inside_fn
+        )
 
     per_node = jax.vmap(one)(shocks)  # dict of [n, b]
     return {k: jnp.einsum("sb,sb->b", w, v) for k, v in per_node.items()}
@@ -169,7 +187,14 @@ def make_world_update(
     @eqx.filter_jit
     def _targets(target_params, anchors, key):
         q = exact_expectations(
-            model, target_params, anchors, key, mc_samples, 1.0, quad_nodes, quad_weights
+            model,
+            target_params,
+            anchors,
+            key,
+            mc_samples,
+            1.0,
+            quad_nodes,
+            quad_weights,
         )
         return jnp.stack([q[k] for k in keys], axis=1)  # [n_anchor, n_keys]
 
@@ -188,21 +213,34 @@ def make_world_update(
             n = eqx.combine(optax.apply_updates(arrays, upd), n)
             return (n, s), l
 
-        (net, opt_state), losses = jax.lax.scan(body, (net, opt_state), None, length=cfg.epochs_w)
+        (net, opt_state), losses = jax.lax.scan(
+            body, (net, opt_state), None, length=cfg.epochs_w
+        )
         return net, opt_state, losses[-1]
 
-    def update(sstate: SurrogateState, target_params, dataset: Array, key: Array, lr_scale, episode: int):
+    def update(
+        sstate: SurrogateState,
+        target_params,
+        dataset: Array,
+        key: Array,
+        lr_scale,
+        episode: int,
+    ):
         progress = float(episode) / float(max(1, total_episodes))
         frac = cfg.anchor_frac_at(progress)
         n_anchor = max(int(batch_size), int(frac * dataset.shape[0]))
         n_anchor = min(n_anchor, int(dataset.shape[0]))
         k_idx, k_q = jax.random.split(key)
-        idx = jax.random.randint(k_idx, (n_anchor,), 0, dataset.shape[0])
+        # Distinct anchors (n_anchor <= dataset rows): sampling with
+        # replacement would spend exact evaluations on duplicate states.
+        idx = jax.random.permutation(k_idx, dataset.shape[0])[:n_anchor]
         anchors = jax.lax.stop_gradient(dataset[idx])
         y = _targets(target_params, anchors, k_q)
         mean = jnp.mean(dataset, axis=0)
         std = jnp.std(dataset, axis=0)
-        net, opt_state, fit = _fit_steps(sstate.net, sstate.opt_state, mean, std, anchors, y, lr_scale)
+        net, opt_state, fit = _fit_steps(
+            sstate.net, sstate.opt_state, mean, std, anchors, y, lr_scale
+        )
         return sstate._replace(
             net=net,
             opt_state=opt_state,
@@ -245,10 +283,14 @@ def make_surrogate_loss(model: ModelSpec, cfg) -> Callable:
         aux_params: Optional[SurrogateState] = None,
     ):
         if aux_params is None:
-            raise ValueError("surrogate loss called without aux_params (SurrogateState)")
+            raise ValueError(
+                "surrogate loss called without aux_params (SurrogateState)"
+            )
         cur = states[:, -1, :] if states.ndim == 3 else states
         expectations = predict(aux_params, keys, cur)
-        residuals = model_.combine_fn(cur, policy_fn(states), expectations, model_.constants)
+        residuals = model_.combine_fn(
+            cur, policy_fn(states), expectations, model_.constants
+        )
         eq_losses = {}
         total = 0.0
         for i, (name, r) in enumerate(residuals.items()):
