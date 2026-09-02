@@ -115,7 +115,7 @@ src/deqn_jax/
   evaluate/      # simulate, diagnostics, dynare, cli
 configs/         # arm configs (disaster_gated_pcgrad_bkpin.yaml etc.)
 scripts/         # gitignored except whitelist: probes, sweeps, risky-SS, GN polish
-tests/           # 638 tests; smoke convention: 3 episodes, hidden=(16,), batch=16, mc_samples=2
+tests/           # 654 tests (10 slow); smoke convention: 3 episodes, hidden=(16,), batch=16, mc_samples=2
 docs/dev/        # certification record + chronicle (research state)
 ```
 
