@@ -4,7 +4,8 @@ Everything built BEFORE the per-episode loop runs, extracted from trainer.py so
 the orchestrator stays readable:
 
 - ``create_train_state`` : policy net + optimizer + initial TrainState
-- ``make_train_step``    : the single-JIT train-step dispatcher (5 variants)
+- ``make_train_step``    : builds the Python-level cycle step (one JIT'd
+  rollout + a JIT'd per-minibatch grad step, 5 variants by OptimizerKind)
 - ``_validate_train_config`` / ``_resolve_model_for_training`` : config + model
   validation that doesn't / does depend on the loaded model
 - ``_build_initial_state`` : resume-or-build-fresh + optional warm start
@@ -176,9 +177,10 @@ def make_train_step(
     sorted_within_batch: bool = False,
     replay_cfg: Any = None,
 ):
-    """Create a JIT-compiled training step function.
+    """Build the per-episode cycle step: one JIT'd rollout + a sweep of
+    JIT'd minibatch grad steps (the cycle itself is Python-level).
 
-    Dispatches to the correct step variant based on OptimizerKind.
+    Dispatches to the correct grad-step variant based on OptimizerKind.
 
     Args:
         model: Model specification
@@ -197,7 +199,7 @@ def make_train_step(
         compute_loss_fn: Optional custom loss function (e.g. composite loss)
 
     Returns:
-        JIT-compiled train_step function
+        cycle_step ``(state, lr_scale, shock_scale) -> (state, Metrics)``
     """
     # All kinds now use the DEQN-style rollout + minibatch-sweep cycle.
     # Per outer iteration: 1 rollout (fills state_episode) + n_epochs ×

@@ -320,9 +320,6 @@ class TrainState(NamedTuple):
             in actor-critic, critic network, learned expectation operator).
             None by default. Default training loop ignores it; only loss
             functions that know about ``aux_params`` will use it.
-        aux_opt_state: Optimizer state for ``aux_params`` if trained with
-            its own optimizer. ``None`` if aux is trained jointly with the
-            primary optimizer.
         history_state: Sliding history window ``[batch, H, n_states]`` for
             sequence policies (LSTM/Transformer, ``network.history_len > 1``).
             Persists across rollouts so recurrent training sees continuous
@@ -346,7 +343,6 @@ class TrainState(NamedTuple):
     reweight_state: ReweightState  # adaptive reweighting state
     target_params: Any = None  # Frozen policy for target network (DQN-style)
     aux_params: Any = None  # Auxiliary trainable module (value net, critic, ...)
-    aux_opt_state: Any = None  # Optimizer state for aux_params if separate
     history_state: Any = None  # [batch, H, n_states] for sequence policies, else None
     replay_state: Any = None  # ReplayState (prioritized state buffer); None when off
 

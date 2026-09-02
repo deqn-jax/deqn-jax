@@ -1,6 +1,5 @@
 """Shared eval-rollout helpers: discrete-chain detection + shock draw."""
 
-
 import jax
 import jax.numpy as jnp
 

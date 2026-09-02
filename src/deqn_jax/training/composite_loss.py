@@ -21,8 +21,10 @@ consumption barrier, Newton-conditioning diagnostics).
 
 Usage:
     data = prepare_composite_data(model, P, Q)
-    loss_fn = make_composite_loss(model, data, config.composite_loss)
-    # loss_fn has the same signature as compute_loss
+    loss_fn = make_composite_loss(model, data, anchor_weight=1.0, jac_weight=0.1, ...)
+    # loss_fn takes compute_loss's positional/keyword arguments (see
+    # composite_loss_fn below for the exact accepted kwargs); the builder
+    # in _build_custom_loss_fn passes every CompositeLossConfig knob by name.
 """
 
 from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple

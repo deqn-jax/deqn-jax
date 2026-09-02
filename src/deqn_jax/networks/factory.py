@@ -1,10 +1,12 @@
 """Policy-network factory: net_type dispatch for ``create_train_state``.
 
-Lifted verbatim from ``state_init.create_train_state`` so the state builder holds
-no network-construction logic. ``build_policy_net`` handles the generic net types
-(mlp / linear_plus_mlp / lstm / transformer) inline and the disaster-specific
-types (disaster_policy_net / kf_anchored_mlp) via lazy imports, exactly as before.
-Pure move -- byte-for-byte the same construction, just relocated.
+``build_policy_net`` handles the generic net types (mlp / linear_plus_mlp /
+lstm / transformer) inline and the disaster-specific types
+(disaster_policy_net / kf_anchored_mlp) via lazy imports. It is the ONE place
+a ``NetworkConfig`` is turned into a module — checkpoint loaders must rebuild
+their template through it with the full config (static fields such as
+``bk_pin`` change the forward graph and are not repaired by leaf
+deserialization).
 """
 
 import jax.numpy as jnp

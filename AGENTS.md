@@ -89,7 +89,7 @@ residuals AT ŝ → long-horizon convergence, multi-seed. Frozen convention:
 ## Commands
 | task | command |
 |---|---|
-| test | `uv run pytest tests/ -q` (638 collected @2026-07-12; 4 Dynare-fixture skips when data absent) |
+| test | `uv run pytest tests/ -q` (654 collected @2026-09-02, 10 of them `slow`; 18 skips when Dynare fixtures are absent) |
 | lint | `uv run ruff check src/ tests/ scripts/` (zero-error; CI-enforced) |
 | format | `uv run ruff format src/ tests/ scripts/` |
 | typecheck (advisory) | `uv run pyright` (basic mode; not in CI) |
@@ -152,7 +152,9 @@ docs/dev/        # certification record + chronicle (research state)
     maintainer's laptop.
   - *aarch64 flake*: `test_convergence.py::TestDisasterTraining::
     test_loss_decreases` is platform-sensitive on the DGX (chaotic bare-MLP
-    lr=1e-2 path, documented last-bit bifurcation) — not a regression signal.
+    lr=1e-2 path, documented last-bit bifurcation) — not a regression signal;
+    marked `xfail(strict=False)` in place, and the whole module is `slow`
+    (`-m 'not slow'` skips the multi-hundred-episode convergence tests).
   - *CI parity gap*: pyright is advisory-only (not in CI) — deliberate, see
     Nature relaxations.
   - *Short disaster smokes*: episodes < `lr_warmup` makes the cosine schedule

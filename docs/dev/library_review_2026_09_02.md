@@ -25,6 +25,12 @@ not start where the record says they did. See A3 and PR #3.
    reported "Euler error" for a single-stage model is a realized-shock residual, not an
    expected one, and equations are graded in different units (see A7).
 4. **Cruft batch 1** (zero-risk deletes, ~1,500 lines, §B1) and the `--set coverage.*` fix.
+   *Shipped on `chore/cruft-batch-1` (2026-09-02): everything in §B1 marked ✓ except the
+   aiyagari package (Simon's course model, left for the landing decision), the scripts
+   (research reproducibility, batch 3), the config ladders and the CLI long flags
+   (user-facing, batch 3). The three ruff ignores stay: the sweep's "zero occurrences" claim
+   was wrong (39 hits). `--set coverage.*` fixed by deriving the nested-block dispatch from
+   `TrainConfig.model_fields`.*
 5. Decide the museum policy for dead research branches (§A9) before cruft batch 3 (§B3).
 
 ---

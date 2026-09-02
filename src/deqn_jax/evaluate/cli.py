@@ -1,7 +1,5 @@
 """evaluate CLI entry point."""
 
-import csv
-import os
 from pathlib import Path
 
 import jax
@@ -111,36 +109,3 @@ def run_evaluate_cli(args):
             use_girf=getattr(args, "dynare_irf_girf", False),
         )
         print_dynare_comparison(moments_diff, ghx_diff, irf_diff, label=label)
-
-    # Save results
-    if args.output:
-        os.makedirs(args.output, exist_ok=True)
-        # Save Euler errors CSV
-        residuals = ee_result["residuals"]
-        eq_names = ee_result["equation_names"]
-        csv_path = os.path.join(args.output, "euler_errors.csv")
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(eq_names)
-            for row in residuals:
-                writer.writerow([float(v) for v in row])
-        print(f"\nSaved Euler errors to {csv_path}")
-
-        # Save moments CSV
-        csv_path = os.path.join(args.output, "moments.csv")
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["variable", "ss", "mean", "std", "min", "max", "dev_pct"])
-            for name, m in moments.items():
-                writer.writerow(
-                    [
-                        name,
-                        m["ss"],
-                        m["mean"],
-                        m["std"],
-                        m["min"],
-                        m["max"],
-                        m["mean_dev_pct"],
-                    ]
-                )
-        print(f"Saved moments to {csv_path}")

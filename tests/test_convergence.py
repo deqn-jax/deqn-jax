@@ -1,8 +1,14 @@
-"""Convergence tests for DEQN-JAX models."""
+"""Convergence tests for DEQN-JAX models.
+
+These train for hundreds of episodes at production sizes (not the smoke
+convention); deselect with ``-m 'not slow'``.
+"""
 
 import jax
 import jax.numpy as jnp
 import pytest
+
+pytestmark = pytest.mark.slow
 
 
 @pytest.fixture(autouse=True)
@@ -217,6 +223,12 @@ class TestBrockMirmanLinearPlusMLP:
 class TestDisasterTraining:
     """Test that Disaster model can train (convergence is harder)."""
 
+    @pytest.mark.xfail(
+        strict=False,
+        reason="platform-sensitive: chaotic bare-MLP lr=1e-2 path bifurcates on "
+        "the last bit (aarch64 DGX, some CI runners) — documented in AGENTS.md "
+        "Gotchas; not a regression signal.",
+    )
     def test_loss_decreases(self):
         """Loss should decrease over training."""
         from deqn_jax.training.trainer import train

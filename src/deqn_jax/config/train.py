@@ -77,7 +77,7 @@ class TrainConfig(_ConfigBase):
 
     loss_type: str = Field(
         default="mse",
-        description="`mse` = base residual MSE. `composite` = base + anchor + Jacobian + barriers + Newton (disaster-style). Composite is rejected at startup with MAO / GN / LM / LBFGS / PCGrad.",
+        description="`mse` = base residual MSE. `composite` = base + anchor + Jacobian + barriers + Newton (disaster-style). Composite is rejected at startup with MAO / GN / IGN / LM (LBFGS and PCGrad compose with it).",
     )
     composite_loss: CompositeLossConfig = Field(
         default_factory=CompositeLossConfig,

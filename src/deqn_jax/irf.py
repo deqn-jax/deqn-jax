@@ -5,7 +5,8 @@ This is the real quality metric — MSE loss doesn't tell you if the policy
 functions produce economically sensible dynamics.
 
 Usage:
-    deqn-jax irf --checkpoint path/to/checkpoint.eqx [--shock eps] [--horizon 40]
+    deqn-jax irf path/to/checkpoint.eqx [--shock <name>] [--horizon 40]
+    (shock names: ``deqn-jax info <model>``)
 """
 
 import csv
@@ -32,17 +33,15 @@ def run_irf(
     shock_name: str,
     shock_size: float = 1.0,
     horizon: int = 40,
-    warmup: int = 0,
 ) -> Dict[str, List[float]]:
     """Run impulse response from steady state.
 
     Args:
         policy_net: Trained policy network
         model: ModelSpec with dynamics, equations, etc.
-        shock_name: Which shock to hit ("eps", "mu_ups", "mu_z", "g", "m_p")
+        shock_name: Which shock to hit (a name from ``model.shock_names``)
         shock_size: Shock magnitude in std devs (default: 1σ)
         horizon: Number of periods to simulate after shock
-        warmup: Deterministic warmup periods before shock (0 = start from SS)
 
     Returns:
         Dict mapping variable names to time series lists.
@@ -134,19 +133,7 @@ def run_irf(
             else:
                 results[name].append(float("nan"))
 
-    # ---- Warmup: deterministic steps from SS ----
     zero_shock = jnp.zeros((1, n_shocks))
-    for t in range(-warmup, 0):
-        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
-        if policy.ndim == 1:
-            policy = policy[None, :]
-        record(t, state, policy)
-        next_state = model.step_fn(state, policy, zero_shock, constants)
-        state = (
-            model.clip_state_fn(next_state)
-            if model.clip_state_fn is not None
-            else next_state
-        )
 
     # ---- Period 0: record pre-shock state ----
     policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
@@ -207,7 +194,6 @@ def run_girf(
     shock_name: str,
     shock_size: float = 1.0,
     horizon: int = 40,
-    warmup: int = 0,
 ) -> Dict[str, List[float]]:
     """Generalized IRF: response = shocked path − no-shock path, same start state.
 
@@ -226,14 +212,14 @@ def run_girf(
     concept).
 
     Args:
-        policy_net, model, shock_name, shock_size, horizon, warmup: as in ``run_irf``.
+        policy_net, model, shock_name, shock_size, horizon: as in ``run_irf``.
 
     Returns:
         Dict with ``period`` and per-variable deviation series of length
         ``horizon + 1`` (t = 0..horizon).
     """
-    shocked = run_irf(policy_net, model, shock_name, shock_size, horizon, warmup)
-    baseline = run_irf(policy_net, model, shock_name, 0.0, horizon, warmup)
+    shocked = run_irf(policy_net, model, shock_name, shock_size, horizon)
+    baseline = run_irf(policy_net, model, shock_name, 0.0, horizon)
 
     out: Dict[str, List[float]] = {}
     for key, series in shocked.items():

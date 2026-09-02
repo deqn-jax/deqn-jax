@@ -117,10 +117,6 @@ class TestOptimizerConfigValidation:
         with pytest.raises(ValueError, match="decay"):
             OptimizerConfig(decay=1.0)
 
-    def test_block_size_zero_raises(self):
-        with pytest.raises(ValueError, match="block_size"):
-            OptimizerConfig(block_size=0)
-
     def test_precond_update_freq_zero_raises(self):
         with pytest.raises(ValueError, match="precond_update_freq"):
             OptimizerConfig(precond_update_freq=0)
@@ -857,10 +853,6 @@ class TestTypeValidation:
             TypeError, match="OptimizerConfig.name.*expected str.*got int"
         ):
             OptimizerConfig(name=42)
-
-    def test_block_size_string_coerced(self):
-        cfg = OptimizerConfig(block_size="128")
-        assert cfg.block_size == 128
 
     # -- NetworkConfig --
     def test_hidden_sizes_string_raises(self):

@@ -5,10 +5,7 @@ from __future__ import annotations
 from difflib import get_close_matches
 from typing import Any, Dict, Optional, Set
 
-from deqn_jax.config.loss import CompositeLossConfig, MomentMatchingConfig
-from deqn_jax.config.network import NetworkConfig
-from deqn_jax.config.optimizer import OptimizerConfig
-from deqn_jax.config.replay import ReplayBufferConfig
+from deqn_jax.config._base import _ConfigBase
 from deqn_jax.config.train import TrainConfig
 
 # ---------------------------------------------------------------------------
@@ -44,26 +41,28 @@ def _check_unknown_keys(
     )
 
 
+def _nested_blocks() -> Dict[str, type]:
+    """``{field name: config class}`` for every nested ``_ConfigBase`` block on
+    TrainConfig (optimizer, network, composite_loss, replay_buffer,
+    moment_matching, coverage, ...). Derived from the model, so a new block is
+    reachable through ``--set block.field`` without touching this module."""
+    blocks: Dict[str, type] = {}
+    for name, field in TrainConfig.model_fields.items():
+        ann = field.annotation
+        if isinstance(ann, type) and issubclass(ann, _ConfigBase):
+            blocks[name] = ann
+    return blocks
+
+
 def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
     """Flatten a TrainConfig into dot-notation keys."""
+    blocks = _nested_blocks()
     flat: Dict[str, Any] = {}
     for name in TrainConfig.model_fields:
         val = getattr(config, name)
-        if name == "optimizer":
-            for of in OptimizerConfig.model_fields:
-                flat[f"optimizer.{of}"] = getattr(val, of)
-        elif name == "network":
-            for nf in NetworkConfig.model_fields:
-                flat[f"network.{nf}"] = getattr(val, nf)
-        elif name == "composite_loss":
-            for cf in CompositeLossConfig.model_fields:
-                flat[f"composite_loss.{cf}"] = getattr(val, cf)
-        elif name == "replay_buffer":
-            for rf in ReplayBufferConfig.model_fields:
-                flat[f"replay_buffer.{rf}"] = getattr(val, rf)
-        elif name == "moment_matching":
-            for mf in MomentMatchingConfig.model_fields:
-                flat[f"moment_matching.{mf}"] = getattr(val, mf)
+        if name in blocks:
+            for sub in blocks[name].model_fields:
+                flat[f"{name}.{sub}"] = getattr(val, sub)
         else:
             flat[name] = val
     return flat
@@ -71,56 +70,26 @@ def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
 
 def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     """Reconstruct TrainConfig from flat dot-notation dict."""
-    opt_kw: Dict[str, Any] = {}
-    net_kw: Dict[str, Any] = {}
-    comp_kw: Dict[str, Any] = {}
-    replay_kw: Dict[str, Any] = {}
-    mom_kw: Dict[str, Any] = {}
+    blocks = _nested_blocks()
+    block_kw: Dict[str, Dict[str, Any]] = {name: {} for name in blocks}
     train_kw: Dict[str, Any] = {}
 
-    opt_fields = set(OptimizerConfig.model_fields.keys())
-    net_fields = set(NetworkConfig.model_fields.keys())
-    comp_fields = set(CompositeLossConfig.model_fields.keys())
-    replay_fields = set(ReplayBufferConfig.model_fields.keys())
-    mom_fields = set(MomentMatchingConfig.model_fields.keys())
-    train_fields = set(TrainConfig.model_fields.keys()) - {
-        "optimizer",
-        "network",
-        "composite_loss",
-        "replay_buffer",
-        "moment_matching",
-    }
-
-    # Build set of all valid flat keys for validation
+    train_fields = set(TrainConfig.model_fields.keys()) - set(blocks)
     valid_flat_keys = set(train_fields)
-    valid_flat_keys |= {f"optimizer.{n}" for n in opt_fields}
-    valid_flat_keys |= {f"network.{n}" for n in net_fields}
-    valid_flat_keys |= {f"composite_loss.{n}" for n in comp_fields}
-    valid_flat_keys |= {f"replay_buffer.{n}" for n in replay_fields}
-    valid_flat_keys |= {f"moment_matching.{n}" for n in mom_fields}
+    for name, cls in blocks.items():
+        valid_flat_keys |= {f"{name}.{sub}" for sub in cls.model_fields}
 
     _check_unknown_keys(set(flat.keys()), valid_flat_keys, "config overrides")
 
     for key, val in flat.items():
-        if key.startswith("optimizer."):
-            opt_kw[key[len("optimizer.") :]] = val
-        elif key.startswith("network."):
-            net_kw[key[len("network.") :]] = val
-        elif key.startswith("composite_loss."):
-            comp_kw[key[len("composite_loss.") :]] = val
-        elif key.startswith("replay_buffer."):
-            replay_kw[key[len("replay_buffer.") :]] = val
-        elif key.startswith("moment_matching."):
-            mom_kw[key[len("moment_matching.") :]] = val
+        block, dot, sub = key.partition(".")
+        if dot and block in blocks:
+            block_kw[block][sub] = val
         else:
             train_kw[key] = val
 
     return TrainConfig(
-        optimizer=OptimizerConfig(**opt_kw),
-        network=NetworkConfig(**net_kw),
-        composite_loss=CompositeLossConfig(**comp_kw),
-        replay_buffer=ReplayBufferConfig(**replay_kw),
-        moment_matching=MomentMatchingConfig(**mom_kw),
+        **{name: cls(**block_kw[name]) for name, cls in blocks.items()},
         **train_kw,
     )
 

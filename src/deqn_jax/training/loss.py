@@ -591,31 +591,3 @@ def eq_losses_to_array(eq_losses: Dict[str, Array]) -> Array:
     (PCGrad, MAO) only see base equilibrium equation losses.
     """
     return jnp.stack([v for k, v in eq_losses.items() if not k.startswith("aux_")])
-
-
-def compute_loss_for_grad(
-    params,
-    model: ModelSpec,
-    states: Array,
-    key: Array,
-    mc_samples: int = 5,
-) -> Array:
-    """Loss function signature suitable for jax.grad."""
-    loss, _ = compute_loss(model, params, states, key, mc_samples)
-    return loss
-
-
-def make_loss_fn(
-    model: ModelSpec,
-    mc_samples: int = 5,
-) -> Callable:
-    """Create a loss function closed over model spec.
-
-    Returns a function (params, states, key) -> (loss, eq_losses)
-    suitable for use with jax.value_and_grad.
-    """
-
-    def loss_fn(params, states: Array, key: Array):
-        return compute_loss(model, params, states, key, mc_samples)
-
-    return loss_fn

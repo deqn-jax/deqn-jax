@@ -334,13 +334,6 @@ def main():
         help="Label for output (default: checkpoint dir name)",
     )
     eval_parser.add_argument(
-        "--output",
-        "-o",
-        type=str,
-        default=None,
-        help="Output directory for CSV results",
-    )
-    eval_parser.add_argument(
         "--dynare-dir",
         type=str,
         default=None,
