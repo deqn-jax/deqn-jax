@@ -588,6 +588,36 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
     cov_enabled = (
         getattr(config, "coverage", None) is not None and config.coverage.enabled
     )
+    sur_enabled = (
+        getattr(config, "surrogate", None) is not None and config.surrogate.enabled
+    )
+    if sur_enabled:
+        # EWM world arm: Ŵ replaces E[inside] in the policy update. Validated
+        # in _validate_train_config to loss_type='mse' + STANDARD optimizer
+        # (+ coverage unless allow_without_coverage).
+        from deqn_jax.training.surrogate import make_surrogate_loss
+
+        sur_fn = make_surrogate_loss(model, config.surrogate)
+        if cov_enabled:
+            from deqn_jax.training.coverage import make_coverage_loss
+
+            if config.verbose:
+                print(
+                    "  Coverage sampling + world arm: base pool on Ŵ, "
+                    + (
+                        "stress/local exact"
+                        if config.surrogate.exact_in_coverage
+                        else "stress/local on Ŵ"
+                    )
+                )
+            if config.surrogate.exact_in_coverage:
+                return make_coverage_loss(
+                    compute_loss, model, config.coverage, base_pool_loss=sur_fn
+                )
+            return make_coverage_loss(sur_fn, model, config.coverage)
+        if config.verbose:
+            print("  World arm (surrogate expectation, no coverage)")
+        return sur_fn
     if cov_enabled and config.loss_type != "composite":
         from deqn_jax.training.coverage import make_coverage_loss
 

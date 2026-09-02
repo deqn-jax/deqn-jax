@@ -43,6 +43,12 @@ def make_grad_step_standard(
     """
     n_eq = len(model.equation_names) if model.equation_names else 1
     _compute_loss = compute_loss_fn or compute_loss
+    # Loss wrappers that consume a second trainable module (the EWM world
+    # arm's Ŵ in TrainState.aux_params) declare an ``aux_params`` kwarg;
+    # thread it only for them so every other wrapper keeps its signature.
+    import inspect
+
+    _wants_aux = "aux_params" in inspect.signature(_compute_loss).parameters
 
     @jax.jit
     def grad_step(
@@ -66,6 +72,7 @@ def make_grad_step_standard(
                 quad_nodes=quad_nodes,
                 quad_weights=quad_weights,
                 target_policy_fn=target_fn,
+                **({"aux_params": state.aux_params} if _wants_aux else {}),
             )
             return loss, eq_losses
 

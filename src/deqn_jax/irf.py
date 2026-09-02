@@ -345,6 +345,14 @@ def load_policy_from_checkpoint(
     replay_cfg = ReplayBufferConfig(
         **{k: v for k, v in replay_dict.items() if k in ReplayBufferConfig.model_fields}
     )
+    # The EWM world arm adds aux_params (Ŵ + its optimizer state) and
+    # target_params to the pytree — same template-completeness rule.
+    from deqn_jax.config import SurrogateConfig
+
+    sur_dict = cfg.get("surrogate") or {}
+    sur_cfg = SurrogateConfig(
+        **{k: v for k, v in sur_dict.items() if k in SurrogateConfig.model_fields}
+    )
 
     template_state, _, _ = create_train_state(
         model,
@@ -357,6 +365,7 @@ def load_policy_from_checkpoint(
         network_config=net_config,
         sim_batch=cfg.get("sim_batch"),
         replay_config=replay_cfg,
+        surrogate_config=sur_cfg,
     )
 
     state = eqx.tree_deserialise_leaves(checkpoint_path, template_state)
