@@ -1,4 +1,4 @@
-# The Selection Program — a chronicle (2026-07-06 → 2026-07-14, coda 2026-08-28)
+# The Selection Program — a chronicle (2026-07-06 → 2026-07-14, codas 2026-08-28, 2026-09-02)
 
 **What this is.** The complete record of five days of research on one question that grew out
 of another: *can deqn-jax produce a certified solution of the disaster model — and when it
@@ -113,7 +113,9 @@ best vs 1.057 at final) — `save_best_checkpoint` selects against the certifica
 - **Elimination ladder:** Huber = reweighs the same values (no new information);
   second-order optimization = changes the walk, not the map (sweep_so precedent); μP/init
   eliminated by the strongest evidence owned — `init_scale: 0` starts training AT the
-  linearized solution and the optimizer walks OUT to ρ ≈ 1.05.
+  linearized solution and the optimizer walks OUT to ρ ≈ 1.05. **[SUPERSEDED 09-02, §20:
+  the arms did not start at the linearization — the warm start had already moved ρ(SS) to
+  1.14. The elimination is retracted.]**
 - **The gradient-conflict diagnostic** (gated s0 final ckpt, 64 ergodic states, 3-node GH,
   fp64): total gradient norm **3.607**; per-equation norms 0.073–1.485 (largest: investment
   Euler 1.485, wage-Phillips recursion 0.963, entrepreneur contract 0.828); pairwise
@@ -392,3 +394,22 @@ follow it. Night-1's verdict stands unnarrowed: coverage destabilizes on-path-ki
 models regardless of seed measure. Cert report "EWM measure experiment (08-28)".
 Method lesson #7: **audit-driven "fixes" get a registered prediction and an arm before
 they get a verdict — this one would have been a confident wrong footnote otherwise.**
+
+## 20. Coda (09-02) — the arms never started where we said they did
+
+A whole-library review found that the constant-SS warm start (`warm_start: true` on every
+disaster config) ran on the BK-anchored `disaster_policy_net` — the skip in the trainer
+tested for `linear_plus_mlp` only. Fitting an anchored net to a *constant* policy trains
+the delta to cancel the linear slope: on the shipped recipe the warm start alone takes
+ρ(SS) from the 0.98699 floor to **1.14** and moves the policy 9–16% off π_BK on the ergodic
+set, before the first residual gradient. All 24 non-pin certification arms started there;
+the pin arms were insulated at first order. Measured numbers in the record stand (final
+checkpoints); the causal story of §5 — "starts AT the linearization and walks OUT" — is
+inverted: the anchor pulled a broken start *back* to ρ≈1.05. Fixed structurally (skip on
+any net carrying `P`), pinned by `tests/test_warm_start_anchored_nets.py`; cert report
+"Warm-start contamination (09-02)". Not yet re-run: baseline ×3 with the fix decides
+whether night-1's table is a warm-start artifact.
+
+Method lesson #8: **probe episode 0.** Every certificate was measured on final checkpoints
+and none on the initial state; the one number that would have caught this (ρ at s\* before
+training) was never in the table. Certify the start of a run the way you certify its end.

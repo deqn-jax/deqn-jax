@@ -99,6 +99,10 @@ walk, not the map (and the sweep_so precedent already showed no basin escape). �
 eliminated by the strongest evidence we own: `init_scale: 0.0` **starts training AT the
 linearized solution** and the optimizer walks *out* to ρ≈1.05 — when you start at the answer
 and leave, the objective is indicted, not the starting point.
+> **SUPERSEDED 2026-09-02 — see "Warm-start contamination (09-02)" below.** The arms did NOT
+> start at the linearized solution: the constant-SS warm start ran on the anchored net and
+> moved ρ(SS) to 1.14 before episode 1. The μP/init elimination is retracted; the walk was
+> *back toward* the linearization, not out of it.
 
 **Residual-Sobolev, weight 1 (the first "change what the loss sees" arm):** implemented as
 `aux_res_sobolev` — directional derivatives of the per-state *expected* residual via JVPs
@@ -692,6 +696,45 @@ above, by construction of five independent measurements.
    touch policy bounds (the zombie-paths/π-wall family deserves an alarm, not an autopsy).
 4. Keep: the certification protocol itself (this table format, 3+ seeds, final checkpoints,
    a-priori knobs) — it resolved three distinct mechanisms in one night.
+
+## Warm-start contamination (09-02)
+
+**Finding.** Every disaster arm in this report has `warm_start: true`, and the trainer's
+warm-start skip tested for `network.type == "linear_plus_mlp"` only — the disaster arms use
+`disaster_policy_net`. So `warm_start_network(linearize=False)` ran on the BK-anchored net in
+every certification run (DGX `logs/cert_container*.log`: "Warm starting from steady state...").
+That routine L-BFGS-fits the WHOLE policy to a **constant** SS policy on ±20% uniform states,
+which teaches the MLP delta to cancel the Blanchard–Kahn slope.
+
+**Measured (CPU, fp64, shipped recipe: 128×128 tanh, `init_scale: 0`, K/F mask on):**
+
+| net state | raw ρ(SS) | max \|J(s\*) − P\| | max rel dev from π_BK on 1σ ergodic cloud |
+|---|---|---|---|
+| at init | 0.98699 (exogenous floor; learned block 0.9769) | 0 | 0 |
+| after warm start, `bk_pin: false` | **1.1406** | 2.19 | 9–16% per policy (F/K heads 0 by mask) |
+| after warm start, `bk_pin: true` | 0.98699 | 0 | 1e-3 (1% cloud) |
+
+Reproduce: build `create_disaster_policy_net(..., init_scale=0.0)`, apply
+`warm_start_network(net, model)`, probe ρ and the Jacobian at s\* (test
+`tests/test_warm_start_anchored_nets.py` pins the fixed behaviour; the measurement script is
+the same three calls).
+
+**What changes.** (a) The 24 non-pin arms (baseline, gated, elbcov, drift, rsob, pcgrad, wide)
+started from a policy that was already **unstable at s\*** (ρ 1.14) and 10–16% off the
+linearization on the ergodic set; the ~1.02–1.06 basin they reached is therefore where the
+anchor + residuals pulled a broken start *back to*, not where the objective walked *out to*.
+The "μP/init eliminated" step of the elimination ladder is retracted; "the basin is reached by
+the baseline itself" survives only as "reached from a contaminated start". (b) The three
+`bk_pin` arms are insulated at first order (value + tangent pinned), perturbed at second order
+(1e-3 on the 1% cloud); their measured certificates are on final checkpoints and stand. (c)
+Every measured number in this report stands — they are properties of the final checkpoints.
+Every *causal* sentence of the form "started at BK and left" is void. (d) irbc arms
+(`linear_plus_mlp`, `warm_start: false`) are unaffected.
+
+**Fix.** The skip now detects the anchor structurally (any net carrying `P`/`P_kf`), so
+`warm_start: true` is a no-op on every BK-anchored architecture. No retraining was done for
+this amendment; the cheap decisive follow-up is the baseline arm ×3 seeds with the fix — if
+the basin moves, the whole night-1 table is a warm-start artifact and gets re-run.
 
 ## Reproduce
 
