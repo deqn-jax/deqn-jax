@@ -76,6 +76,8 @@ irf_results/
 !.claude/settings.json
 !.claude/hooks/
 !.claude/hooks/**
+!.claude/agents/
+!.claude/agents/**
 
 # Docs (PDFs are binary, keep .tex in version control)
 docs/*.pdf
