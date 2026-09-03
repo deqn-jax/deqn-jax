@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pydantic import (
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -35,8 +34,6 @@ class ReplayBufferConfig(_ConfigBase):
     Sequence networks (``network.history_len > 1``) are not supported in v1
     and raise ``NotImplementedError`` if enabled together.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(
         default=False,
