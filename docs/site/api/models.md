@@ -2,8 +2,10 @@
 
 Two registration paths share one `_MODELS` dict:
 
-- **In-tree** — add an import + entry to `_MODELS` and `_DESCRIPTIONS`
-  in [`src/deqn_jax/models/__init__.py`](https://github.com/deqn-jax/deqn-jax/blob/master/src/deqn_jax/models/__init__.py).
+- **In-tree** — add an import + entry to `_MODELS`
+  in [`src/deqn_jax/models/__init__.py`](https://github.com/deqn-jax/deqn-jax/blob/master/src/deqn_jax/models/__init__.py),
+  and a `DESCRIPTION` string in your package's `variables.py` (which is
+  where `_DESCRIPTIONS` reads the `deqn-jax list` blurb from).
   Right thing for models that ship with the library.
 - **Programmatic** — call `register_model(spec, description=...)` at
   runtime. Right thing for agent-codegen'd models in user projects,

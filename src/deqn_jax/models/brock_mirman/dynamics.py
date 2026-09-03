@@ -1,8 +1,12 @@
 """State transitions for Brock-Mirman model.
 
-``make_step`` is the shared transition used by every Brock-Mirman variant
-(``brock_mirman``, ``bm_labor``, ``bm_labor_constrained``): they differ in
-their ``definitions()`` and ``SPEC``, not in the accumulation law.
+``make_step`` builds the transition from a model's ``SPEC`` and its
+``definitions()``; the accumulation law itself is the same for the
+Brock-Mirman family. Two models build their own step from it:
+``brock_mirman`` (below) and ``bm_labor``. ``bm_labor_constrained`` and
+``bm_labor_autodiff`` do NOT call the factory — they import ``bm_labor``'s
+already-built ``step``, so they transition under ``bm_labor``'s SPEC and
+``definitions()``; only their equations differ.
 """
 
 from typing import Callable, Dict

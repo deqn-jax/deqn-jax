@@ -17,6 +17,5 @@ from deqn_jax.models.bm_labor.variables import (  # noqa: F401
 )
 
 DESCRIPTION = (
-    "Brock-Mirman with labor, both FOCs from Pi via jax.grad "
-    "(multi-policy autodiff)"
+    "Brock-Mirman with labor, both FOCs from Pi via jax.grad (multi-policy autodiff)"
 )

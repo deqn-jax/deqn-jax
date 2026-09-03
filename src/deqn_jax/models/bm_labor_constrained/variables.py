@@ -50,6 +50,5 @@ POLICY_UPPER = jnp.array([1 - 1e-6, L_OUT_BOUND])
 N_SHOCKS = 1
 
 DESCRIPTION = (
-    "Brock-Mirman with endogenous labor and an upper labor cap "
-    "(Fischer-Burmeister)"
+    "Brock-Mirman with endogenous labor and an upper labor cap (Fischer-Burmeister)"
 )

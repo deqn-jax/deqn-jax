@@ -371,14 +371,16 @@ coefficients default to `1 / bound**2` (DEQN-MAO upstream convention).
     ```text
     models/<name>/
       __init__.py        # MODEL: ModelSpec
-      variables.py       # SPEC, CONSTANTS, POLICY_LOWER/UPPER, N_SHOCKS
+      variables.py       # SPEC, CONSTANTS, POLICY_LOWER/UPPER, N_SHOCKS, DESCRIPTION
       equations.py       # equations(), definitions(), EQUATION_NAMES
       dynamics.py        # step()
       steady_state.py    # steady_state(), init_state
     ```
 
-2. Add an import + entries to `_MODELS` and `_DESCRIPTIONS` in
-   [`src/deqn_jax/models/__init__.py`](api/models.md).
+2. Add an import + an entry to `_MODELS` in
+   [`src/deqn_jax/models/__init__.py`](api/models.md). The `deqn-jax list`
+   blurb comes from your `variables.py::DESCRIPTION`; `_DESCRIPTIONS` is
+   derived from it, so there is nothing to add there.
 3. Done — `load_model("<name>")` and `deqn-jax train <name>` both work.
 
 ### Path B — Programmatic (codegen / plugin)

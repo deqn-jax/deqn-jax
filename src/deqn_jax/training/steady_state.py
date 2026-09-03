@@ -80,11 +80,13 @@ def solve_steady_state(
         return total
 
     # L-BFGS via optax. ``_lbfgs_minimize`` ravels the pytree first; on a
-    # single flat array leaf that is the identity, so the iterates, the
-    # memory size (10) and the ``float(val) < tol`` stopping rule are the
-    # same ones this function used to spell out inline.
+    # single flat array leaf that is the identity, so the iterates and the
+    # ``float(val) < tol`` stopping rule are the same ones this function
+    # used to spell out inline. ``memory_size`` is passed EXPLICITLY: it
+    # is a warm-start default over there, and retuning it for warm starts
+    # must not silently move the numerical steady-state solve.
     x, n_iters, final_residual = _lbfgs_minimize(
-        residual_fn, init_x, max_iter=max_iter, tol=tol
+        residual_fn, init_x, max_iter=max_iter, tol=tol, memory_size=10
     )
 
     ss_state = x[:n_states]

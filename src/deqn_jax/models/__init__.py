@@ -47,13 +47,11 @@ _MODELS = {
 
 # One source of truth for the blurbs: each model package's
 # ``variables.DESCRIPTION``. Keeping a hand-typed copy here let the two
-# drift (six of eleven disagreed before 2026-09).
+# drift (six of eleven disagreed before 2026-09). No getattr default: a
+# package that forgets DESCRIPTION should fail loudly at import, not ship
+# a blank row in ``deqn-jax list``.
 _DESCRIPTIONS = {
-    name: getattr(
-        importlib.import_module(f"deqn_jax.models.{name}.variables"),
-        "DESCRIPTION",
-        "",
-    )
+    name: importlib.import_module(f"deqn_jax.models.{name}.variables").DESCRIPTION
     for name in _MODELS
 }
 

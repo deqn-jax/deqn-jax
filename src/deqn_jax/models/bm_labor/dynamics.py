@@ -2,6 +2,8 @@
 
 Identical accumulation law to ``brock_mirman``; only ``SPEC`` and
 ``definitions()`` differ, so the step is built from the shared factory.
+``bm_labor_constrained`` and ``bm_labor_autodiff`` import this exact
+``step`` object rather than rebuilding one.
 """
 
 from deqn_jax.models.bm_labor.equations import definitions
