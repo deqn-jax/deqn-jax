@@ -663,6 +663,65 @@ def run_info(args):
     print()
 
 
+def sample_ergodic_states(model, policy_net, n_states: int, key):
+    """Simulate one ergodic path and return ``[n_states, n_states_dim]``.
+
+    The rollout goes through the shared eval loop
+    (``evaluate/simulate.py``), so the sampler visits the same support the
+    evaluator does — including the disaster-Bernoulli branch, which the
+    hand-rolled version of this sampler lacked. Non-finite states are
+    dropped (rare, but a diverged policy would poison the covariance).
+    """
+    import jax
+    import jax.numpy as jnp
+
+    from deqn_jax.evaluate.simulate import eval_p_disaster, eval_rollout
+
+    constants = model.constants
+    ss_state, _ = model.steady_state_fn(constants)
+
+    @jax.jit
+    def _sim_step(state, shock):
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(state, policy, shock, constants)
+        return next_state, state[0]
+
+    @jax.jit
+    def _sim_step_with_d(state, shock, d_disaster):
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(
+            state, policy, shock, constants, d_disaster=d_disaster
+        )
+        return next_state, state[0]
+
+    if eval_p_disaster(model) > 0.0:
+
+        def step(state, shock, d):
+            return _sim_step_with_d(state, shock, d)
+
+    else:
+
+        def step(state, shock, _d):
+            return _sim_step(state, shock)
+
+    burn_in = min(500, n_states // 5)
+    collected = []
+
+    def record(t, outputs):
+        _next_state, st = outputs
+        if t >= burn_in:
+            collected.append(st)
+
+    eval_rollout(model, ss_state[None, :], key, n_states + burn_in, step, record)
+    states = jnp.stack(collected)
+    finite = jnp.all(jnp.isfinite(states), axis=1)
+    return states[finite]
+
+
 def run_active_subspace_command(args):
     """CLI handler for ``deqn-jax active-subspace``.
 
@@ -679,8 +738,6 @@ def run_active_subspace_command(args):
 
     from pathlib import Path
 
-    import jax
-    import jax.numpy as jnp
     import jax.random as jr
 
     from deqn_jax.active_subspace import (
@@ -710,69 +767,10 @@ def run_active_subspace_command(args):
     # states now visit the same support the evaluator does. Continuous,
     # p_disaster = 0 models (e.g. brock_mirman) draw exactly as before.
     print(f"Simulating {args.n_states} ergodic states (seed={args.seed})...")
-    constants = model.constants
-    ss_state, _ = model.steady_state_fn(constants)
-    state = ss_state[None, :]
+    ss_state, _ = model.steady_state_fn(model.constants)
     key = jr.PRNGKey(args.seed)
 
-    from deqn_jax.evaluate.simulate import eval_rollout
-    from deqn_jax.training.shocks import step_accepts_disaster
-
-    p_disaster = (
-        float(constants.get("p_disaster", 0.0))
-        if step_accepts_disaster(model.step_fn)
-        else 0.0
-    )
-
-    @jax.jit
-    def _sim_step(state, shock):
-        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
-        if policy.ndim == 1:
-            policy = policy[None, :]
-        next_state = model.step_fn(state, policy, shock, constants)
-        return next_state, state[0]
-
-    @jax.jit
-    def _sim_step_with_d(state, shock, d_disaster):
-        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
-        if policy.ndim == 1:
-            policy = policy[None, :]
-        next_state = model.step_fn(
-            state, policy, shock, constants, d_disaster=d_disaster
-        )
-        return next_state, state[0]
-
-    if p_disaster > 0.0:
-
-        def step(state, shock, d):
-            return _sim_step_with_d(state, shock, d)
-
-    else:
-
-        def step(state, shock, _d):
-            return _sim_step(state, shock)
-
-    burn_in = min(500, args.n_states // 5)
-    states_collected = []
-
-    def record(t, outputs):
-        _next_state, st = outputs
-        if t >= burn_in:
-            states_collected.append(st)
-
-    eval_rollout(
-        model,
-        state,
-        key,
-        args.n_states + burn_in,
-        step,
-        record,
-        p_disaster=p_disaster,
-    )
-    states = jnp.stack(states_collected)
-    # Drop any non-finite states (rare but defensive).
-    finite = jnp.all(jnp.isfinite(states), axis=1)
-    states = states[finite]
+    states = sample_ergodic_states(model, policy_net, args.n_states, key)
 
     print(f"Estimating active subspace per policy on {states.shape[0]} states...")
     label = args.label or Path(args.checkpoint).parent.name

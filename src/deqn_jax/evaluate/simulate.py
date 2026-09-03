@@ -21,6 +21,7 @@ from deqn_jax.training.shocks import (
     draw_discrete_shocks,
     draw_training_shocks,
     maybe_draw_disaster,
+    step_accepts_disaster,
 )
 
 # ---------------------------------------------------------------------------
@@ -92,6 +93,18 @@ def _rollout(model, state, n_periods, step_fn, record, draw, after_step):
     return state
 
 
+def eval_p_disaster(model) -> float:
+    """The Bernoulli disaster probability this model's eval paths should use.
+
+    Zero unless ``step_fn`` takes a ``d_disaster`` kwarg *and* the model's
+    constants carry a positive ``p_disaster``. One definition, used both by
+    ``eval_rollout`` and by callers picking their per-step function.
+    """
+    if not step_accepts_disaster(model.step_fn):
+        return 0.0
+    return float(model.constants.get("p_disaster", 0.0))
+
+
 def eval_rollout(
     model,
     state,
@@ -99,7 +112,6 @@ def eval_rollout(
     n_periods: int,
     step_fn: StepFn,
     record: RecordFn,
-    p_disaster: float = 0.0,
     after_step: Optional[Callable[[int, Any], None]] = None,
 ):
     """Run a stochastic single-path rollout, recording each period.
@@ -108,8 +120,8 @@ def eval_rollout(
         model: ModelSpec (used for ``n_shocks``, the discrete chain, the
             disaster draw, and ``clip_state_fn``).
         state: ``[1, n_states]`` start state.
-        key: PRNG key. Split per period — ``split(key, 3)`` when
-            ``p_disaster > 0`` (key, shock, disaster), ``split(key)``
+        key: PRNG key. Split per period — ``split(key, 3)`` when the model
+            has disaster risk (key, shock, disaster), ``split(key)``
             otherwise. This order is the historical one and is what makes
             reported numbers reproducible across releases.
         n_periods: number of steps.
@@ -119,13 +131,31 @@ def eval_rollout(
         record: ``(t, outputs) -> bool``; called after the step, before
             the clip. Return truthy to stop (the rollout then leaves
             ``state`` at the *pre*-step value, as the hand-rolled loops did).
-        p_disaster: Bernoulli disaster probability; > 0 selects the
-            disaster branch.
         after_step: optional ``(t, state)`` hook called after the clip.
+
+    The disaster branch is selected from the model itself
+    (``eval_p_disaster``), so the loop and the caller's choice of per-step
+    function cannot disagree about which branch is live.
 
     Returns:
         The final state.
+
+    Raises:
+        NotImplementedError: for a model that is both a discrete chain and
+            disaster-capable. The draw order for that combination has never
+            been defined (no shipped model has both) and silently picking
+            one would change numbers under either reading.
     """
+    p_disaster = eval_p_disaster(model)
+    if p_disaster > 0.0 and _model_uses_discrete_chain(model):
+        raise NotImplementedError(
+            "eval_rollout does not support a model that is both a discrete "
+            "Markov chain (transition_matrix set) and disaster-capable "
+            "(p_disaster > 0): the order in which the chain draw and the "
+            "Bernoulli draw consume the PRNG key is undefined, so any choice "
+            "here would silently fix a convention. Define it in "
+            "training/shocks.py first."
+        )
 
     def draw(state):
         nonlocal key

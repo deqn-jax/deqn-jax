@@ -12,7 +12,7 @@ Usage:
 import csv
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -21,6 +21,7 @@ import yaml
 from jax import Array
 
 from deqn_jax.models import load_model
+from deqn_jax.training.checkpointing import resume_from
 
 # ---------------------------------------------------------------------------
 # Core IRF simulation
@@ -221,12 +222,16 @@ def run_girf(
 
     Returns:
         Dict with ``period`` and per-variable deviation series of length
-        ``horizon + 1`` (t = 0..horizon).
+        ``horizon + 1`` (t = 0..horizon), plus the private marker
+        ``_mode = "girf"``. Keys starting with ``_`` are metadata, not
+        series: ``save_irf_csv`` turns the marker into the CSV's ``mode``
+        column and ``print_irf_summary`` skips them, so a GIRF table cannot
+        be mislabelled by a caller that forgets to say which mode it ran.
     """
     shocked = run_irf(policy_net, model, shock_name, shock_size, horizon)
     baseline = run_irf(policy_net, model, shock_name, 0.0, horizon)
 
-    out: Dict[str, List[float]] = {}
+    out: Dict[str, Any] = {"_mode": "girf"}
     for key, series in shocked.items():
         if key == "period":
             out[key] = list(series)
@@ -353,8 +358,6 @@ def load_policy_from_checkpoint(
     # Deserialize through the trainer's own loader so checkpoint reading has
     # one implementation. The FULL-NetworkConfig template above is still built
     # here (see the 2026-07-11 note) — ``resume_from`` only fills its leaves.
-    from deqn_jax.training.checkpointing import resume_from
-
     state = resume_from(template_state, checkpoint_path)
     policy_net = state.params
 
@@ -375,18 +378,20 @@ def load_policy_from_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def save_irf_csv(results: Dict[str, List[float]], path: str, mode: str = "irf"):
+def save_irf_csv(results: Dict[str, List[float]], path: str):
     """Save IRF results to CSV.
 
-    ``mode`` is recorded in a trailing ``mode`` column: ``0`` for a plain IRF,
-    ``1`` for a GIRF (deviations from the matched no-shock baseline). Both
-    modes write ``irf_<shock>.csv`` — the old ``girf_<shock>.csv`` filename had
-    no reader anywhere in the tree. The flag is numeric so readers that parse
-    every field as a float (``scripts/make_plots.py``) keep working.
+    The mode is read off the results dict itself (``run_girf`` sets
+    ``_mode = "girf"``), never supplied by the caller, so the label cannot
+    disagree with the numbers. It lands in a trailing ``mode`` column: ``0``
+    for a plain IRF, ``1`` for a GIRF (deviations from the matched no-shock
+    baseline). The flag is numeric so readers that parse every field as a
+    float (``scripts/make_plots.py``) keep working. Other ``_``-prefixed keys
+    are metadata too and are not written.
     """
-    keys = list(results.keys())
+    keys = [k for k in results if not k.startswith("_")]
     n_rows = len(results["period"])
-    mode_flag = 1 if mode == "girf" else 0
+    mode_flag = 1 if results.get("_mode") == "girf" else 0
 
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -401,7 +406,11 @@ def print_irf_summary(results: Dict[str, List[float]], shock_name: str):
     # Find which keys are states, policies, equations
     # (equations have "eq" prefix)
     eq_keys = [k for k in results if k.startswith("eq")]
-    var_keys = [k for k in results if k not in ("period",) and k not in eq_keys]
+    var_keys = [
+        k
+        for k in results
+        if k not in ("period",) and k not in eq_keys and not k.startswith("_")
+    ]
 
     print(f"\nIRF: 1σ shock to {shock_name}, {len(periods)} periods")
     print("=" * 70)
@@ -497,10 +506,13 @@ def run_irf_cli(args):
             horizon=args.horizon,
         )
 
-        # Save CSV — one filename for both modes; the mode is a column.
-        mode = "girf" if use_girf else "irf"
-        csv_path = os.path.join(outdir, f"irf_{shock_name}.csv")
-        save_irf_csv(results, csv_path, mode=mode)
+        # Save CSV. Plain IRF keeps ``irf_<shock>.csv`` (the name
+        # scripts/make_plots.py reads); GIRF gets its own basename so a
+        # second run in the same outdir can't silently overwrite the first.
+        # Both carry the numeric ``mode`` column.
+        basename = f"irf_{shock_name}_girf.csv" if use_girf else f"irf_{shock_name}.csv"
+        csv_path = os.path.join(outdir, basename)
+        save_irf_csv(results, csv_path)
         print(f"Saved: {csv_path}")
 
         # Print summary

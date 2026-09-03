@@ -180,20 +180,72 @@ class TestSharedRollout:
         eval_rollout(model, ss_state[None, :], jax.random.PRNGKey(0), 50, step, record)
         assert seen == [0, 1, 2, 3]
 
+    def test_discrete_plus_disaster_is_refused(self, tiny_model_and_net):
+        """The one branch combination whose draw order was never defined."""
+        import jax.numpy as jnp
+        import pytest as _pytest
+
+        from deqn_jax.evaluate.simulate import eval_rollout
+
+        model, net = tiny_model_and_net
+
+        def step_fn(state, policy, shock, constants, d_disaster=None):
+            return state
+
+        both = model._replace(
+            step_fn=step_fn,
+            transition_matrix=jnp.eye(2),
+            z_state_idx=1,
+            constants={**model.constants, "p_disaster": 0.1},
+        )
+        with _pytest.raises(NotImplementedError, match="discrete"):
+            eval_rollout(
+                both,
+                jnp.zeros((1, model.n_states)),
+                jax.random.PRNGKey(0),
+                1,
+                lambda s, sh, d: (s,),
+                lambda t, out: None,
+            )
+
 
 class TestIrfCsvMode:
-    """Both IRF modes write irf_<shock>.csv; the mode is a trailing column."""
+    """The CSV's mode column is derived from the results, not from a caller."""
 
-    def test_mode_column(self, tmp_path):
+    def test_mode_column_is_derived(self, tmp_path):
         from deqn_jax.irf import save_irf_csv
 
-        results = {"period": [0, 1], "k": [1.0, 1.1]}
-        for mode, flag in (("irf", "0"), ("girf", "1")):
-            path = tmp_path / f"{mode}.csv"
-            save_irf_csv(results, str(path), mode=mode)
+        irf_results = {"period": [0, 1], "k": [1.0, 1.1]}
+        girf_results = {"_mode": "girf", **irf_results}
+
+        for results, flag in ((irf_results, "0"), (girf_results, "1")):
+            path = tmp_path / f"mode_{flag}.csv"
+            save_irf_csv(results, str(path))
             rows = [line.strip().split(",") for line in path.read_text().splitlines()]
+            # Metadata keys never become columns.
             assert rows[0] == ["period", "k", "mode"]
             assert [r[-1] for r in rows[1:]] == [flag, flag]
             # Every field stays numeric so float-parsing readers keep working.
             for r in rows[1:]:
                 [float(v) for v in r]
+
+
+class TestActiveSubspaceSampler:
+    """The cli sampler's disaster branch (it used to have none)."""
+
+    def test_samples_disaster_model(self):
+        import jax.numpy as jnp
+
+        from deqn_jax.cli import sample_ergodic_states
+        from deqn_jax.networks.factory import build_policy_net
+
+        model = load_model("disaster")
+        model = model._replace(
+            constants={**model.constants, "p_disaster": 0.5}
+        )  # high p: both branches get visited
+        net = build_policy_net(model, jax.random.PRNGKey(0), (16,), None)
+
+        states = sample_ergodic_states(model, net, 20, jax.random.PRNGKey(3))
+        assert states.shape[1] == model.n_states
+        assert states.shape[0] > 0
+        assert bool(jnp.all(jnp.isfinite(states)))

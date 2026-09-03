@@ -6,7 +6,11 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from deqn_jax.evaluate.simulate import _model_uses_discrete_chain, eval_rollout
+from deqn_jax.evaluate.simulate import (
+    _model_uses_discrete_chain,
+    eval_p_disaster,
+    eval_rollout,
+)
 
 
 def _sim_seed_state(model, key):
@@ -77,10 +81,7 @@ def euler_equation_errors(
     # actually visits disaster states -- without this, evaluating a
     # disaster-calibrated model produces a normal-shock-only path and
     # the reported accuracy excludes the disaster branch entirely.
-    from deqn_jax.training.shocks import step_accepts_disaster
-
-    supports_disaster = step_accepts_disaster(model.step_fn)
-    p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
+    p_disaster = eval_p_disaster(model)
 
     # Detect discrete-chain support once. When set, residual reporting uses
     # exact enumeration over Π row at each visited state (not the single-
@@ -251,7 +252,6 @@ def euler_equation_errors(
         n_periods,
         step,
         record,
-        p_disaster=p_disaster,
     )
 
     residuals_array = jnp.stack(all_residuals)  # [T, n_eq]
@@ -420,10 +420,7 @@ def simulated_moments(
     # actually visit disaster states. Without this, a disaster-calibrated
     # model (p_disaster > 0) reports moments from a no-disaster-only path,
     # silently understating dispersion and tail behaviour.
-    from deqn_jax.training.shocks import step_accepts_disaster
-
-    supports_disaster = step_accepts_disaster(model.step_fn)
-    p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
+    p_disaster = eval_p_disaster(model)
 
     @eqx.filter_jit
     def _sim_step(state, shock):
@@ -469,7 +466,6 @@ def simulated_moments(
         n_periods,
         step,
         record,
-        p_disaster=p_disaster,
     )
 
     states = jnp.stack(all_states)  # [T, n_states]
@@ -582,10 +578,7 @@ def stability_check(
     # Disaster support: mirror euler_equation_errors / simulated_moments so the
     # stability check exercises disaster states. A disaster-calibrated model
     # that is stable only on the no-disaster branch would otherwise pass.
-    from deqn_jax.training.shocks import step_accepts_disaster
-
-    supports_disaster = step_accepts_disaster(model.step_fn)
-    p_disaster = float(constants.get("p_disaster", 0.0)) if supports_disaster else 0.0
+    p_disaster = eval_p_disaster(model)
 
     @eqx.filter_jit
     def _sim_step(state, shock):
@@ -653,7 +646,6 @@ def stability_check(
         n_periods,
         step,
         record,
-        p_disaster=p_disaster,
         after_step=after_step,
     )
 
