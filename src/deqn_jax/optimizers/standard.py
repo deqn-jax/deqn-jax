@@ -18,8 +18,7 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from deqn_jax.training.loss import compute_loss
-from deqn_jax.training.reweighting import update_reweighting
+from deqn_jax.optimizers._step_common import finalize_step, make_loss_call
 from deqn_jax.types import Metrics, ModelSpec, TrainState
 
 
@@ -42,7 +41,9 @@ def make_grad_step_standard(
     path so consumers see no difference per step.
     """
     n_eq = len(model.equation_names) if model.equation_names else 1
-    _compute_loss = compute_loss_fn or compute_loss
+    loss_call = make_loss_call(
+        model, mc_samples, quad_nodes, quad_weights, compute_loss_fn
+    )
 
     @jax.jit
     def grad_step(
@@ -55,17 +56,14 @@ def make_grad_step_standard(
         target_fn = state.target_params if use_target_network else None
 
         def loss_fn(params):
-            loss, eq_losses = _compute_loss(
-                model,
+            loss, eq_losses = loss_call(
                 params,
                 batch,
                 loss_key,
-                mc_samples,
                 weights=state.loss_weights,
                 shock_scale=shock_scale,
-                quad_nodes=quad_nodes,
-                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
+                aux_params=state.aux_params,
             )
             return loss, eq_losses
 
@@ -84,21 +82,17 @@ def make_grad_step_standard(
         new_params = eqx.combine(new_params_arrays, state.params)
         grad_norm = optax.global_norm(grads_arrays)
 
-        new_weights, new_rw = update_reweighting(
-            eq_losses,
+        return finalize_step(
             state,
-            loss_reweight,
-            reweight_alpha,
-            n_eq,
-        )
-        new_state = state._replace(
             params=new_params,
             opt_state=new_opt_state,
             key=new_key,
-            step=state.step + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
+            loss=loss,
+            eq_losses=eq_losses,
+            grad_norm=grad_norm,
+            loss_reweight=loss_reweight,
+            reweight_alpha=reweight_alpha,
+            n_eq=n_eq,
         )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
     return grad_step

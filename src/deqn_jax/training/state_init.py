@@ -307,9 +307,10 @@ def _validate_train_config(config) -> None:
     # Reject composite loss combined with optimizers whose update paths
     # only see base-equation gradients. Ordered first because this is
     # the more specific / silent-correctness class of mistake. LBFGS is
-    # deliberately NOT in this set: its grad step differentiates
-    # `compute_loss_fn or compute_loss` (optimizers/lbfgs.py), so a
-    # composite/custom loss genuinely reaches its gradient and line search.
+    # deliberately NOT in this set: its grad step differentiates the
+    # configured loss (the `make_loss_call` closure built in
+    # optimizers/_step_common.py), so a composite/custom loss genuinely
+    # reaches its gradient and line search.
     if config.loss_type == "composite":
         # PCGrad × composite is supported since 2026-07-07: the PCGrad step
         # projects only the per-equation core gradients and adds the exact

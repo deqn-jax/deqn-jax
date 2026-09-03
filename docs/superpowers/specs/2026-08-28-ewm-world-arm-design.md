@@ -72,8 +72,9 @@ without coverage is the paper's ablation, allowed but named); rejected with MAO/
   loader template must forward it** — the 07-11/07-17 template-completeness bug class;
   add the roundtrip test in `tests/test_checkpoint_loader_template.py`).
 - `training/trainer.py`: one new `OptimizerKind`/step variant `STANDARD_SURROGATE` sharing
-  `_prepare_step`/`_finalize_step`; the world update runs OUTSIDE the policy JIT (its own
-  jitted fn) once per episode; Polyak update on the array leaves via `eqx.filter`.
+  `optimizers/_step_common.py`'s `make_loss_call`/`finalize_step`; the world update runs
+  OUTSIDE the policy JIT (its own jitted fn) once per episode; Polyak update on the
+  array leaves via `eqx.filter`.
 - Logging: `aux_world_fit` (Ŵ MSE on anchors), `aux_world_audit` (Ŵ vs exact Q on a fixed
   held-out grid, every `log_every`), `B_policy`, `B_world` as scalars.
 
