@@ -2,12 +2,13 @@
 
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP, create_linear_plus_mlp
 from deqn_jax.networks.lstm import LSTMPolicy, create_lstm
-from deqn_jax.networks.mlp import MLP, ResMLP, create_mlp
+from deqn_jax.networks.mlp import MLP, MultiHeadMLP, ResMLP, create_mlp
 from deqn_jax.networks.transformer import TransformerPolicy, create_transformer
 
 __all__ = [
     "MLP",
     "ResMLP",
+    "MultiHeadMLP",
     "create_mlp",
     "LSTMPolicy",
     "create_lstm",

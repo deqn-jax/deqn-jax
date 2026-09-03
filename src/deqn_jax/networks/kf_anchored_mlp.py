@@ -40,7 +40,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.networks.common import _resolve_activation
+from deqn_jax.networks.common import _apply_hard_clip, _resolve_activation, _to_tuple
 from deqn_jax.networks.mlp import MLP
 
 
@@ -121,14 +121,16 @@ class KfAnchoredMLP(eqx.Module):
         # far from SS; we clip back into the feasible region as a safety
         # fence (these are auxiliary discount sums; they should never go
         # near zero under sane dynamics anyway).
-        if model.policy_lower is not None:
-            self.kf_lower = tuple(float(model.policy_lower[i]) for i in kf_idx)
-        else:
-            self.kf_lower = None
-        if model.policy_upper is not None:
-            self.kf_upper = tuple(float(model.policy_upper[i]) for i in kf_idx)
-        else:
-            self.kf_upper = None
+        self.kf_lower = (
+            _to_tuple(model.policy_lower[i] for i in kf_idx)
+            if model.policy_lower is not None
+            else None
+        )
+        self.kf_upper = (
+            _to_tuple(model.policy_upper[i] for i in kf_idx)
+            if model.policy_upper is not None
+            else None
+        )
 
         # Inner MLP outputs only the non-K/F policies, with their bounds.
         if model.policy_lower is not None:
@@ -163,15 +165,10 @@ class KfAnchoredMLP(eqx.Module):
         P_kf = jax.lax.stop_gradient(self.P_kf)
         kf = ss_kf + P_kf @ (state - ss_state)
 
-        # Hard clip to bounds. Bounds are static tuples of floats; convert
-        # to arrays for math (XLA constant-folds inside JIT).
-        if self.kf_lower is not None:
-            lower = jnp.asarray(self.kf_lower)
-            kf = jnp.maximum(kf, lower + 1e-4)
-        if self.kf_upper is not None:
-            upper = jnp.asarray(self.kf_upper)
-            safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
-            kf = jnp.minimum(kf, safe_upper - 1e-4)
+        # Hard clip to bounds, keeping the anchored outputs 1e-4 strictly
+        # inside the model's feasible box (the linearization can predict
+        # boundary-violating values far from SS).
+        kf = _apply_hard_clip(kf, self.kf_lower, self.kf_upper, margin=1e-4)
 
         # Assemble in policy_names order.
         kf_dtype_aligned = kf.astype(seven.dtype)

@@ -21,8 +21,15 @@ from deqn_jax.networks.common import (
 class MLP(eqx.Module):
     """Multi-layer perceptron for policy approximation.
 
-    Outputs are optionally bounded using sigmoid scaling:
-        output = lower + (upper - lower) * sigmoid(raw_output)
+    Outputs are optionally bounded per element by ``common._apply_bounds``,
+    which dispatches on whether that output has a finite upper bound:
+
+        finite upper:   lower + (upper - lower) * sigmoid(raw)
+        infinite upper: lower + softplus(raw)
+        lower is None:  raw (no bounding at all)
+
+    The per-output choice is frozen at construction into the static
+    ``_has_upper`` mask, so a model may mix the two forms.
 
     Attributes:
         layers: List of linear layers
@@ -195,10 +202,7 @@ class ResMLP(eqx.Module):
                 self.skip_projs.append(None)  # no skip for output layer
 
     def _forward_single(self, x: Array) -> Array:
-        if self.input_shift is not None:
-            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(
-                self.input_scale
-            )
+        x = _normalize_input(x, self.input_shift, self.input_scale)
 
         for i, layer in enumerate(self.layers[:-1]):
             residual = x
@@ -287,10 +291,7 @@ class MultiHeadMLP(eqx.Module):
         ]
 
     def _forward_single(self, x: Array) -> Array:
-        if self.input_shift is not None:
-            x = (x - jax.lax.stop_gradient(self.input_shift)) / jax.lax.stop_gradient(
-                self.input_scale
-            )
+        x = _normalize_input(x, self.input_shift, self.input_scale)
 
         for i, layer in enumerate(self.trunk_layers):
             x = self.activations[i](layer(x))
@@ -337,7 +338,13 @@ def create_mlp(
               "he_normal", "he_uniform", "lecun_normal", "default")
         policy_lower: Lower bounds for policy outputs
         policy_upper: Upper bounds for policy outputs
-        skip_connections: Use residual connections between hidden layers
+        multi_head: Use MultiHeadMLP (shared trunk + one linear head per
+            policy). Takes precedence over skip_connections.
+        skip_connections: Use ResMLP (residual connections between hidden
+            layers). Ignored when multi_head is True.
+        input_shift: Input normalization shift, subtracted before the first
+            layer. Paired with input_scale; pass both or neither.
+        input_scale: Input normalization scale, divided after the shift.
         key: JAX PRNG key
 
     Returns:

@@ -24,9 +24,10 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from deqn_jax.networks.lstm import LSTMPolicy
-from deqn_jax.networks.mlp import MLP, MultiHeadMLP, ResMLP
+from deqn_jax.networks.mlp import MLP, MultiHeadMLP, ResMLP, create_mlp
 from deqn_jax.networks.transformer import TransformerPolicy
 
 
@@ -206,3 +207,96 @@ def test_transformer_bounds_are_static():
     )
     assert isinstance(net.output_lower, tuple)
     assert isinstance(net.output_upper, tuple)
+
+
+# ---------------------------------------------------------------------------
+# Input normalization on the static-tuple fields.
+#
+# ResMLP / MultiHeadMLP used to hand-roll `(x - stop_gradient(self.input_shift))
+# / stop_gradient(self.input_scale)`. Once the normalization fields became
+# static tuples that expression raised
+# `TypeError: unsupported operand type(s) for -: 'ArrayImpl' and 'tuple'`
+# for EVERY input_shift, i.e. for every model with a steady state (the factory
+# always derives shift/scale from it). Both now route through
+# `common._normalize_input`, which converts the tuple first.
+# ---------------------------------------------------------------------------
+
+
+def _bounds_kwargs():
+    return dict(
+        output_lower=jnp.array([0.0, 0.5, 1.0]),
+        output_upper=jnp.array([1.0, jnp.inf, 2.0]),
+    )
+
+
+@pytest.mark.parametrize("cls", [MLP, ResMLP, MultiHeadMLP])
+def test_normalized_forward_runs_for_every_mlp_variant(cls):
+    """A set input_shift/input_scale must not blow up the forward pass."""
+    shift = jnp.array([1.0, 2.0, 3.0, 4.0])
+    scale = jnp.array([2.0, 2.0, 2.0, 2.0])
+    net = cls(
+        in_features=4,
+        out_features=3,
+        hidden_sizes=(8,),
+        activations=(jax.nn.tanh,),
+        input_shift=shift,
+        input_scale=scale,
+        key=jr.PRNGKey(0),
+        **_bounds_kwargs(),
+    )
+    x = jnp.array([2.0, 4.0, 6.0, 8.0])
+    y = net(x)
+    assert y.shape == (3,)
+    assert jnp.all(jnp.isfinite(y))
+    # Batched path too (this is where the vmap tracer used to surface).
+    y_batch = net(jnp.stack([x, x + 1.0]))
+    assert y_batch.shape == (2, 3)
+    assert jnp.all(jnp.isfinite(y_batch))
+
+
+@pytest.mark.parametrize("cls", [MLP, ResMLP, MultiHeadMLP])
+def test_normalization_is_applied_not_merely_tolerated(cls):
+    """Normalizing an input is equivalent to feeding the normalized value raw."""
+    shift = jnp.array([1.0, 2.0, 3.0, 4.0])
+    scale = jnp.array([2.0, 2.0, 2.0, 2.0])
+    common = dict(
+        in_features=4,
+        out_features=3,
+        hidden_sizes=(8,),
+        activations=(jax.nn.tanh,),
+        key=jr.PRNGKey(3),
+        **_bounds_kwargs(),
+    )
+    normed = cls(input_shift=shift, input_scale=scale, **common)
+    plain = cls(**common)
+    x = jnp.array([3.0, 6.0, 9.0, 12.0])
+    assert jnp.allclose(normed(x), plain((x - shift) / scale))
+
+
+@pytest.mark.parametrize("skip,multi", [(False, False), (True, False), (False, True)])
+def test_factory_never_produces_shift_without_scale(skip, multi):
+    """`_normalize_input` needs BOTH fields; no constructor path sets only one.
+
+    `_normalize_input` no-ops when either is None, whereas the hand-rolled
+    code it replaced branched on the shift alone and would have divided by
+    None. That divergence is unreachable: `create_mlp` and `build_policy_net`
+    pass shift and scale together or not at all.
+    """
+    from deqn_jax.models import load_model
+    from deqn_jax.networks.factory import build_policy_net
+
+    net = create_mlp(
+        n_states=4,
+        n_policies=3,
+        hidden_sizes=(8,),
+        skip_connections=skip,
+        multi_head=multi,
+        input_shift=jnp.zeros(4),
+        input_scale=jnp.ones(4),
+        key=jr.PRNGKey(0),
+    )
+    assert (net.input_shift is None) == (net.input_scale is None)
+
+    model = load_model("brock_mirman")
+    built = build_policy_net(model, jr.PRNGKey(0), (8,), None)
+    assert (built.input_shift is None) == (built.input_scale is None)

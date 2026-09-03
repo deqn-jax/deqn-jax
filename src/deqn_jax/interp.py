@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array  # noqa: F401
 
+from deqn_jax.networks.common import _apply_hard_clip, _normalize_input
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP  # noqa: F401
 from deqn_jax.networks.mlp import MLP  # noqa: F401
 
@@ -46,8 +47,6 @@ def forward_with_activations(mlp: MLP, states: Array) -> Dict[str, Array]:
     """
 
     def _single(state: Array) -> Dict[str, Array]:
-        from deqn_jax.networks.mlp import _normalize_input  # local: tiny helper
-
         x = _normalize_input(state, mlp.input_shift, mlp.input_scale)
 
         captures: Dict[str, Array] = {}
@@ -264,8 +263,6 @@ def ablate_neuron(
         ``[batch, n_policies]``. Full clipping + link-type semantics from
         ``LinearPlusMLP._forward_single`` are preserved.
     """
-    from deqn_jax.networks.mlp import _normalize_input
-
     mlp = net.mlp
     n_hidden = len(mlp.layers) - 1
     if not 0 <= layer_idx < n_hidden:
@@ -302,13 +299,6 @@ def ablate_neuron(
             raw_log = ss_policy * jnp.exp(bk_corr + delta)
             raw = jnp.where(is_log, raw_log, raw_linear)
 
-        if net.policy_lower is not None:
-            lower = jax.lax.stop_gradient(jnp.asarray(net.policy_lower))
-            raw = jnp.maximum(raw, lower)
-        if net.policy_upper is not None:
-            upper = jax.lax.stop_gradient(jnp.asarray(net.policy_upper))
-            safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
-            raw = jnp.minimum(raw, safe_upper)
-        return raw
+        return _apply_hard_clip(raw, net.policy_lower, net.policy_upper)
 
     return jax.vmap(_single)(states)
