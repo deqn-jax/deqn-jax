@@ -52,7 +52,6 @@ class OptimizerConfig(_ConfigBase):
     decay: float = Field(
         default=0.999, description="NGD / Shampoo preconditioner EMA decay."
     )
-    block_size: int = Field(default=64, description="Shampoo Kronecker block size.")
     precond_update_freq: int = Field(
         default=10, description="Shampoo preconditioner update frequency."
     )
@@ -142,7 +141,6 @@ class OptimizerConfig(_ConfigBase):
         return _coerce_optional_float(v, f"optimizer.{info.field_name}")
 
     @field_validator(
-        "block_size",
         "precond_update_freq",
         "memory_size",
         "ns_steps",
@@ -192,8 +190,6 @@ class OptimizerConfig(_ConfigBase):
             raise ValueError(f"damping must be > 0, got {self.damping}")
         if not (0 < self.decay < 1):
             raise ValueError(f"decay must be in (0, 1), got {self.decay}")
-        if self.block_size <= 0:
-            raise ValueError(f"block_size must be > 0, got {self.block_size}")
         if self.precond_update_freq <= 0:
             raise ValueError(
                 f"precond_update_freq must be > 0, got {self.precond_update_freq}"

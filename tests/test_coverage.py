@@ -223,9 +223,7 @@ def test_roll_states_include_seed_counts():
     seeds = model.init_state_fn(jax.random.PRNGKey(5), 8, model.constants)
     H = 3
     excl = roll_states(model, net, seeds, jax.random.PRNGKey(6), H)
-    incl = roll_states(
-        model, net, seeds, jax.random.PRNGKey(6), H, include_seed=True
-    )
+    incl = roll_states(model, net, seeds, jax.random.PRNGKey(6), H, include_seed=True)
     assert excl.shape == (8 * H, model.n_states)
     assert incl.shape == (8 * (H + 1), model.n_states)
     # with include_seed the first block is the (unclipped) seeds themselves
@@ -242,9 +240,7 @@ def test_wrapper_path_mode_runs_and_differs_from_box():
     qw = jnp.ones((4,)) / 4
 
     fn_box = make_coverage_loss(compute_loss, model, _cov_cfg())
-    fn_path = make_coverage_loss(
-        compute_loss, model, _cov_cfg(stress_seed_mode="path")
-    )
+    fn_path = make_coverage_loss(compute_loss, model, _cov_cfg(stress_seed_mode="path"))
     t_box, eq_box = fn_box(
         model, net, states, jax.random.PRNGKey(0), quad_nodes=qn, quad_weights=qw
     )

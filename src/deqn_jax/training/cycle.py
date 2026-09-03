@@ -4,7 +4,7 @@ The cycle wrapper is kind-agnostic: it knows how to roll an episode
 forward, slice the resulting trajectory into minibatches, and call a
 caller-supplied ``grad_step`` over them. Per-optimizer gradient
 mechanics live in ``deqn_jax.optimizers.<name>.make_grad_step_<name>``
-and are composed into a cycle by ``make_train_step`` in ``trainer.py``.
+and are composed into a cycle by ``make_train_step`` in ``state_init.py``.
 
 Two builders:
 - ``make_rollout_fn`` — JIT'd ``state -> (trajectory, final_state, history, key)``.

@@ -338,11 +338,13 @@ def market_clearing_errors(
 ) -> Dict[str, Any]:
     """Check resource constraint satisfaction along simulated path.
 
-    For the disaster model: Y = C + I + G + monitoring_costs
+    The resource equation is found by name (``"resource"`` in the equation
+    name); e.g. the disaster model's ``eq9_resource_constraint``
+    (Y = C + I + G + monitoring costs).
 
-    Returns dict with mean/max absolute and relative errors.
+    Returns dict with ``equation``, ``mean_abs``, ``max_abs``, ``mean_log10``,
+    ``max_log10`` — or ``{"error": ...}`` when no resource equation exists.
     """
-    # Resource constraint is eq11 in the disaster model
     result = euler_equation_errors(policy_net, model, n_periods, seed, burn_in)
     residuals = result["residuals"]
     eq_names = result["equation_names"]
@@ -532,10 +534,11 @@ def stability_check(
 ) -> Dict[str, bool]:
     """Check if the simulated economy remains stable.
 
-    Returns flags for common pathologies:
-    - bound_hitting: policies hitting bounds frequently
-    - divergence: state variables drifting away from SS
-    - nan: any NaN in simulation
+    Returns:
+        ``nan_free`` (bool), ``bound_hit_pct`` (% of policy outputs within
+        1e-4 of a bound), ``max_ss_deviation_pct`` (max relative state
+        deviation from the reference — SS, or mid-trajectory for ergodic-only
+        models), ``stable`` (nan_free and deviation < 500%).
     """
     constants = model.constants
     key = jax.random.PRNGKey(seed)

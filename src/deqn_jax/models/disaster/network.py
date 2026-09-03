@@ -8,11 +8,12 @@ bracket, sign flips in the investment Euler, sharp kinks at the ELB). Those
 encodings are model-specific and live here, not in the generic library
 module.
 
-Three shape priors are implemented, each independently toggleable:
+Shape priors and selection devices, each independently toggleable
+(forward-pass order in ``DisasterPolicyNet._forward_single``):
 
-1. **K/F gauge mask** (``kf_names``). Zeros the MLP delta at the named
-   policy positions so those outputs stay exactly equal to the BK linear
-   policy. Targets the gauge near-degeneracy in the Calvo recursive
+1. **K/F gauge mask** (``kf_names``, ON by default). Zeros the MLP delta at
+   the named policy positions so those outputs stay exactly equal to the BK
+   linear policy. Targets the gauge near-degeneracy in the Calvo recursive
    aggregates ``F_p, K_p, F_w, K_w``.
 
 2. **ELB feature augmentation** (``use_zlb_feature`` + ``zlb_feature_kind``).
@@ -20,17 +21,28 @@ Three shape priors are implemented, each independently toggleable:
    the MLP's input so the network has explicit access to ELB-regime
    information without needing tanh layers to learn the kink shape.
 
-3. **Investment-bracket reparam** (``reparam_q_as_m``, §3.3 of the
+3. **BK pin** (``bk_pin``, the certified arm). Subtracts the delta's value
+   and tangent at the steady state (JVP at s*), so ``pi(s*) = pi*`` and
+   ``dpi/ds(s*) = P`` hold for every parameter value; training shapes
+   second-order-and-beyond deviations only.
+
+4. **Investment-bracket reparam** (``reparam_q_as_m``, §3.3 of the
    shape-priors doc). Treats the network's ``q`` output as
    ``M = q · 𝓑(x)`` where ``𝓑(x) = 1 − S(x) − x·S'(x)`` is the
    investment-Euler bracket and ``x = µ_z·i/i_lag``. Recovers
-   ``q = M / 𝓑(x)`` post-MLP. Eliminates the sign-flip pathology in
-   eq 7 — the LHS ``µ_Υ q 𝓑(x)`` is forced positive by parameterization.
+   ``q = M / 𝓑(x)`` post-MLP.
 
-Defaults: the K/F gauge mask is ON by default (``NetworkConfig.kf_names``
-defaults to the four Calvo auxiliaries — F_p, K_p, F_w, K_w stay exactly
-equal to the BK linear policy unless ``kf_names=()`` is set). The ELB
-feature and the investment-bracket reparam are off by default.
+5. **Calvo reparams** (``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``,
+   §3.1/§3.1'). The ``pi`` / ``w_tilda`` output slots are read as the Calvo
+   inner terms ``K_p_inner`` / ``K_w_inner`` (bounds overridden to their
+   domain); ``pi``, ``w_tilda`` and ``K_p`` / ``K_w`` are recovered post-clip
+   so eqs 2a / 4a hold as identities. Experimental: `configs/archive/disaster_calvo`
+   only.
+
+6. **Per-policy output links** (``output_links``): ``linear`` (additive) or
+   ``log`` (multiplicative around SS); reparam slots must be linear.
+
+Defaults: only the K/F gauge mask is on; everything else is off.
 """
 
 from __future__ import annotations
@@ -956,26 +968,3 @@ def create_disaster_policy_net(
 
 
 __all__ = ["DisasterPolicyNet", "create_disaster_policy_net"]
-
-
-# Register this model's diagram renderer with the generic viz package so that
-# networks/viz.py does not import this model (audit networks-03). A
-# DisasterPolicyNet renders identically to a LinearPlusMLP (same residual
-# ansatz), so it reuses that renderer. Wrapped defensively: a viz import
-# problem must never break loading the disaster model.
-def _register_viz_renderer() -> None:
-    try:
-        from deqn_jax.networks.viz import (
-            _render_linear_plus_mlp,
-            register_network_renderer,
-        )
-    except Exception:
-        return
-    register_network_renderer(
-        "DisasterPolicyNet",
-        lambda m: isinstance(m, DisasterPolicyNet),
-        _render_linear_plus_mlp,
-    )
-
-
-_register_viz_renderer()

@@ -24,8 +24,6 @@ DRAWN_EDGES = {
     ("deqn_jax.cli", "deqn_jax.irf"),
     ("deqn_jax.cli", "deqn_jax.config"),
     ("deqn_jax.cli", "deqn_jax.optimizers"),
-    ("deqn_jax.benchmark", "deqn_jax.training"),
-    ("deqn_jax.benchmark", "deqn_jax.models"),
     ("deqn_jax.training", "deqn_jax.config"),
     ("deqn_jax.training", "deqn_jax.types"),
     ("deqn_jax.training", "deqn_jax.metrics"),

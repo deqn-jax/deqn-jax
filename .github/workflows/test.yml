@@ -25,7 +25,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Sync dependencies (CPU-only JAX)
-        run: uv sync --all-extras
+        run: uv sync --all-extras --no-extra cuda
 
       - name: Lint (ruff, zero-error)
         run: uv run ruff check src/ tests/ scripts/
@@ -42,7 +42,7 @@ jobs:
           uv run deqn-jax optimizers
 
       - name: CLI smoke — 20-episode training
-        run: uv run deqn-jax train brock_mirman -n 20 -q
+        run: uv run deqn-jax train brock_mirman -n 20 -q --checkpoint-dir checkpoints
 
       - name: CLI smoke — evaluate (short)
         run: |

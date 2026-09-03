@@ -24,19 +24,13 @@ dependencies = [
     "numpy>=1.24.0",
     "pydantic>=2.0",
     "pyyaml>=6.0",
-    "treescope>=0.1.10",
     "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
 cuda = ["jax[cuda12]>=0.4.20"]
-dev = [
-    "pytest>=7.0",
-    "pytest-xdist>=3.0",
-]
 logging = [
     "tensorboardX>=2.6",
-    "orbax-checkpoint>=0.5.0",
 ]
 wandb = ["wandb>=0.15.0"]
 docs = [
@@ -99,11 +93,6 @@ exclude = [
     "scripts/**",
     "configs/_diag_*.yaml",
     "configs/dgx_*.yaml",
-    "configs/disaster_gpu_*.yaml",
-    "configs/disaster_lstm_*.yaml",
-    "configs/disaster_staged_*.yaml",
-    "configs/disaster_mao.yaml",
-    "configs/disaster_v*.yaml",
     "PLAN.md",
     ".github/**",
     ".claude/**",
@@ -167,7 +156,6 @@ ignore = [
 dev = [
     "jupyter>=1.1.1",
     "nbformat>=5.10.4",
-    "penzai>=0.2.5",
     "pydeps>=3.0.6",
     "pytest>=9.0.2",
     "ruff>=0.15.11",

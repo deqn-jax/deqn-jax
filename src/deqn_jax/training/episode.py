@@ -17,44 +17,6 @@ from deqn_jax.training.shocks import simulation_step
 from deqn_jax.types import EpisodeState, ModelSpec
 
 
-def simulate_step(
-    model: ModelSpec,
-    policy_fn: Callable[[Array], Array],
-    state: Array,
-    key: Array,
-    shock_scale: Any = 1.0,
-    shock_mask: Optional[Array] = None,
-) -> Tuple[Array, Array]:
-    """Simulate one step of the economic model.
-
-    Delegates to ``deqn_jax.training.shocks.simulation_step`` so that
-    training rollouts, evaluation paths, and IRF paths all use one
-    shock-drawing contract: Gaussian shocks scaled by ``shock_scale``,
-    masked by ``shock_mask``, and optionally a Bernoulli disaster
-    indicator passed to step_fn when the model supports it.
-
-    Args:
-        model: Model specification
-        policy_fn: Policy network
-        state: Current state [batch, n_states]
-        key: PRNG key for shock
-        shock_scale: Curriculum multiplier on all shock draws (scalar
-            or per-dimension vector); 0 freezes rollouts deterministically.
-        shock_mask: Optional per-dimension 0/1 mask over shocks.
-
-    Returns:
-        Tuple of (next_state, shock_used)
-    """
-    return simulation_step(
-        model,
-        policy_fn,
-        state,
-        key,
-        shock_scale=shock_scale,
-        shock_mask=shock_mask,
-    )
-
-
 def run_episode(
     model: ModelSpec,
     policy_fn: Callable[[Array], Array],
@@ -91,7 +53,7 @@ def run_episode(
         state, key = carry.state, carry.key
         key, step_key = jax.random.split(key)
 
-        next_state, _ = simulate_step(
+        next_state, _ = simulation_step(
             model,
             policy_fn,
             state,
@@ -207,7 +169,7 @@ def run_episode_with_history(
         def _history_policy_fn(s):
             return policy_fn(history)
 
-        next_state, _ = simulate_step(
+        next_state, _ = simulation_step(
             model,
             _history_policy_fn,
             state,
@@ -231,27 +193,3 @@ def run_episode_with_history(
     )
 
     return trajectory, final_state, final_history
-
-
-def simulate_trajectory(
-    model: ModelSpec,
-    policy_fn: Callable[[Array], Array],
-    key: Array,
-    batch_size: int = 64,
-    episode_length: int = 100,
-) -> Tuple[Array, Array]:
-    """Convenience function: sample initial states and run episode.
-
-    Args:
-        model: Model specification
-        policy_fn: Policy network
-        key: PRNG key
-        batch_size: Batch size
-        episode_length: Episode length
-
-    Returns:
-        Tuple of (trajectory, final_state)
-    """
-    key, init_key = jax.random.split(key)
-    init_state = sample_initial_states(model, init_key, batch_size)
-    return run_episode(model, policy_fn, init_state, key, episode_length)

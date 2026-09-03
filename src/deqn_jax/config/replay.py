@@ -62,10 +62,6 @@ class ReplayBufferConfig(_ConfigBase):
         default=1.0e-6,
         description="Floor added to priorities before exponentiation. Prevents zero-priority states from being completely starved.",
     )
-    eviction: str = Field(
-        default="fifo",
-        description="Eviction policy. v1 only supports `fifo` (ring overwrite). Reservoir sampling is a v2 follow-up.",
-    )
 
     @field_validator(
         "mix_ratio",
@@ -97,8 +93,4 @@ class ReplayBufferConfig(_ConfigBase):
             raise ValueError(f"priority_alpha must be >= 0, got {self.priority_alpha}")
         if self.priority_eps <= 0:
             raise ValueError(f"priority_eps must be > 0, got {self.priority_eps}")
-        if self.eviction not in {"fifo"}:
-            raise ValueError(
-                f"eviction must be 'fifo' (v1 only), got {self.eviction!r}"
-            )
         return self
