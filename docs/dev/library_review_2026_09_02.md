@@ -250,6 +250,19 @@ receipts are in the session transcript; this section keeps the actionable subset
 
 ### B2. Batch 2 — deduplication, behavior-preserving, bit-identical-guarded (~500 lines)
 
+*Shipped 2026-09-03 as five parallel lanes (PRs #6 optimizers, #7 config, #8 evaluate/irf,
+#9 networks, #10 models/steady-state), each in its own worktree with a bit-identical guard
+against untouched master and a cold review before merge. Guards held exactly on every lane.
+Two real defects surfaced on the way: `network.skip_connections` / `multi_head` had crashed
+on every model with a steady state (never usable, now fixed, #9) and `interp.ablate_neuron`
+carried the mixed-links NaN hazard (#9). The five-variant train-step helpers now exist for
+real (`optimizers/_step_common.py`, #6), with a recorded-reference guard that is exact on
+the recording platform and skips elsewhere — a cross-platform bit-identical assertion is not
+a thing (CI differs by jax version and by x64 leaking from earlier tests). The DGX was
+unreachable for the whole batch; all suites ran on the laptop CPU. Left for batch 3 by
+design: the `ndim == 3` helper in loss.py, the six rollout copies' training-side docstring,
+`make_composite_loss`'s unused `model` parameter.*
+
 | item | proof | action |
 |---|---|---|
 | ✓ five train-step variants repeat the same 12-line `compute_loss(...)` call ×10 and the same 16-line finalize tail ×5; the `_prepare_step`/`_finalize_step` helpers that `docs/session_log.md:55` and the world-arm spec say exist **do not exist** (`grep -rn src → 0`) | `standard.py:58-102`, `pcgrad.py`, `mao.py`, `lbfgs.py`, `gauss_newton.py` | write the helpers for real; fix the two docs |
