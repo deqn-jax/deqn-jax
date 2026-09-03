@@ -35,6 +35,7 @@ weight, ...)`` returns a callable with the same signature as
 
 from __future__ import annotations
 
+import functools
 from typing import Callable, Dict, Optional, Sequence, Tuple
 
 import jax
@@ -130,6 +131,7 @@ def make_moment_matching_wrapper(
         # Dynare reference.
         return base_loss_fn
 
+    @functools.wraps(base_loss_fn)
     def wrapped(model, params, states, key, *args, **kwargs):
         base_total, eq_losses = base_loss_fn(
             model, params, states, key, *args, **kwargs

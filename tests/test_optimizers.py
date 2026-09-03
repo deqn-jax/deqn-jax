@@ -469,6 +469,56 @@ class TestStepCommon:
         )
         assert seen["aux_params"] == "sentinel"
 
+    def test_opaque_kwargs_wrapper_raises_when_aux_params_is_used(self):
+        """A **kwargs wrapper that does not name aux_params is opaque: we
+        cannot tell whether the loss it wraps wants the module, so forwarding
+        must fail loudly instead of silently dropping it."""
+        import pytest as _pytest
+
+        from deqn_jax.models import load_model
+        from deqn_jax.optimizers._step_common import make_loss_call
+
+        model = load_model("brock_mirman")
+
+        def opaque(model, params, states, key, *args, **kwargs):
+            return jnp.array(0.0), {}
+
+        loss_call = make_loss_call(model, 1, None, None, opaque)
+        # No aux module in play: today's runs are untouched.
+        loss_call(
+            "params",
+            "batch",
+            "key",
+            weights=None,
+            shock_scale=jnp.array(1.0),
+            target_policy_fn=None,
+        )
+        with _pytest.raises(ValueError, match="does not name 'aux_params'"):
+            loss_call(
+                "params",
+                "batch",
+                "key",
+                weights=None,
+                shock_scale=jnp.array(1.0),
+                target_policy_fn=None,
+                aux_params="module",
+            )
+
+    def test_moment_matching_wrapper_propagates_the_inner_signature(self):
+        """moment_loss's wrapper is a *args/**kwargs pass-through; it must
+        carry functools.wraps so make_loss_call sees the wrapped loss's real
+        parameters rather than treating it as opaque."""
+        import inspect
+
+        from deqn_jax.training.moment_loss import make_moment_matching_wrapper
+
+        def inner(model, params, states, key, mc_samples, *, aux_params=None):
+            return jnp.array(0.0), {}
+
+        wrapped = make_moment_matching_wrapper(inner, {0: (1.0, 0.1)})
+        assert wrapped is not inner
+        assert "aux_params" in inspect.signature(wrapped).parameters
+
     def test_finalize_step_advances_state_and_builds_metrics(self):
         from deqn_jax.optimizers._step_common import finalize_step
         from deqn_jax.types import TrainState

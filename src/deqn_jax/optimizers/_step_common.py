@@ -37,10 +37,19 @@ def make_loss_call(
 
     ``aux_params`` is forwarded only when the wrapped loss declares it, so a
     loss builder that does not know about a second trainable module keeps its
-    exact signature.
+    exact signature. A wrapper that swallows everything into ``**kwargs``
+    without naming ``aux_params`` is *opaque*: we cannot tell whether the loss
+    it wraps wants the argument, so forwarding is refused loudly rather than
+    silently dropping the aux module. (Wrappers should carry
+    ``functools.wraps`` so the inner signature shows through and this never
+    trips.)
     """
     fn = compute_loss_fn or compute_loss
-    wants_aux = "aux_params" in inspect.signature(fn).parameters
+    sig_params = inspect.signature(fn).parameters
+    wants_aux = "aux_params" in sig_params
+    opaque = not wants_aux and any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
+    )
 
     def loss_call(
         params: Any,
@@ -52,6 +61,14 @@ def make_loss_call(
         target_policy_fn: Optional[Callable],
         aux_params: Any = None,
     ):
+        if opaque and aux_params is not None:
+            raise ValueError(
+                f"Loss function {getattr(fn, '__qualname__', fn)!r} takes "
+                "**kwargs and does not name 'aux_params', so it cannot be "
+                "told whether the wrapped loss uses it. Give the wrapper a "
+                "functools.wraps of the loss it wraps, or an explicit "
+                "aux_params parameter."
+            )
         return fn(
             model,
             params,

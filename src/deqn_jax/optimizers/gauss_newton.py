@@ -528,6 +528,11 @@ def make_grad_step_gn(
                 per_eq.append(mean_r)
             return jnp.concatenate(per_eq)
 
+        # LOG ONLY: the GN update below differentiates residual_fn (the raw
+        # residual vector), so anything the configured loss adds on top —
+        # aux terms, aux_params — is reported but never enters the update.
+        # The state_init validator rejects composite loss on GN/IGN/LM for
+        # exactly this reason.
         loss, eq_losses = log_loss_call(
             state.params,
             batch,
