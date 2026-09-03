@@ -1,6 +1,11 @@
-"""State transitions for Brock-Mirman model."""
+"""State transitions for Brock-Mirman model.
 
-from typing import Dict
+``make_step`` is the shared transition used by every Brock-Mirman variant
+(``brock_mirman``, ``bm_labor``, ``bm_labor_constrained``): they differ in
+their ``definitions()`` and ``SPEC``, not in the accumulation law.
+"""
+
+from typing import Callable, Dict
 
 import jax.numpy as jnp
 from jax import Array
@@ -9,29 +14,37 @@ from deqn_jax.models.brock_mirman.equations import definitions
 from deqn_jax.models.brock_mirman.variables import SPEC
 
 
-def step(
-    state: Array,
-    policy: Array,
-    shock: Array,
-    constants: Dict,
-) -> Array:
-    """Transition to next state.
+def make_step(spec, definitions_fn: Callable) -> Callable:
+    """Build a Brock-Mirman ``step`` bound to one model's SPEC/definitions.
 
-    Capital: k' = (1 - delta) * k + s
-    TFP:     z' = rho * z + sigma * eps
+    Capital: k' = (1 - delta) * k + s   (``s`` from ``definitions_fn``;
+    the labor variants return savings already scaled by output)
+    TFP:     z' = rho_z * z + sigma_z * eps
     """
-    s = SPEC.unpack_state(state)
-    defs = definitions(state, policy, constants)
 
-    delta = constants["delta"]
-    rho_z = constants["rho_z"]
-    sigma_z = constants["sigma_z"]
+    def step(
+        state: Array,
+        policy: Array,
+        shock: Array,
+        constants: Dict,
+    ) -> Array:
+        s = spec.unpack_state(state)
+        defs = definitions_fn(state, policy, constants)
 
-    # Capital accumulation
-    k_next = (1 - delta) * s.k + defs["s"]
+        delta = constants["delta"]
+        rho_z = constants["rho_z"]
+        sigma_z = constants["sigma_z"]
 
-    # TFP shock
-    eps = shock[:, 0] if shock.ndim > 1 else shock
-    z_next = rho_z * s.z + sigma_z * eps
+        # Capital accumulation
+        k_next = (1 - delta) * s.k + defs["s"]
 
-    return jnp.stack([k_next, z_next], axis=1)
+        # TFP shock
+        eps = shock[:, 0] if shock.ndim > 1 else shock
+        z_next = rho_z * s.z + sigma_z * eps
+
+        return jnp.stack([k_next, z_next], axis=1)
+
+    return step
+
+
+step = make_step(SPEC, definitions)

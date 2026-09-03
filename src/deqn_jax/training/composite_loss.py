@@ -33,6 +33,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from deqn_jax.training.history import current_states, make_constant_history
 from deqn_jax.training.loss import compute_loss
 from deqn_jax.types import ModelSpec
 
@@ -175,8 +176,7 @@ def _make_markov_wrapper(
 
     def wrapper(state: Array) -> Array:
         # state: [n_states] -> [H, n_states] constant window
-        window = jnp.broadcast_to(state, (history_len, state.shape[-1]))
-        return policy_fn(window)
+        return policy_fn(make_constant_history(state, history_len))
 
     return wrapper
 
@@ -491,7 +491,7 @@ def make_composite_loss(
         # Fixing this requires changing compute_loss to return intermediate defs.
         defs = None
         if model_.composite_aux_fn is not None:
-            current_states = states[:, -1, :] if states.ndim == 3 else states
+            cur_states = current_states(states)
             assert model_.definitions_fn is not None, (
                 "composite loss aux hook requires a model with definitions_fn"
             )
@@ -500,7 +500,7 @@ def make_composite_loss(
                 lambda s: defs_fn_(
                     s, _make_markov_wrapper(policy_fn, history_len)(s), model_.constants
                 )
-            )(current_states)
+            )(cur_states)
 
         # 4b. Certificate-in-the-loop drift loss: penalize closed-loop
         # growth from SS probes. No curriculum decay (stability is not a
@@ -521,7 +521,7 @@ def make_composite_loss(
         # subsample. No curriculum decay; build-time skip when weight 0.
         # Quadrature-only v1 (validated in _validate_train_config).
         if _rsob_dirs is not None:
-            _cur = states[:, -1, :] if states.ndim == 3 else states
+            _cur = current_states(states)
             rsob = _residual_sobolev_loss(
                 model_,
                 policy_fn,

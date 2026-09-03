@@ -2,12 +2,15 @@
 
 A medium-scale New Keynesian model with:
 - 13 state variables (8 endogenous + 5 exogenous)
-- 11 policy variables (s, L, omega_bar computed analytically)
-- 11 equilibrium equations
+- 11 policy variables (network outputs; see ``SPEC.policy_names``)
+- 11 equilibrium equations (see ``EQUATION_NAMES``)
 - Financial frictions (costly state verification banking)
 
-Analytical eliminations (12 original -> 9):
-  s (cost min), L (balance sheet), omega_bar (bank participation)
+Analytical eliminations (14 unknowns -> 11): three quantities and their
+three equations are solved in closed form inside ``definitions()`` rather
+than by the network — s (cost minimisation), L (balance sheet),
+omega_bar (bank participation). What remains is the 11-policy / 11-residual
+system the solver actually trains on.
 """
 
 from deqn_jax.models.disaster.composite_aux import (

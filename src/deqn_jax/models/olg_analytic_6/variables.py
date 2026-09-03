@@ -54,4 +54,4 @@ POLICY_UPPER = jnp.full(A - 1, jnp.inf)
 
 N_SHOCKS = 2
 
-DESCRIPTION = "6-agent OLG with analytic closed-form solution (Krueger-Kubler 2004)"
+DESCRIPTION = "6-agent OLG with closed-form solution (Krueger-Kubler 2004)"

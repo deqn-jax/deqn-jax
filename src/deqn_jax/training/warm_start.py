@@ -290,7 +290,6 @@ def warm_start_from_dynare(
     dynare_dir: str,
     n_points: int = 1024,
     max_iter: int = 200,
-    tol: float = 1e-8,
     verbose: bool = True,
     key: Optional[Array] = None,
 ) -> eqx.Module:
@@ -309,8 +308,8 @@ def warm_start_from_dynare(
         model: ModelSpec (must have steady_state_fn)
         dynare_dir: Path to directory with dynare_ghx.csv, dynare_ghu.csv
         n_points: Number of fitting points
-        max_iter: Maximum L-BFGS iterations
-        tol: Convergence tolerance
+        max_iter: Number of Adam steps (L-BFGS overshoots on the mixed
+            softplus/sigmoid bounding this path uses)
         verbose: Print progress
         key: PRNG key
 

@@ -6,12 +6,10 @@ using the equilibrium equations with zero shocks.
 
 from typing import Dict, Optional, Tuple
 
-import jax
-import jax.flatten_util
 import jax.numpy as jnp
-import optax
 from jax import Array
 
+from deqn_jax.training.warm_start import _lbfgs_minimize
 from deqn_jax.types import ModelSpec
 
 
@@ -81,37 +79,18 @@ def solve_steady_state(
             total = total + jnp.sum(r**2)
         return total
 
-    # L-BFGS via optax
-    opt = optax.lbfgs(memory_size=10)
-    opt_state = opt.init(init_x)
-
-    @jax.jit
-    def step(x, opt_state):
-        val, g = jax.value_and_grad(residual_fn)(x)
-        updates, new_opt_state = opt.update(
-            g,
-            opt_state,
-            x,
-            value=val,
-            grad=g,
-            value_fn=residual_fn,
-        )
-        new_x = optax.apply_updates(x, updates)
-        return new_x, new_opt_state, val
-
-    x = init_x
-    n_iters = 0
-    for i in range(max_iter):
-        x, opt_state, val = step(x, opt_state)
-        n_iters = i + 1
-        if float(val) < tol:
-            break
+    # L-BFGS via optax. ``_lbfgs_minimize`` ravels the pytree first; on a
+    # single flat array leaf that is the identity, so the iterates, the
+    # memory size (10) and the ``float(val) < tol`` stopping rule are the
+    # same ones this function used to spell out inline.
+    x, n_iters, final_residual = _lbfgs_minimize(
+        residual_fn, init_x, max_iter=max_iter, tol=tol
+    )
 
     ss_state = x[:n_states]
     ss_policy = x[n_states:]
 
     if verbose:
-        final_residual = float(val)
         print(f"Steady state solved: residual={final_residual:.2e}, iters={n_iters}")
         print(f"  State: {ss_state}")
         print(f"  Policy: {ss_policy}")

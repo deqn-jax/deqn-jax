@@ -15,6 +15,7 @@ Both paths feed the same ``_MODELS`` dict, so ``load_model`` and
 ``list_models`` see them identically.
 """
 
+import importlib
 from typing import List, Optional, Tuple
 
 from deqn_jax.models.bm_deterministic import MODEL as _bm_deterministic
@@ -44,18 +45,16 @@ _MODELS = {
     "disaster": _disaster,
 }
 
+# One source of truth for the blurbs: each model package's
+# ``variables.DESCRIPTION``. Keeping a hand-typed copy here let the two
+# drift (six of eleven disagreed before 2026-09).
 _DESCRIPTIONS = {
-    "bm_deterministic": "Deterministic Brock-Mirman (s* = alpha*beta closed form)",
-    "brock_mirman": "Brock-Mirman (1972) optimal growth model",
-    "brock_mirman_autodiff": "Brock-Mirman with Euler synthesized from Pi via jax.grad (autodiff POC)",
-    "bm_labor": "Brock-Mirman (1972) with endogenous labor supply",
-    "bm_labor_autodiff": "Brock-Mirman with labor, both FOCs from Pi via jax.grad (multi-policy autodiff)",
-    "bm_labor_constrained": "Brock-Mirman with endogenous labor and an upper labor cap (Fischer-Burmeister)",
-    "olg_analytic_6": "6-agent OLG with closed-form solution (Krueger-Kubler 2004)",
-    "olg_lifecycle": "6-generation life-cycle OLG with borrowing constraints (Fischer-Burmeister, two-stage loss)",
-    "olg_lifecycle_56": "56-generation life-cycle OLG with borrowing constraints (annual frequency, 57-dim state)",
-    "irbc": "2-country International RBC with irreversibility (Fischer-Burmeister)",
-    "disaster": "NK-DSGE with financial frictions",
+    name: getattr(
+        importlib.import_module(f"deqn_jax.models.{name}.variables"),
+        "DESCRIPTION",
+        "",
+    )
+    for name in _MODELS
 }
 
 

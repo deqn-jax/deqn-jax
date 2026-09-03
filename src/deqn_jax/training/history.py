@@ -53,6 +53,18 @@ def make_constant_history(state: Array, history_len: int) -> Array:
         return jnp.tile(state[None, :], (history_len, 1))
 
 
+def current_states(states: Array) -> Array:
+    """Return the current-period states from a batch or a history window.
+
+    Args:
+        states: [B, H, D] history windows (sequence nets) or [B, D] states.
+
+    Returns:
+        [B, D] — the last timestep of each window, or the input unchanged.
+    """
+    return states[:, -1, :] if states.ndim == 3 else states
+
+
 def build_history_windows(trajectory: Array, history_len: int) -> Array:
     """Build sliding history windows from a trajectory.
 
