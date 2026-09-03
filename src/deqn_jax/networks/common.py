@@ -1,7 +1,11 @@
 """Shared utilities for policy network architectures.
 
-Provides common bounding, activation, and initialization helpers used
-by MLP, LSTM, and Transformer policy networks.
+Provides the bounding, clipping, output-link, activation, and
+initialization helpers shared by every policy architecture: ``MLP`` /
+``ResMLP`` / ``MultiHeadMLP`` (``networks/mlp.py``), ``LSTMPolicy``,
+``TransformerPolicy``, ``LinearPlusMLP``, ``KfAnchoredMLP``, the
+disaster-specific ``DisasterPolicyNet`` (``models/disaster/network.py``)
+and the interpretability re-implementations in ``interp.py``.
 
 Bound and normalization parameters (``output_lower``, ``output_upper``,
 ``input_shift``, ``input_scale``) live as **tuples of floats** on
@@ -155,3 +159,82 @@ def _normalize_input(
         scale = jax.lax.stop_gradient(_to_array(input_scale))
         x = (x - shift) / scale
     return x
+
+
+def _apply_hard_clip(
+    x: Array,
+    lower,
+    upper,
+    margin: float = 0.0,
+) -> Array:
+    """Clip ``x`` into ``[lower + margin, upper - margin]``, ``inf``-safe.
+
+    Both bounds are optional and may be ``None``, an Array, or a static
+    tuple of floats. ``inf`` entries in ``upper`` are replaced by ``1e10``
+    before the ``minimum``: an actual ``inf`` bound is a no-op numerically
+    but makes the reverse pass of ``minimum`` produce ``nan`` at points
+    where the two arguments compare equal, and XLA has been observed to
+    fold ``min(x, inf)`` into a select whose dead branch is ``inf - inf``.
+
+    ``margin`` shrinks the feasible box symmetrically (``KfAnchoredMLP``
+    keeps its anchored outputs 1e-4 inside the model bounds). At the
+    default ``0.0`` no arithmetic is performed on the bounds at all, so
+    the result is bit-identical to a bare ``maximum``/``minimum`` pair.
+
+    The bounds are architecture constants, never trainable, hence the
+    ``stop_gradient``.
+    """
+    if lower is not None:
+        lo = jax.lax.stop_gradient(_to_array(lower))
+        if margin:
+            lo = lo + margin
+        x = jnp.maximum(x, lo)
+    if upper is not None:
+        hi = jax.lax.stop_gradient(_to_array(upper))
+        safe_hi = jnp.where(jnp.isinf(hi), jnp.array(1e10), hi)
+        if margin:
+            safe_hi = safe_hi - margin
+        x = jnp.minimum(x, safe_hi)
+    return x
+
+
+def _apply_output_links(
+    ss_policy: Array,
+    bk_corr: Array,
+    delta: Array,
+    output_links: Tuple[int, ...],
+) -> Array:
+    """Combine SS level, BK correction and MLP delta per output link.
+
+    ``output_links`` is the static per-policy code tuple: ``0`` = linear
+    (additive, ``ss_i + bk_i + delta_i``), ``1`` = log (multiplicative,
+    ``ss_i * exp(bk_i + delta_i)``, with the BK row already converted to
+    log space by the factory).
+
+    The three branches are resolved at Python (trace) time from the static
+    tuple:
+
+      - all-linear: the common case; skip ``exp()`` entirely.
+      - all-log: one vectorized ``exp()``.
+      - mixed: unroll and feed ``exp()`` ONLY the log-linked exponents.
+        Computing both forms and selecting with ``jnp.where`` would be
+        shorter but a large linear ``bk + delta`` overflows ``exp()`` in
+        the *unselected* branch and poisons the reverse pass with ``nan``
+        even though the forward correctly selects the linear value
+        (audit JAX-SILENT-05).
+
+    The all-linear branch is written ``ss + bk + delta`` (left-associated)
+    rather than ``ss + (bk + delta)``: float addition is not associative
+    and checkpointed networks are compared bit-for-bit.
+    """
+    if all(code == 0 for code in output_links):
+        return ss_policy + bk_corr + delta
+    if all(code == 1 for code in output_links):
+        return ss_policy * jnp.exp(bk_corr + delta)
+    add = bk_corr + delta
+    return jnp.stack(
+        [
+            ss_policy[i] * jnp.exp(add[i]) if code == 1 else ss_policy[i] + add[i]
+            for i, code in enumerate(output_links)
+        ]
+    )

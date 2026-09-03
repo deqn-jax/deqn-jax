@@ -21,6 +21,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array  # noqa: F401
 
+from deqn_jax.networks.common import (
+    _apply_hard_clip,
+    _apply_output_links,
+    _normalize_input,
+)
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP  # noqa: F401
 from deqn_jax.networks.mlp import MLP  # noqa: F401
 
@@ -46,8 +51,6 @@ def forward_with_activations(mlp: MLP, states: Array) -> Dict[str, Array]:
     """
 
     def _single(state: Array) -> Dict[str, Array]:
-        from deqn_jax.networks.mlp import _normalize_input  # local: tiny helper
-
         x = _normalize_input(state, mlp.input_shift, mlp.input_scale)
 
         captures: Dict[str, Array] = {}
@@ -264,8 +267,6 @@ def ablate_neuron(
         ``[batch, n_policies]``. Full clipping + link-type semantics from
         ``LinearPlusMLP._forward_single`` are preserved.
     """
-    from deqn_jax.networks.mlp import _normalize_input
-
     mlp = net.mlp
     n_hidden = len(mlp.layers) - 1
     if not 0 <= layer_idx < n_hidden:
@@ -292,23 +293,13 @@ def ablate_neuron(
         P = jax.lax.stop_gradient(net.P)
         bk_corr = P @ (state - ss_state)
 
-        if all(code == 0 for code in net.output_links):
-            raw = ss_policy + bk_corr + delta
-        elif all(code == 1 for code in net.output_links):
-            raw = ss_policy * jnp.exp(bk_corr + delta)
-        else:
-            is_log = jnp.asarray(net.output_links, dtype=jnp.int8) == 1
-            raw_linear = ss_policy + bk_corr + delta
-            raw_log = ss_policy * jnp.exp(bk_corr + delta)
-            raw = jnp.where(is_log, raw_log, raw_linear)
+        # Same helper LinearPlusMLP._forward_single uses, so the docstring's
+        # promise that link semantics are preserved is structural rather
+        # than a claim about two hand-kept-in-sync copies. `_single` is
+        # per-state (the vmap below supplies the batch), which is the shape
+        # contract the helper expects.
+        raw = _apply_output_links(ss_policy, bk_corr, delta, net.output_links)
 
-        if net.policy_lower is not None:
-            lower = jax.lax.stop_gradient(jnp.asarray(net.policy_lower))
-            raw = jnp.maximum(raw, lower)
-        if net.policy_upper is not None:
-            upper = jax.lax.stop_gradient(jnp.asarray(net.policy_upper))
-            safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
-            raw = jnp.minimum(raw, safe_upper)
-        return raw
+        return _apply_hard_clip(raw, net.policy_lower, net.policy_upper)
 
     return jax.vmap(_single)(states)

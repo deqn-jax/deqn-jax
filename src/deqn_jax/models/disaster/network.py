@@ -54,7 +54,12 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.networks.common import _resolve_activation, _to_array, _to_tuple
+from deqn_jax.networks.common import (
+    _apply_hard_clip,
+    _apply_output_links,
+    _resolve_activation,
+    _to_tuple,
+)
 from deqn_jax.networks.mlp import MLP
 
 
@@ -590,26 +595,7 @@ class DisasterPolicyNet(eqx.Module):
         # the additive form recovers the level-space K_inner / M values
         # injected via bk_corr above. Log-link slots use multiplicative form
         # for natural positivity + log-deviation parameterization.
-        if all(code == 0 for code in self.output_links):
-            raw = ss_policy + bk_corr + delta
-        elif all(code == 1 for code in self.output_links):
-            raw = ss_policy * jnp.exp(bk_corr + delta)
-        else:
-            # Mixed links: apply exp() ONLY to log-linked outputs. output_links
-            # is static, so unroll and never feed exp() the linear-linked
-            # exponents — a large linear (bk_corr+delta) would otherwise overflow
-            # exp() in the unselected branch and poison the reverse pass with NaN
-            # even though the forward correctly selects the linear value
-            # (audit JAX-SILENT-05).
-            add = bk_corr + delta
-            raw = jnp.stack(
-                [
-                    ss_policy[i] * jnp.exp(add[i])
-                    if code == 1
-                    else ss_policy[i] + add[i]
-                    for i, code in enumerate(self.output_links)
-                ]
-            )
+        raw = _apply_output_links(ss_policy, bk_corr, delta, self.output_links)
 
         # Investment-bracket reparam: recover q_t = M_t / 𝓑(x_t) using the
         # POST-delta i_t to compute x_t. 𝓑 floored at 1e-3 to keep the
@@ -630,13 +616,7 @@ class DisasterPolicyNet(eqx.Module):
         # Hard clip per-output bounds. When reparam_pi_as_kp_inner is True,
         # the bounds at pi_idx have been overridden in __init__ to enforce
         # the K_p_inner domain (0.01, 1/(1−ξ_p)−0.01).
-        if self.policy_lower is not None:
-            lower = jax.lax.stop_gradient(_to_array(self.policy_lower))
-            raw = jnp.maximum(raw, lower)
-        if self.policy_upper is not None:
-            upper = jax.lax.stop_gradient(_to_array(self.policy_upper))
-            safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
-            raw = jnp.minimum(raw, safe_upper)
+        raw = _apply_hard_clip(raw, self.policy_lower, self.policy_upper)
 
         # Calvo K_p_inner reparam (§3.1, price side): post-clip, raw[pi_idx]
         # is K_p_inner_t bounded to (0.01, 1/(1−ξ_p)−0.01). Recover π_t via

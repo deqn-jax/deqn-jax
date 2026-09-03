@@ -7,6 +7,40 @@ a ``NetworkConfig`` is turned into a module — checkpoint loaders must rebuild
 their template through it with the full config (static fields such as
 ``bk_pin`` change the forward graph and are not repaired by leaf
 deserialization).
+
+Which ``NetworkConfig`` fields each branch actually honors
+---------------------------------------------------------
+
+Every branch honors ``type`` and ``hidden_sizes``. Beyond that the branches
+differ, and fields a branch does not honor are **silently ignored** here:
+
+===================== ==========================================================
+``type``              additionally honored
+===================== ==========================================================
+``mlp``               ``activation``, ``activations`` (per-layer, overrides
+                      ``activation``), ``init``, ``multi_head``,
+                      ``skip_connections``
+``lstm``              ``history_len`` only — ``activation``, ``activations``
+                      and ``init`` are NOT forwarded to ``create_lstm``
+``transformer``       ``history_len``, ``num_heads``, ``n_layers`` — again
+                      ``activation`` / ``activations`` / ``init`` are NOT
+                      forwarded to ``create_transformer``
+``linear_plus_mlp``   ``activation``, ``init``, ``init_scale``,
+                      ``output_links`` (falling back to
+                      ``model.default_output_links``); ``activations`` is
+                      NOT honored (the delta MLP is built with a single
+                      activation repeated per layer)
+``disaster_policy_net`` everything ``linear_plus_mlp`` honors, plus
+                      ``kf_names``, ``use_zlb_feature``, ``zlb_feature_kind``,
+                      ``bk_pin``, ``reparam_q_as_m``,
+                      ``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``
+``kf_anchored_mlp``   ``activation``, ``init``, ``kf_names``
+===================== ==========================================================
+
+TODO: reject the ignored combinations (e.g. ``type: lstm`` with a non-default
+``init``, or ``activations`` on any non-``mlp`` type) in
+``deqn_jax.training.state_init._validate_train_config`` rather than dropping
+them here, so a mis-set field fails loudly instead of not taking effect.
 """
 
 import jax.numpy as jnp
@@ -25,6 +59,17 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     returns the Equinox policy module. ``net_key`` is the dedicated network
     PRNG subkey; ``hidden_sizes`` is the fallback when ``network_config`` is
     None (it is overridden by ``network_config.hidden_sizes`` otherwise).
+
+    ``network_config=None`` builds a plain bounded MLP from the defaults
+    below. Note those defaults are NOT identical to ``NetworkConfig()``'s:
+    ``init`` is ``"xavier_normal"`` here versus ``"default"`` on the config.
+    Callers that pass None (evaluation smokes, ``scripts/gn_polish.py``)
+    depend on the weights this produces, so the divergence is preserved.
+
+    See the module docstring for which config fields each branch honors.
+    Every non-``mlp`` branch is only reachable when ``network_config`` is a
+    ``NetworkConfig`` (``net_type`` is read off it), so those branches read
+    the remaining fields off it directly.
     """
     # Extract network params from config or use defaults
     activation = "tanh"
@@ -36,17 +81,26 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     history_len = 1
     num_heads = 4
     n_layers = 2
+    init_scale = 0.0
+    output_links = None
     if network_config is not None:
         hidden_sizes = network_config.hidden_sizes
         activation = network_config.activation
         activations = network_config.activations
         init = network_config.init
-        multi_head = getattr(network_config, "multi_head", False)
-        skip_connections = getattr(network_config, "skip_connections", False)
-        net_type = getattr(network_config, "type", "mlp")
-        history_len = getattr(network_config, "history_len", 1)
-        num_heads = getattr(network_config, "num_heads", 4)
-        n_layers = getattr(network_config, "n_layers", 2)
+        multi_head = network_config.multi_head
+        skip_connections = network_config.skip_connections
+        net_type = network_config.type
+        history_len = network_config.history_len
+        num_heads = network_config.num_heads
+        n_layers = network_config.n_layers
+        init_scale = network_config.init_scale
+        # output_links: explicit YAML setting wins, then
+        # model.default_output_links, then None (the residual networks
+        # default to all-linear, legacy behavior).
+        output_links = network_config.output_links
+    if output_links is None:
+        output_links = model.default_output_links
 
     # Compute input normalization from steady state
     input_shift = None
@@ -97,12 +151,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             raise ValueError(
                 "network.type='linear_plus_mlp' requires model.steady_state_fn"
             )
-        init_scale = getattr(network_config, "init_scale", 0.0)
-        # output_links: explicit YAML setting wins, then model.default_output_links,
-        # then None (factory defaults to all-linear, legacy behavior).
-        output_links = getattr(network_config, "output_links", None)
-        if output_links is None:
-            output_links = getattr(model, "default_output_links", None)
         policy_net = create_linear_plus_mlp(
             model=model,
             hidden_sizes=hidden_sizes,
@@ -124,21 +172,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             raise ValueError(
                 "network.type='disaster_policy_net' requires model.steady_state_fn"
             )
-        init_scale = getattr(network_config, "init_scale", 0.0)
-        use_zlb_feature = getattr(network_config, "use_zlb_feature", False)
-        bk_pin = getattr(network_config, "bk_pin", False)
-        zlb_feature_kind = getattr(network_config, "zlb_feature_kind", "raw")
-        kf_names = getattr(network_config, "kf_names", ())
-        reparam_q_as_m = getattr(network_config, "reparam_q_as_m", False)
-        reparam_pi_as_kp_inner = getattr(
-            network_config, "reparam_pi_as_kp_inner", False
-        )
-        reparam_wtilda_as_kw_inner = getattr(
-            network_config, "reparam_wtilda_as_kw_inner", False
-        )
-        output_links = getattr(network_config, "output_links", None)
-        if output_links is None:
-            output_links = getattr(model, "default_output_links", None)
         policy_net = create_disaster_policy_net(
             model=model,
             hidden_sizes=hidden_sizes,
@@ -147,13 +180,13 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             init_scale=init_scale,
             input_shift=input_shift,
             input_scale=input_scale,
-            kf_names=kf_names,
-            use_zlb_feature=use_zlb_feature,
-            bk_pin=bk_pin,
-            zlb_feature_kind=zlb_feature_kind,
-            reparam_q_as_m=reparam_q_as_m,
-            reparam_pi_as_kp_inner=reparam_pi_as_kp_inner,
-            reparam_wtilda_as_kw_inner=reparam_wtilda_as_kw_inner,
+            kf_names=network_config.kf_names,
+            use_zlb_feature=network_config.use_zlb_feature,
+            bk_pin=network_config.bk_pin,
+            zlb_feature_kind=network_config.zlb_feature_kind,
+            reparam_q_as_m=network_config.reparam_q_as_m,
+            reparam_pi_as_kp_inner=network_config.reparam_pi_as_kp_inner,
+            reparam_wtilda_as_kw_inner=network_config.reparam_wtilda_as_kw_inner,
             output_links=output_links,
             key=net_key,
         )
@@ -163,13 +196,12 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
         # state. See networks/kf_anchored_mlp.py for the rationale.
         from deqn_jax.networks.kf_anchored_mlp import create_kf_anchored_mlp
 
-        kf_names = getattr(network_config, "kf_names", ("F_p", "K_p", "F_w", "K_w"))
         policy_net = create_kf_anchored_mlp(
             model=model,
             hidden_sizes=hidden_sizes,
             activation=activation,
             init=init,
-            kf_names=kf_names,
+            kf_names=network_config.kf_names,
             input_shift=input_shift,
             input_scale=input_scale,
             key=net_key,

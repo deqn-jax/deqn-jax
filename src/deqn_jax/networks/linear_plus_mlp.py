@@ -48,7 +48,12 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.networks.common import _resolve_activation, _to_array, _to_tuple
+from deqn_jax.networks.common import (
+    _apply_hard_clip,
+    _apply_output_links,
+    _resolve_activation,
+    _to_tuple,
+)
 from deqn_jax.networks.mlp import MLP
 
 
@@ -182,38 +187,10 @@ class LinearPlusMLP(eqx.Module):
 
         delta = self.mlp(state)
         # Per-policy: linear policies use additive, log policies use
-        # multiplicative. Resolve at Python time from the static link tuple:
-        # if all-linear (common case) skip exp(); if all-log skip where().
-        # Mixed case computes both and selects via jnp.where.
-        if all(code == 0 for code in self.output_links):
-            raw = ss_policy + bk_corr + delta
-        elif all(code == 1 for code in self.output_links):
-            raw = ss_policy * jnp.exp(bk_corr + delta)
-        else:
-            # Mixed links: apply exp() ONLY to log-linked outputs. output_links
-            # is static (Python tuple), so unroll and never feed exp() the
-            # linear-linked exponents — a large linear (bk_corr+delta) would
-            # otherwise overflow exp() in the unselected branch and poison the
-            # reverse pass with NaN even though the forward correctly selects
-            # the linear value (audit JAX-SILENT-05).
-            add = bk_corr + delta
-            raw = jnp.stack(
-                [
-                    ss_policy[i] * jnp.exp(add[i])
-                    if code == 1
-                    else ss_policy[i] + add[i]
-                    for i, code in enumerate(self.output_links)
-                ]
-            )
+        # multiplicative; resolved at trace time from the static link tuple.
+        raw = _apply_output_links(ss_policy, bk_corr, delta, self.output_links)
 
-        if self.policy_lower is not None:
-            lower = jax.lax.stop_gradient(_to_array(self.policy_lower))
-            raw = jnp.maximum(raw, lower)
-        if self.policy_upper is not None:
-            upper = jax.lax.stop_gradient(_to_array(self.policy_upper))
-            safe_upper = jnp.where(jnp.isinf(upper), jnp.array(1e10), upper)
-            raw = jnp.minimum(raw, safe_upper)
-        return raw
+        return _apply_hard_clip(raw, self.policy_lower, self.policy_upper)
 
     def __call__(self, x: Array) -> Array:
         if x.ndim == 1:
