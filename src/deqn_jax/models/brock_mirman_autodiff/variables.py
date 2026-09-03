@@ -18,4 +18,4 @@ from deqn_jax.models.brock_mirman.variables import (  # noqa: F401
     SPEC,
 )
 
-DESCRIPTION = "Stochastic Brock-Mirman with Euler synthesized from period-return via jax.grad (autodiff POC)"
+DESCRIPTION = "Brock-Mirman with Euler synthesized from Pi via jax.grad (autodiff POC)"

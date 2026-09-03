@@ -9,7 +9,7 @@ Instead of fragile index slicing like `state[:, 0]`, use:
 JAX traces through NamedTuples efficiently.
 """
 
-from typing import Any, Callable, Dict, List, NamedTuple, Tuple, Type
+from typing import Any, Callable, Dict, NamedTuple, Tuple, Type
 
 import jax.numpy as jnp
 from jax import Array
@@ -44,24 +44,6 @@ def unpack_array(arr: Array, names: Tuple[str, ...], nt_type: Type) -> NamedTupl
     return nt_type(*[arr[:, i] for i in range(len(names))])
 
 
-def pack_array(nt: NamedTuple) -> Array:
-    """Pack NamedTuple fields back into array.
-
-    Args:
-        nt: NamedTuple with array fields
-
-    Returns:
-        Array of shape [batch, n_vars] or [n_vars]
-    """
-    # ``list(nt)`` is typed ``list[object]`` because ``NamedTuple`` (the
-    # abstract base) isn't generic over its element type; the fields are
-    # all Arrays at runtime.
-    values: List[Array] = list(nt)
-    if values[0].ndim == 0:
-        return jnp.stack(values)
-    return jnp.stack(values, axis=1)
-
-
 class VariableSpec:
     """Specification for model variables with named access.
 
@@ -78,9 +60,6 @@ class VariableSpec:
         # Access by name
         capital = s.k
         savings = p.sav_rate
-
-        # Pack back
-        new_state = spec.pack_state(s._replace(k=new_k))
     """
 
     def __init__(
@@ -116,22 +95,6 @@ class VariableSpec:
     def unpack_policy(self, arr: Array) -> Any:
         """Unpack policy array into named fields."""
         return unpack_array(arr, self.policy_names, self.PolicyType)
-
-    def pack_state(self, state: Any) -> Array:
-        """Pack state NamedTuple back into array."""
-        return pack_array(state)
-
-    def pack_policy(self, policy: Any) -> Array:
-        """Pack policy NamedTuple back into array."""
-        return pack_array(policy)
-
-    def get_state_idx(self, name: str) -> int:
-        """Get index for state variable by name."""
-        return self.state_idx[name]
-
-    def get_policy_idx(self, name: str) -> int:
-        """Get index for policy variable by name."""
-        return self.policy_idx[name]
 
 
 # ---------------------------------------------------------------------------

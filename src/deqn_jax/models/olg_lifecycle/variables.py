@@ -53,5 +53,5 @@ N_SHOCKS = 1
 
 DESCRIPTION = (
     "6-generation life-cycle OLG with borrowing constraints "
-    "(Fischer-Burmeister Euler complementarity, two-stage loss)"
+    "(Fischer-Burmeister, two-stage loss)"
 )

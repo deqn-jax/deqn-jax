@@ -59,5 +59,5 @@ N_SHOCKS = 1
 
 DESCRIPTION = (
     "56-generation life-cycle OLG with borrowing constraints "
-    "(annual frequency; reuses the olg_lifecycle machinery at H=56)"
+    "(annual frequency, 57-dim state)"
 )

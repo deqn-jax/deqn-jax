@@ -46,6 +46,16 @@ def test_registry_nonempty():
     assert len(MODEL_NAMES) >= 1, "model registry is empty"
 
 
+@pytest.mark.parametrize("name,description", list_models())
+def test_every_model_has_a_description(name, description):
+    """``_DESCRIPTIONS`` reads ``<model>/variables.py::DESCRIPTION``.
+
+    A package that ships without one used to blank the ``deqn-jax list``
+    row; now it raises at import. This pins the non-empty half.
+    """
+    assert description.strip(), f"{name}: variables.py defines no DESCRIPTION"
+
+
 def test_dimension_consistency(model):
     if model.state_names:
         assert len(model.state_names) == model.n_states, (

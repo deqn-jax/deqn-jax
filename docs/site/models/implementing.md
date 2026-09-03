@@ -323,11 +323,12 @@ _MODELS = {
     ...
     "brock_mirman": _brock_mirman,
 }
-_DESCRIPTIONS = {
-    ...
-    "brock_mirman": "Brock-Mirman (1972) optimal growth model",
-}
 ```
+
+`_MODELS` is the only dict to edit. The one-line blurb `deqn-jax list`
+prints is read from your package's `variables.py::DESCRIPTION` — there is
+no second copy in `models/__init__.py` to keep in sync, and a package
+without a `DESCRIPTION` fails at import.
 
 After this, `load_model("brock_mirman")` and `deqn-jax train brock_mirman ...` both work.
 
