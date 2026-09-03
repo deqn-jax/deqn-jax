@@ -519,6 +519,10 @@ class TestEdgeCases:
                 }
             )
 
+    def test_from_dict_null_block_raises_value_error(self):
+        with pytest.raises(ValueError, match="config.optimizer.*expected a mapping"):
+            TrainConfig.from_dict({"optimizer": None})
+
     def test_from_dict_typo_suggests_correction(self):
         with pytest.raises(ValueError, match="did you mean.*'episodes'"):
             TrainConfig.from_dict({"episode": 500})

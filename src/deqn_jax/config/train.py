@@ -56,7 +56,7 @@ class TrainConfig(_ConfigBase):
     )
     mc_samples: int = Field(
         default=5,
-        description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type` is `quadrature`/`gh`/`gauss_hermite`.",
+        description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type` is `quadrature`/`gh`/`gauss_hermite` or `discrete`.",
     )
     seed: int = Field(
         default=42,
@@ -597,6 +597,11 @@ class TrainConfig(_ConfigBase):
         block_dicts: Dict[str, Dict[str, Any]] = {}
         for name in blocks:
             sub = d.pop(name, {})
+            if sub is None or not isinstance(sub, (dict, str)):
+                raise ValueError(
+                    f"config.{name}: expected a mapping (or a string shorthand, "
+                    f"where supported), got {type(sub).__name__} ({sub!r})"
+                )
             shorthand_key = cls._BLOCK_SHORTHAND_KEY.get(name)
             if shorthand_key is not None and isinstance(sub, str):
                 sub = {shorthand_key: sub}
