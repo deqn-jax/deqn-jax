@@ -12,18 +12,22 @@ only when a behavioural change to the variants is intended and stated:
     cd <checkout> && JAX_PLATFORMS=cpu uv run python \\
         tests/test_step_common_guard.py tests/data/step_common_guard.npz
 
-Bit-identity is a property of one machine and one JAX build, not of the code.
-The committed references were recorded on **macOS arm64** and the npz carries
-that platform key. On the recording platform the test compares exactly — loss
-histories bit-for-bit and parameter-leaf hashes. Anywhere else (Linux x86 CI)
-the last bits legitimately differ, so the test falls back to a tolerant
-comparison of the loss histories (``rtol=1e-5``, ``atol=1e-8``) and skips the
-hash comparison, which cannot be made tolerant; the skip message names both
-platform keys. The refactor net is therefore exact for the maintainer and a
-trajectory check in CI.
+Bit-identity is a property of one machine, one JAX build and one float mode —
+not of the code. The committed references were recorded on **macOS arm64,
+jax 0.9.0, x64 off**, and the npz carries that platform key. On the recording
+platform the test compares exactly: loss histories bit-for-bit and
+parameter-leaf hashes.
 
-Marked ``slow`` (~30 s on CPU): it trains, so it is deselected by the default
-``-m "not slow"`` run and executed explicitly in CI's slow lane.
+Anywhere else the case is **skipped before it trains**, with a message naming
+both platform keys. A tolerance was tried and does not save it: ubuntu CI runs
+jax 0.6.2 with x64 enabled process-wide by an earlier test, and the same two
+episodes land three times away (0.0077 vs 0.0026 on ``bm_standard``) — a
+different trajectory, not last-bit drift. So this is a maintainer-side net for
+refactors of the five variants, not a CI assertion: run it locally before and
+after touching them, and it costs CI nothing.
+
+Marked ``slow`` (~25 s on CPU) so the fast local loop (``-m "not slow"``) can
+leave it out.
 """
 
 import hashlib
@@ -141,34 +145,29 @@ def test_train_step_variant_matches_reference(case_name):
     ref = np.load(REFERENCE, allow_pickle=False)
     ref_platform = str(ref["platform"])
     here = _platform_key()
-    exact = here == ref_platform
+
+    # Checked BEFORE training: off the recording platform the recorded numbers
+    # carry no signal, and running anyway would only burn CI minutes. The gap
+    # is not last-bit noise a tolerance could absorb — ubuntu CI runs jax 0.6.2
+    # with x64 enabled process-wide by an earlier test, and the same two
+    # episodes land 3x away (0.0077 vs 0.0026 on bm_standard).
+    if here != ref_platform:
+        pytest.skip(
+            f"{case_name}: recorded reference does not apply here — running "
+            f"on {here}, reference recorded on {ref_platform}. The guard is "
+            f"exact on the recording platform only; re-record to move it."
+        )
 
     losses, param_hash = run_case(build_cases()[case_name])
     ref_losses = ref[f"{case_name}__loss"]
 
-    if exact:
-        assert np.array_equal(losses, ref_losses), (
-            f"{case_name}: loss history moved (EXACT mode, platform "
-            f"{here})\n  got      {losses}\n  expected {ref_losses}"
-        )
-        assert param_hash == str(ref[f"{case_name}__hash"]), (
-            f"{case_name}: trained parameters differ from the reference "
-            f"tree (EXACT mode, platform {here})"
-        )
-        return
-
-    # Different float environment: last bits legitimately differ, so the
-    # parameter hash carries no signal here and only the trajectory is
-    # checked, loosely.
-    assert np.allclose(losses, ref_losses, rtol=1e-5, atol=1e-8), (
-        f"{case_name}: loss history moved (TOLERANT mode, rtol=1e-5 "
-        f"atol=1e-8; running on {here}, reference recorded on "
-        f"{ref_platform})\n  got      {losses}\n  expected {ref_losses}"
+    assert np.array_equal(losses, ref_losses), (
+        f"{case_name}: loss history moved (EXACT mode, platform {here})\n"
+        f"  got      {losses}\n  expected {ref_losses}"
     )
-    pytest.skip(
-        f"{case_name}: loss history matches within tolerance; parameter-hash "
-        f"comparison skipped — running on {here}, reference recorded on "
-        f"{ref_platform} (hashes cannot be compared with a tolerance)"
+    assert param_hash == str(ref[f"{case_name}__hash"]), (
+        f"{case_name}: trained parameters differ from the reference tree "
+        f"(EXACT mode, platform {here})"
     )
 
 
