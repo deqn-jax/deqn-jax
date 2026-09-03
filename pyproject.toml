@@ -154,6 +154,7 @@ ignore = [
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.390",
     "jupyter>=1.1.1",
     "nbformat>=5.10.4",
     "pydeps>=3.0.6",

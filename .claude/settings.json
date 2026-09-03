@@ -5,7 +5,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Orient before acting: read AGENTS.md, then iskron_orient(realm=deqn) — focus holon #1 (deqn-jax solver); fallback when the iskron graph server is absent: docs/dev/selection_program_chronicle_2026_07.md (sec 15 artifact index, sec 16 open threads). Check git status and running DGX jobs (logs/ on anna@130.223.169.108:~/projects/deqn-jax) before launching new work.\"}}'"
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Enter the graph through the iskron entry skill before acting (iskron:entry). Addresses for this repo: realm @aleph/deqn (r71); focus holon #1 «🧮 deqn-jax solver»; agent role #9 «🤖 Coding agent» (adhikarin, stewards #6 Training contour and #7 Certification contour) — your inbox is iskron_orient(realm=\\\"@aleph/deqn\\\", focus=\\\"#9\\\"); owner role #8 «👤 Maintainer-researcher» (svatantra) — questions outside your mandate go there as posed_to vimarshas. When the graph server is absent, docs/dev/selection_program_chronicle_2026_07.md §15/§16 is the fallback orientation. Then: git status, and check running DGX jobs (logs/ on anna@130.223.169.108:~/projects/deqn-jax) before launching new work.\"}}'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // \"\"' | grep -Eq '\\.claude/projects/.*/memory/' && { echo 'BLOCKED: local agent memory is forbidden entirely, not by category (AGENTS.md, Persistence rules). Route the fact: repo conventions / code facts / gotchas -> AGENTS.md; project state, decisions, open questions, this repo'\\''s servers and dated duties -> the project realm @aleph/deqn (vimarsha or node); research narrative not for the public tree -> the private notes repo mechanicpanic/deqn-research-notes. This directory stays frozen at its prohibition stub.' >&2; exit 2; } || exit 0"
           }
         ]
       }
@@ -26,7 +37,26 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -Eq '(^|[;&|[:space:]])(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?([[:space:]]+[a-z-]+=[^[:space:]]+)*[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+(create|merge))([[:space:]]|$)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Post-push ritual (AGENTS.md Session lifecycle): (1) if solver behavior or certification claims changed, update the cert report / chronicle in the same push; (2) after-green-push self-review of the diff — fix in the same branch or state plainly that nothing surfaced.\"}}' || true"
+            "command": "jq -r '.tool_input.command // \"\"' | grep -Eq '(^|[;&|[:space:]])(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?([[:space:]]+[a-z-]+=[^[:space:]]+)*[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+(create|merge))([[:space:]]|$)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A push happened. First ask which push this was: a push that only opened or updated a PR shipped nothing — record the answer where it stands and keep graph bodies and modes describing what trunk carries. On a MERGE (done = merged): (1) if solver behaviour or certification claims changed, the cert report / chronicle must have moved in the same push; (2) update the graph @aleph/deqn from fresh artifact evidence only — reconcile with reality, advance the transformation map, close what the merge resolved along the axes (addressed_by records the answer; visarjana is a separate act); sweep the shipped contour (switch modes on every designed node the push realized, not only the touched ones; close the design vimarshas it resolved); work the inbox (posed_to questions the work answered); (3) self-review the branch diff after a green push and fix in the same branch or say plainly nothing surfaced; (4) on an open PR or a finished large stage, open a cold review with the reviewer sub-agent (branch diff vs trunk + repo + references to every graph node in the diff; NEEDS_CONTEXT means fix the graph by weaving, not the brief); (5) re-read the diff and the nodes for borrowed project-management words (ticket, backlog, sprint, epic, story, done, blocker, committed) — name each to the user and ask what it is called here, do not substitute; (6) design/spec docs on this branch not yet in the graph -> intake then design before closing; (7) feedback reflection per AGENTS.md (iskron:feedback; an empty reflection is a valid outcome). Branch freshness is mechanical: git fetch -q origin master && git merge-base --is-ancestor origin/master HEAD || echo branch behind master — rebase before pushing.\"}}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // \"\"' | grep -qE '(^|/)specs/[^/]+\\.md$|(^|/)docs/.*design[^/]*\\.md$' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A design draft was written; per AGENTS.md this file is a draft view — the graph @aleph/deqn is the design record. Intake it (iskron:intake, then iskron:design) in this session — do not defer to a push.\"}}' || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "in=$(cat); [ \"$(printf '%s' \"$in\" | jq -r '.stop_hook_active // false')\" = \"true\" ] && exit 0; t=$(printf '%s' \"$in\" | jq -r '.transcript_path // \"\"'); [ -f \"$t\" ] || exit 0; last=$(grep -E '\"role\":\"assistant\"' \"$t\" | tail -1); wrote=$(printf '%s' \"$last\" | grep -Ec '\"name\":\"(Write|Edit|MultiEdit|NotebookEdit|mcp__iskron__iskron_(add_[a-z]+|arrow|update|batch|delete_node))\"'); txt=$(printf '%s' \"$last\" | jq -r '[.message.content[]? | select(.type==\"text\") | .text] | join(\" \")' 2>/dev/null | tail -c 1200); if [ \"$wrote\" = \"0\" ] && printf '%s' \"$txt\" | grep -Eiq \"(I'll start (by|with)|I will start (by|with)|shall I|if you'?re okay|let me know (if|when) you|начну с|приступлю к|если ты не против)\"; then printf '%s' '{\"decision\":\"block\",\"reason\":\"A start is not announced, it is performed: make the first move of what you chose, or record the question to its addressee (a vimarsha posed_to the owner role #8 in @aleph/deqn, plus a line here) and say that you recorded it.\"}'; fi; exit 0"
           }
         ]
       }
@@ -48,13 +78,17 @@
       "mcp__iskron__iskron_look",
       "mcp__iskron__iskron_search",
       "mcp__iskron__iskron_semantic_search",
+      "mcp__iskron__iskron_history",
       "mcp__iskron__iskron_me",
       "mcp__iskron__iskron_org",
+      "mcp__iskron__iskron_realm",
+      "mcp__iskron__iskron_channel",
       "mcp__iskron__iskron_add_vimarsha",
       "mcp__iskron__iskron_add_kriya",
       "mcp__iskron__iskron_add_phenomenon",
       "mcp__iskron__iskron_add_holon",
       "mcp__iskron__iskron_add_karta",
+      "mcp__iskron__iskron_add_bianhua",
       "mcp__iskron__iskron_update",
       "mcp__iskron__iskron_arrow",
       "mcp__iskron__iskron_batch"
