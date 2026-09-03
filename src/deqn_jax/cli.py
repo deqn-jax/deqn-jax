@@ -702,16 +702,27 @@ def run_active_subspace_command(args):
     model = cast(ModelSpec, model_obj)
     assert model.steady_state_fn is not None  # narrows for the type checker
 
-    # Sample states from a long simulation under the trained policy.
-    # ``simulated_moments`` already does this internally; rather than
-    # duplicate the loop, we rebuild a thin sampler here so the active
-    # subspace estimator sees a fresh trajectory.
+    # Sample states from a long simulation under the trained policy, so the
+    # active subspace estimator sees a fresh trajectory. The rollout goes
+    # through the shared eval loop (``evaluate/simulate.py``), which carries
+    # the disaster-Bernoulli and discrete-chain branches this sampler used to
+    # lack: for a disaster-calibrated or discrete-shock model the sampled
+    # states now visit the same support the evaluator does. Continuous,
+    # p_disaster = 0 models (e.g. brock_mirman) draw exactly as before.
     print(f"Simulating {args.n_states} ergodic states (seed={args.seed})...")
     constants = model.constants
     ss_state, _ = model.steady_state_fn(constants)
-    n_shocks = model.n_shocks
     state = ss_state[None, :]
     key = jr.PRNGKey(args.seed)
+
+    from deqn_jax.evaluate.simulate import eval_rollout
+    from deqn_jax.training.shocks import step_accepts_disaster
+
+    p_disaster = (
+        float(constants.get("p_disaster", 0.0))
+        if step_accepts_disaster(model.step_fn)
+        else 0.0
+    )
 
     @jax.jit
     def _sim_step(state, shock):
@@ -721,19 +732,43 @@ def run_active_subspace_command(args):
         next_state = model.step_fn(state, policy, shock, constants)
         return next_state, state[0]
 
+    @jax.jit
+    def _sim_step_with_d(state, shock, d_disaster):
+        policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+        if policy.ndim == 1:
+            policy = policy[None, :]
+        next_state = model.step_fn(
+            state, policy, shock, constants, d_disaster=d_disaster
+        )
+        return next_state, state[0]
+
+    if p_disaster > 0.0:
+
+        def step(state, shock, d):
+            return _sim_step_with_d(state, shock, d)
+
+    else:
+
+        def step(state, shock, _d):
+            return _sim_step(state, shock)
+
     burn_in = min(500, args.n_states // 5)
     states_collected = []
-    for t in range(args.n_states + burn_in):
-        key, shock_key = jax.random.split(key)
-        shock = jr.normal(shock_key, (1, n_shocks))
-        next_state, st = _sim_step(state, shock)
+
+    def record(t, outputs):
+        _next_state, st = outputs
         if t >= burn_in:
             states_collected.append(st)
-        state = (
-            model.clip_state_fn(next_state)
-            if model.clip_state_fn is not None
-            else next_state
-        )
+
+    eval_rollout(
+        model,
+        state,
+        key,
+        args.n_states + burn_in,
+        step,
+        record,
+        p_disaster=p_disaster,
+    )
     states = jnp.stack(states_collected)
     # Drop any non-finite states (rare but defensive).
     finite = jnp.all(jnp.isfinite(states), axis=1)

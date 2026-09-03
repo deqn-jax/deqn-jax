@@ -6,7 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from deqn_jax.evaluate.simulate import _draw_eval_shock, _model_uses_discrete_chain
+from deqn_jax.evaluate.simulate import _model_uses_discrete_chain, eval_rollout
 
 
 def _sim_seed_state(model, key):
@@ -213,38 +213,46 @@ def euler_equation_errors(
             )
             return next_state, row, state[0]
 
+    # Pick the per-step function once; the rollout loop itself lives in
+    # evaluate/simulate.py (one loop for every eval primitive).
+    if use_two_stage:
+
+        def step(state, shock, _d):
+            return _sim_step_two_stage(state, shock)
+
+    elif use_discrete:
+
+        def step(state, shock, _d):
+            return _sim_step_discrete(state, shock)
+
+    elif p_disaster > 0.0:
+
+        def step(state, shock, d):
+            return _sim_step_with_d(state, shock, d)
+
+    else:
+
+        def step(state, shock, _d):
+            return _sim_step_no_d(state, shock)
+
     all_residuals = []
     all_states = []
 
-    for t in range(n_periods):
-        if use_two_stage:
-            key, shock_key = jax.random.split(key)
-            shock = jax.random.normal(shock_key, (1, n_shocks))
-            next_state, row, st = _sim_step_two_stage(state, shock)
-        elif use_discrete:
-            key, shock_key = jax.random.split(key)
-            shock = _draw_eval_shock(model, shock_key, state)
-            next_state, row, st = _sim_step_discrete(state, shock)
-        elif p_disaster > 0.0:
-            key, shock_key, d_key = jax.random.split(key, 3)
-            shock = jax.random.normal(shock_key, (1, n_shocks))
-            d_val = (jax.random.uniform(d_key, (1,)) < p_disaster).astype(jnp.float32)
-            next_state, row, st = _sim_step_with_d(state, shock, d_val)
-        else:
-            key, shock_key = jax.random.split(key)
-            shock = jax.random.normal(shock_key, (1, n_shocks))
-            next_state, row, st = _sim_step_no_d(state, shock)
-
+    def record(t, outputs):
+        _next_state, row, st = outputs
         if t >= burn_in:
             all_residuals.append(row)
             all_states.append(st)
 
-        # Clip for simulation safety (trajectory propagation only)
-        state = (
-            model.clip_state_fn(next_state)
-            if model.clip_state_fn is not None
-            else next_state
-        )
+    eval_rollout(
+        model,
+        state,
+        key,
+        n_periods,
+        step,
+        record,
+        p_disaster=p_disaster,
+    )
 
     residuals_array = jnp.stack(all_residuals)  # [T, n_eq]
     states_array = jnp.stack(all_states)  # [T, n_states]
@@ -435,29 +443,34 @@ def simulated_moments(
         )
         return next_state, state[0], policy[0]
 
+    if p_disaster > 0.0:
+
+        def step(state, shock, d):
+            return _sim_step_with_d(state, shock, d)
+
+    else:
+
+        def step(state, shock, _d):
+            return _sim_step(state, shock)
+
     all_states = []
     all_policies = []
 
-    for t in range(n_periods):
-        if p_disaster > 0.0:
-            key, shock_key, d_key = jax.random.split(key, 3)
-            shock = jax.random.normal(shock_key, (1, model.n_shocks))
-            d_val = (jax.random.uniform(d_key, (1,)) < p_disaster).astype(jnp.float32)
-            next_state, st, pol = _sim_step_with_d(state, shock, d_val)
-        else:
-            key, shock_key = jax.random.split(key)
-            shock = _draw_eval_shock(model, shock_key, state)
-            next_state, st, pol = _sim_step(state, shock)
-
+    def record(t, outputs):
+        _next_state, st, pol = outputs
         if t >= burn_in:
             all_states.append(st)
             all_policies.append(pol)
 
-        state = (
-            model.clip_state_fn(next_state)
-            if model.clip_state_fn is not None
-            else next_state
-        )
+    eval_rollout(
+        model,
+        state,
+        key,
+        n_periods,
+        step,
+        record,
+        p_disaster=p_disaster,
+    )
 
     states = jnp.stack(all_states)  # [T, n_states]
     policies = jnp.stack(all_policies)  # [T, n_policies]
@@ -592,25 +605,30 @@ def stability_check(
         )
         return next_state, policy
 
+    if p_disaster > 0.0:
+
+        def step(state, shock, d):
+            next_state, policy = _sim_step_with_d(state, shock, d)
+            return next_state, policy, state
+
+    else:
+
+        def step(state, shock, _d):
+            next_state, policy = _sim_step(state, shock)
+            return next_state, policy, state
+
     bound_hits = 0
     total_outputs = 0
     has_nan = False
 
-    for t in range(n_periods):
-        if p_disaster > 0.0:
-            key, shock_key, d_key = jax.random.split(key, 3)
-            shock = jax.random.normal(shock_key, (1, model.n_shocks))
-            d_val = (jax.random.uniform(d_key, (1,)) < p_disaster).astype(jnp.float32)
-            next_state, policy = _sim_step_with_d(state, shock, d_val)
-        else:
-            key, shock_key = jax.random.split(key)
-            shock = _draw_eval_shock(model, shock_key, state)
-            next_state, policy = _sim_step(state, shock)
+    def record(_t, outputs):
+        nonlocal bound_hits, total_outputs, has_nan
+        _next_state, policy, state = outputs
 
         # Check NaN
         if jnp.any(jnp.isnan(policy)) or jnp.any(jnp.isnan(state)):
             has_nan = True
-            break
+            return True  # stop the rollout
 
         # Check bound hitting (within 1% of bounds) — only over policies
         # whose bounds are finite, so softplus-bounded (inf upper) policies
@@ -621,14 +639,23 @@ def stability_check(
             upper_ok = finite & (p > policy_upper - margin)
             bound_hits += int(jnp.sum(lower_ok) + jnp.sum(upper_ok))
             total_outputs += int(jnp.sum(finite))
+        return False
 
-        state = (
-            model.clip_state_fn(next_state)
-            if model.clip_state_fn is not None
-            else next_state
-        )
+    def after_step(t, state):
+        nonlocal ref_state
         if ref_state is None and t == mid_t:
             ref_state = state[0]  # ergodic-only models: mid-trajectory reference
+
+    state = eval_rollout(
+        model,
+        state,
+        key,
+        n_periods,
+        step,
+        record,
+        p_disaster=p_disaster,
+        after_step=after_step,
+    )
 
     if ref_state is None:  # early NaN break before mid_t
         ref_state = state[0] if state.ndim == 2 else state

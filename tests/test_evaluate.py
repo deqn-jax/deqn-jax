@@ -112,3 +112,88 @@ class TestSimulatedMoments:
             assert "mean" in stats
             assert "std" in stats
             assert "ss" in stats
+
+
+class TestSharedRollout:
+    """The one rollout loop behind every eval primitive (evaluate/simulate.py)."""
+
+    def test_eval_rollout_matches_hand_rolled_loop(self, tiny_model_and_net):
+        """Same key, same clip, same shocks as the loop it replaced."""
+        import jax.numpy as jnp
+
+        from deqn_jax.evaluate.simulate import _draw_eval_shock, eval_rollout
+
+        model, net = tiny_model_and_net
+        ss_state, _ = model.steady_state_fn(model.constants)
+        start = ss_state[None, :]
+
+        def step(state, shock, _d):
+            policy = net(state)
+            if policy.ndim == 1:
+                policy = policy[None, :]
+            return model.step_fn(state, policy, shock, model.constants), state[0]
+
+        seen = []
+        eval_rollout(
+            model,
+            start,
+            jax.random.PRNGKey(7),
+            12,
+            step,
+            lambda t, out: seen.append(out[1]),
+        )
+
+        # Hand-rolled reference: the loop shape the diagnostics used to carry.
+        key = jax.random.PRNGKey(7)
+        state = start
+        expected = []
+        for _ in range(12):
+            key, shock_key = jax.random.split(key)
+            shock = _draw_eval_shock(model, shock_key, state)
+            next_state, st = step(state, shock, None)
+            expected.append(st)
+            state = (
+                model.clip_state_fn(next_state)
+                if model.clip_state_fn is not None
+                else next_state
+            )
+
+        np.testing.assert_array_equal(jnp.stack(seen), jnp.stack(expected))
+
+    def test_record_can_stop_the_rollout(self, tiny_model_and_net):
+        model, net = tiny_model_and_net
+        ss_state, _ = model.steady_state_fn(model.constants)
+        from deqn_jax.evaluate.simulate import eval_rollout
+
+        def step(state, shock, _d):
+            policy = net(state)
+            if policy.ndim == 1:
+                policy = policy[None, :]
+            return (model.step_fn(state, policy, shock, model.constants),)
+
+        seen = []
+
+        def record(t, _out):
+            seen.append(t)
+            return t == 3  # stop here
+
+        eval_rollout(model, ss_state[None, :], jax.random.PRNGKey(0), 50, step, record)
+        assert seen == [0, 1, 2, 3]
+
+
+class TestIrfCsvMode:
+    """Both IRF modes write irf_<shock>.csv; the mode is a trailing column."""
+
+    def test_mode_column(self, tmp_path):
+        from deqn_jax.irf import save_irf_csv
+
+        results = {"period": [0, 1], "k": [1.0, 1.1]}
+        for mode, flag in (("irf", "0"), ("girf", "1")):
+            path = tmp_path / f"{mode}.csv"
+            save_irf_csv(results, str(path), mode=mode)
+            rows = [line.strip().split(",") for line in path.read_text().splitlines()]
+            assert rows[0] == ["period", "k", "mode"]
+            assert [r[-1] for r in rows[1:]] == [flag, flag]
+            # Every field stays numeric so float-parsing readers keep working.
+            for r in rows[1:]:
+                [float(v) for v in r]
