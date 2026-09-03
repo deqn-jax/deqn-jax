@@ -7,7 +7,7 @@ initialized MLP under a fixed seed.
 
 from __future__ import annotations
 
-import equinox as eqx  # noqa: F401
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest  # noqa: F401
@@ -269,3 +269,68 @@ def test_end_to_end_wiring_on_trained_brock_mirman():
 
     ablated = ablate_neuron(trained, 0, 0, states)
     assert ablated.shape == (8, 1)
+
+
+def _mixed_link_net(big_exponent: float) -> LinearPlusMLP:
+    """Two policies, links ('log', 'linear'), with a huge linear-slot exponent.
+
+    The linear slot's `bk_corr + delta` is ~`big_exponent`, which overflows
+    `exp()`. A vectorized "compute both forms, select with jnp.where"
+    assembly stays correct in the forward (the linear value is selected) but
+    poisons the reverse pass, because where's VJP multiplies the unselected
+    branch's `inf` cotangent by zero. Bounds are set wide enough that hard
+    clipping never fires and hides the effect.
+    """
+    return LinearPlusMLP(
+        n_states=2,
+        n_policies=2,
+        hidden_sizes=(4,),
+        activation="tanh",
+        P=jnp.array([[0.0, 0.0], [big_exponent, 0.0]]),
+        ss_state=jnp.array([1.0, 0.0]),
+        ss_policy=jnp.array([0.5, 0.5]),
+        output_links=("log", "linear"),
+        policy_lower=jnp.array([-1e30, -1e30]),
+        policy_upper=jnp.array([jnp.inf, jnp.inf]),
+        key=jax.random.PRNGKey(0),
+    )
+
+
+def test_ablate_neuron_gradient_finite_on_mixed_links():
+    """JAX-SILENT-05: ablate_neuron must not NaN the reverse pass.
+
+    `ablate_neuron` re-implements `LinearPlusMLP._forward_single`; it used to
+    do so with the vectorized where-select rather than the static unrolling
+    the network itself uses, so the gradient went NaN on exactly the inputs
+    the network handles fine. Both now share
+    `common._apply_output_links`.
+    """
+    net = _mixed_link_net(1000.0)
+    states = jnp.array([[3.0, 0.0], [1.0, 0.0]])
+
+    out = ablate_neuron(net, 0, 0, states)
+    assert jnp.all(jnp.isfinite(out)), "forward was already finite before the fix"
+
+    grads = eqx.filter_grad(lambda n: jnp.sum(ablate_neuron(n, 0, 0, states)))(net)
+    leaves = jax.tree_util.tree_leaves(eqx.filter(grads, eqx.is_array))
+    assert leaves
+    for leaf in leaves:
+        assert jnp.all(jnp.isfinite(leaf)), "NaN/inf in ablate_neuron gradient"
+
+
+def test_ablate_neuron_matches_network_forward_on_mixed_links():
+    """Ablating a neuron that is already zero must reproduce the net's output."""
+    net = _mixed_link_net(2.0)
+    states = jnp.array([[1.2, 0.1], [0.9, -0.2]])
+
+    # Zero the chosen neuron's incoming weights and bias so its
+    # post-activation is tanh(0) = 0; ablating it is then a no-op.
+    layer = net.mlp.layers[0]
+    zeroed = eqx.tree_at(
+        lambda ly: (ly.weight, ly.bias),
+        layer,
+        (layer.weight.at[0, :].set(0.0), layer.bias.at[0].set(0.0)),
+    )
+    net = eqx.tree_at(lambda n: n.mlp.layers[0], net, zeroed)
+
+    assert jnp.allclose(ablate_neuron(net, 0, 0, states), net(states))
