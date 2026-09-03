@@ -16,15 +16,13 @@ from __future__ import annotations
 
 from typing import Dict, Literal, Tuple
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from deqn_jax.config._base import _coerce_float, _coerce_int, _ConfigBase
 
 
 class CoverageConfig(_ConfigBase):
     """EWM coverage-sampling configuration (v1: coverage-only)."""
-
-    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(
         default=False,

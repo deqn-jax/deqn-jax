@@ -9,9 +9,6 @@ public surface so ``from deqn_jax.config import TrainConfig`` etc. keep working.
 
 from deqn_jax.config.coverage import CoverageConfig
 from deqn_jax.config.io import (
-    _check_unknown_keys,
-    _config_to_flat_dict,
-    _flat_dict_to_config,
     _infer_type,
     load_config,
 )
@@ -30,8 +27,5 @@ __all__ = [
     "NetworkConfig",
     "TrainConfig",
     "load_config",
-    "_config_to_flat_dict",
-    "_flat_dict_to_config",
-    "_check_unknown_keys",
     "_infer_type",
 ]

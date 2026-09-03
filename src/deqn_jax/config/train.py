@@ -6,7 +6,6 @@ import copy
 from typing import Any, ClassVar, Dict, List, Optional
 
 from pydantic import (
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -40,8 +39,6 @@ class TrainConfig(_ConfigBase):
     - Overrides via with_overrides()
     """
 
-    model_config = ConfigDict(extra="forbid")
-
     model: str = Field(
         default="brock_mirman",
         description="Name of the registered model to train; see `deqn-jax list` for valid choices.",
@@ -59,7 +56,7 @@ class TrainConfig(_ConfigBase):
     )
     mc_samples: int = Field(
         default=5,
-        description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type='gauss_hermite'`.",
+        description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type` is `quadrature`/`gh`/`gauss_hermite` or `discrete`.",
     )
     seed: int = Field(
         default=42,
@@ -229,7 +226,7 @@ class TrainConfig(_ConfigBase):
     )
     n_quadrature_points: int = Field(
         default=3,
-        description="Quadrature points per shock dimension when `expectation_type='gauss_hermite'`. Total nodes = n_quadrature_points^n_shocks.",
+        description="Quadrature points per shock dimension when `expectation_type` is `quadrature`/`gh`/`gauss_hermite`. Total nodes = n_quadrature_points^n_shocks.",
     )
 
     barrier_weight: float = Field(
@@ -459,7 +456,7 @@ class TrainConfig(_ConfigBase):
 
     @model_validator(mode="after")
     def _validate_ranges(self):
-        if not self.model or not isinstance(self.model, str):
+        if not self.model:
             raise ValueError(f"model must be a non-empty string, got {self.model!r}")
         if self.episodes <= 0:
             raise ValueError(f"episodes must be > 0, got {self.episodes}")
@@ -575,72 +572,56 @@ class TrainConfig(_ConfigBase):
             )
         return self
 
+    # String-shorthand key for a nested block given as a bare string, e.g.
+    # ``optimizer: "adam"`` or ``network: "mlp"``. Blocks not listed here
+    # don't support the shorthand.
+    _BLOCK_SHORTHAND_KEY: ClassVar[Dict[str, str]] = {
+        "optimizer": "name",
+        "network": "type",
+    }
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TrainConfig":
         """Create config from a flat or nested dictionary.
 
-        Handles nested ``optimizer:`` and ``network:`` sub-dicts.
+        Handles every nested ``_ConfigBase`` sub-dict on TrainConfig
+        (optimizer, network, composite_loss, replay_buffer, moment_matching,
+        coverage, ...), derived from the model so a new block needs no edits
+        here (see ``config.io._nested_blocks``).
         """
-        from deqn_jax.config.io import _check_unknown_keys
+        from deqn_jax.config.io import _check_unknown_keys, _nested_blocks
 
         d = copy.deepcopy(d)
+        blocks = _nested_blocks()
 
-        # Extract nested sub-configs
-        opt_dict = d.pop("optimizer", {})
-        net_dict = d.pop("network", {})
-        comp_dict = d.pop("composite_loss", {})
-        replay_dict = d.pop("replay_buffer", {})
-        mom_dict = d.pop("moment_matching", {})
-        cov_dict = d.pop("coverage", {})
-
-        # If optimizer is a plain string, treat as name
-        if isinstance(opt_dict, str):
-            opt_dict = {"name": opt_dict}
-        if isinstance(net_dict, str):
-            net_dict = {"type": net_dict}
-
-        # Convert hidden_sizes list to tuple. The dict came from YAML
-        # so its element type is Any; ty narrows it to ``str`` after
-        # the ``isinstance(..., list)`` check on a *different* key,
-        # which makes the tuple-of-Any assignment look invalid.
-        # Pydantic re-validates on construction, so the runtime type
-        # is checked there.
-        if "hidden_sizes" in net_dict and isinstance(net_dict["hidden_sizes"], list):
-            net_dict["hidden_sizes"] = tuple(net_dict["hidden_sizes"])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment]
-
-        # Convert activations list to tuple
-        if "activations" in net_dict and isinstance(net_dict["activations"], list):
-            net_dict["activations"] = tuple(net_dict["activations"])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment]
-
-        # Convert loss_weights list (YAML gives lists)
-        if "loss_weights" in d and isinstance(d["loss_weights"], list):
-            d["loss_weights"] = list(d["loss_weights"])
+        block_dicts: Dict[str, Dict[str, Any]] = {}
+        for name in blocks:
+            sub = d.pop(name, {})
+            if sub is None or not isinstance(sub, (dict, str)):
+                raise ValueError(
+                    f"config.{name}: expected a mapping (or a string shorthand, "
+                    f"where supported), got {type(sub).__name__} ({sub!r})"
+                )
+            shorthand_key = cls._BLOCK_SHORTHAND_KEY.get(name)
+            if shorthand_key is not None and isinstance(sub, str):
+                sub = {shorthand_key: sub}
+            block_dicts[name] = sub
 
         # Validate: reject unknown keys (with did-you-mean suggestions)
-        opt_fields = set(OptimizerConfig.model_fields.keys())
-        net_fields = set(NetworkConfig.model_fields.keys())
-        comp_fields = set(CompositeLossConfig.model_fields.keys())
-        replay_fields = set(ReplayBufferConfig.model_fields.keys())
-        mom_fields = set(MomentMatchingConfig.model_fields.keys())
-        cov_fields = set(CoverageConfig.model_fields.keys())
-        train_fields = set(TrainConfig.model_fields.keys())
-
-        _check_unknown_keys(set(opt_dict.keys()), opt_fields, "optimizer")
-        _check_unknown_keys(set(net_dict.keys()), net_fields, "network")
-        _check_unknown_keys(set(comp_dict.keys()), comp_fields, "composite_loss")
-        _check_unknown_keys(set(replay_dict.keys()), replay_fields, "replay_buffer")
-        _check_unknown_keys(set(mom_dict.keys()), mom_fields, "moment_matching")
-        _check_unknown_keys(set(cov_dict.keys()), cov_fields, "coverage")
-        _check_unknown_keys(set(d.keys()), train_fields, "config")
+        for name, block_cls in blocks.items():
+            _check_unknown_keys(
+                set(block_dicts[name].keys()), set(block_cls.model_fields.keys()), name
+            )
+        _check_unknown_keys(
+            set(d.keys()), set(TrainConfig.model_fields.keys()), "config"
+        )
 
         return cls(
-            optimizer=OptimizerConfig(**opt_dict),
-            network=NetworkConfig(**net_dict),
-            composite_loss=CompositeLossConfig(**comp_dict),
-            replay_buffer=ReplayBufferConfig(**replay_dict),
-            moment_matching=MomentMatchingConfig(**mom_dict),
-            coverage=CoverageConfig(**cov_dict),
-            **{k: v for k, v in d.items() if k in train_fields},
+            **{
+                name: block_cls(**block_dicts[name])
+                for name, block_cls in blocks.items()
+            },
+            **d,
         )
 
     @classmethod

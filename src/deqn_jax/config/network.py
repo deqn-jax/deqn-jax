@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import ClassVar, Literal, Optional, Tuple
 
 from pydantic import (
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -24,8 +23,6 @@ from deqn_jax.config._base import (
 
 class NetworkConfig(_ConfigBase):
     """Neural network configuration."""
-
-    model_config = ConfigDict(extra="forbid")
 
     VALID_TYPES: ClassVar[frozenset] = frozenset(
         {

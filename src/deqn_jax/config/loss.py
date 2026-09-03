@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pydantic import (
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -27,8 +26,6 @@ class CompositeLossConfig(_ConfigBase):
     (most useful near SS, fade as stochastic domain expands).
     Barrier and Newton losses don't decay (always useful for feasibility).
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     anchor_weight: float = Field(
         default=0.1,
@@ -196,8 +193,6 @@ class MomentMatchingConfig(_ConfigBase):
     (they came from a separate rollout). See
     ``training/moment_loss.py`` for the design rationale.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(
         default=False,

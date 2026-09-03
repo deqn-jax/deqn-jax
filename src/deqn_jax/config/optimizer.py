@@ -40,7 +40,7 @@ class OptimizerConfig(_ConfigBase):
         default=None, description="Global gradient-norm clipping. None disables."
     )
     weight_decay: float = Field(
-        default=0.0, description="L2 weight decay (used by adamw / adam / sgd)."
+        default=0.0, description="L2 weight decay (used by adamw only)."
     )
     beta1: float = Field(default=0.9, description="Adam / MAO first-moment decay.")
     beta2: float = Field(default=0.999, description="Adam / MAO second-moment decay.")
@@ -49,9 +49,7 @@ class OptimizerConfig(_ConfigBase):
         default=1e-4,
         description="Preconditioner damping for NGD / GN / IGN / LM.",
     )
-    decay: float = Field(
-        default=0.999, description="NGD / Shampoo preconditioner EMA decay."
-    )
+    decay: float = Field(default=0.999, description="NGD preconditioner EMA decay.")
     precond_update_freq: int = Field(
         default=10, description="Shampoo preconditioner update frequency."
     )
@@ -76,7 +74,6 @@ class OptimizerConfig(_ConfigBase):
         default=0.0,
         description="Minimum LR as a fraction of peak (cosine / reduce_on_plateau floor).",
     )
-
     lr_reduce_factor: float = Field(
         default=0.5,
         description="ReduceLROnPlateau: multiply LR by this factor on plateau.",
@@ -93,8 +90,6 @@ class OptimizerConfig(_ConfigBase):
         default=1e-6,
         description="ReduceLROnPlateau: minimum loss drop that counts as improvement.",
     )
-    # Lower bound on LR as a fraction of initial. Reusing lr_min_factor
-    # (already present for cosine) keeps config surface small.
 
     VALID_NAMES: ClassVar[frozenset] = frozenset(
         {
