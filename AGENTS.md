@@ -10,12 +10,12 @@ for the research program certifying those solutions.
   (`B,N,UP,RUF`) measured at 1,652 errors on 2026-07-12 and deliberately
   deferred to a dedicated branch. Everything else: production discipline.
 - **NKS realm**: `deqn` — orient at session start
-  (`nks_orient(realm="deqn")`); focus holon `#1 «🧮 deqn-jax solver»`. Open
+  (`iskron_orient(realm="deqn")` (iskron MCP, formerly nks)); focus holon `#1 «🧮 deqn-jax solver»`. Open
   research questions live there as vimarshas; close (visarjana) the ones your
   push resolves. Repo remains canonical for conventions (this file),
   certification records (cert report), research state
   (`docs/dev/selection_program_chronicle_2026_07.md`, §15/§16), and narrative
-  (private notes repo `mechanicpanic/deqn-research-notes`). When no NKS
+  (private notes repo `mechanicpanic/deqn-research-notes`). When no iskron (NKS)
   server is connected (headless runs), the chronicle is the fallback
   orientation.
 - **Stack**: Python ≥3.10, JAX + Equinox + Optax, Pydantic v2 configs, uv.
@@ -41,7 +41,7 @@ agent memory, conversation summaries, or `/tmp`.
   decided…"? Read the chronicle or the dev docs before acting.
 
 ## Session lifecycle
-- **Start**: read this file; `nks_orient(realm="deqn")` when the server is
+- **Start**: read this file; `iskron_orient(realm="deqn")` (iskron MCP, formerly nks) when the server is
   connected (chronicle §15/§16 otherwise). Check `git status` and running
   DGX jobs (`logs/` on `anna@130.223.169.108:~/projects/deqn-jax`) before
   launching new work.
