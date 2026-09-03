@@ -414,5 +414,95 @@ class TestShortTraining:
         assert all(jnp.isfinite(l) for l in h["loss"])
 
 
+class TestStepCommon:
+    """Shared train-step helpers (optimizers/_step_common.py)."""
+
+    def test_loss_call_binds_construction_time_constants(self):
+        from deqn_jax.models import load_model
+        from deqn_jax.optimizers._step_common import make_loss_call
+
+        model = load_model("brock_mirman")
+        seen = {}
+
+        def fake_loss(m, params, batch, key, mc_samples, **kw):
+            seen["model"] = m
+            seen["mc_samples"] = mc_samples
+            seen["kw"] = kw
+            return jnp.array(1.0), {"eq0": jnp.array(2.0)}
+
+        loss_call = make_loss_call(model, 7, None, None, fake_loss)
+        loss, eq = loss_call(
+            "params",
+            "batch",
+            "key",
+            weights=None,
+            shock_scale=jnp.array(1.0),
+            target_policy_fn=None,
+        )
+        assert loss == 1.0 and eq["eq0"] == 2.0
+        assert seen["model"] is model
+        assert seen["mc_samples"] == 7
+        assert seen["kw"]["quad_nodes"] is None
+        # a loss that does not declare aux_params must not receive it
+        assert "aux_params" not in seen["kw"]
+
+    def test_loss_call_forwards_aux_params_when_declared(self):
+        from deqn_jax.models import load_model
+        from deqn_jax.optimizers._step_common import make_loss_call
+
+        model = load_model("brock_mirman")
+        seen = {}
+
+        def aux_loss(m, params, batch, key, mc_samples, *, aux_params=None, **kw):
+            seen["aux_params"] = aux_params
+            return jnp.array(0.0), {}
+
+        loss_call = make_loss_call(model, 1, None, None, aux_loss)
+        loss_call(
+            "params",
+            "batch",
+            "key",
+            weights=None,
+            shock_scale=jnp.array(1.0),
+            target_policy_fn=None,
+            aux_params="sentinel",
+        )
+        assert seen["aux_params"] == "sentinel"
+
+    def test_finalize_step_advances_state_and_builds_metrics(self):
+        from deqn_jax.optimizers._step_common import finalize_step
+        from deqn_jax.types import TrainState
+
+        state = TrainState(
+            params="old",
+            opt_state="old_opt",
+            key=jax.random.PRNGKey(0),
+            step=jnp.array(4),
+            loss_weights=None,
+            episode_state=None,
+            episode=jnp.array(0),
+            reweight_state=None,
+        )
+        eq_losses = {"eq0": jnp.array(0.5)}
+        new_state, metrics = finalize_step(
+            state,
+            params="new",
+            opt_state="new_opt",
+            key=jax.random.PRNGKey(1),
+            loss=jnp.array(0.25),
+            eq_losses=eq_losses,
+            grad_norm=jnp.array(3.0),
+            loss_reweight="none",
+            reweight_alpha=0.1,
+            n_eq=1,
+        )
+        assert new_state.params == "new"
+        assert new_state.opt_state == "new_opt"
+        assert new_state.step == 5
+        assert metrics.loss == 0.25
+        assert metrics.grad_norm == 3.0
+        assert metrics.residuals is eq_losses
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

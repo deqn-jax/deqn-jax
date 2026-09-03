@@ -32,8 +32,8 @@ import jax.numpy as jnp
 import optax
 from jax import Array
 
-from deqn_jax.training.loss import compute_loss, eq_losses_to_array
-from deqn_jax.training.reweighting import update_reweighting
+from deqn_jax.optimizers._step_common import finalize_step, make_loss_call
+from deqn_jax.training.loss import eq_losses_to_array
 from deqn_jax.types import Metrics, ModelSpec, TrainState
 
 
@@ -50,7 +50,10 @@ def make_grad_step_pcgrad(
 ):
     """JIT'd: one PCGrad gradient update on an explicit minibatch."""
     n_eq = len(model.equation_names) if model.equation_names else 1
-    _compute_loss_total = compute_loss_fn or compute_loss
+    base_loss_call = make_loss_call(model, mc_samples, quad_nodes, quad_weights)
+    total_loss_call = make_loss_call(
+        model, mc_samples, quad_nodes, quad_weights, compute_loss_fn
+    )
 
     @jax.jit
     def grad_step(
@@ -62,35 +65,30 @@ def make_grad_step_pcgrad(
         loss_key, new_key = jax.random.split(state.key)
         target_fn = state.target_params if use_target_network else None
 
-        def eq_loss_vector(params):
-            _, eq_losses = compute_loss(
-                model,
+        def base_call(params):
+            return base_loss_call(
                 params,
                 batch,
                 loss_key,
-                mc_samples,
                 weights=state.loss_weights,
                 shock_scale=shock_scale,
-                quad_nodes=quad_nodes,
-                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
             )
-            return eq_losses_to_array(eq_losses)
 
-        def total_loss_fn(params):
-            loss, eq_losses = _compute_loss_total(
-                model,
+        def total_call(params):
+            return total_loss_call(
                 params,
                 batch,
                 loss_key,
-                mc_samples,
                 weights=state.loss_weights,
                 shock_scale=shock_scale,
-                quad_nodes=quad_nodes,
-                quad_weights=quad_weights,
                 target_policy_fn=target_fn,
+                aux_params=state.aux_params,
             )
-            return loss, eq_losses
+
+        def eq_loss_vector(params):
+            _, eq_losses = base_call(params)
+            return eq_losses_to_array(eq_losses)
 
         eq_jac = jax.jacrev(eq_loss_vector)(state.params)
         params_arrays = eqx.filter(state.params, eqx.is_array)
@@ -117,33 +115,11 @@ def make_grad_step_pcgrad(
             # gradient grad(total) − grad(base). Same batch/key in both
             # calls, so the base parts cancel analytically.
             def _base_scalar(params):
-                loss, _ = compute_loss(
-                    model,
-                    params,
-                    batch,
-                    loss_key,
-                    mc_samples,
-                    weights=state.loss_weights,
-                    shock_scale=shock_scale,
-                    quad_nodes=quad_nodes,
-                    quad_weights=quad_weights,
-                    target_policy_fn=target_fn,
-                )
+                loss, _ = base_call(params)
                 return loss
 
             def _total_scalar(params):
-                loss, _ = _compute_loss_total(
-                    model,
-                    params,
-                    batch,
-                    loss_key,
-                    mc_samples,
-                    weights=state.loss_weights,
-                    shock_scale=shock_scale,
-                    quad_nodes=quad_nodes,
-                    quad_weights=quad_weights,
-                    target_policy_fn=target_fn,
-                )
+                loss, _ = total_call(params)
                 return loss
 
             total_grad = eqx.filter(jax.grad(_total_scalar)(state.params), eqx.is_array)
@@ -162,24 +138,20 @@ def make_grad_step_pcgrad(
         new_params_arrays = optax.apply_updates(params_arrays, updates)
         new_params = eqx.combine(new_params_arrays, state.params)
 
-        loss, eq_losses = total_loss_fn(state.params)
+        loss, eq_losses = total_call(state.params)
         grad_norm = jnp.sqrt(jnp.sum(final_flat_grad**2))
 
-        new_weights, new_rw = update_reweighting(
-            eq_losses,
+        return finalize_step(
             state,
-            loss_reweight,
-            reweight_alpha,
-            n_eq,
-        )
-        new_state = state._replace(
             params=new_params,
             opt_state=new_opt_state,
             key=new_key,
-            step=state.step + 1,
-            loss_weights=new_weights,
-            reweight_state=new_rw,
+            loss=loss,
+            eq_losses=eq_losses,
+            grad_norm=grad_norm,
+            loss_reweight=loss_reweight,
+            reweight_alpha=reweight_alpha,
+            n_eq=n_eq,
         )
-        return new_state, Metrics(loss=loss, residuals=eq_losses, grad_norm=grad_norm)
 
     return grad_step
