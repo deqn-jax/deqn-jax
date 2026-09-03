@@ -112,3 +112,140 @@ class TestSimulatedMoments:
             assert "mean" in stats
             assert "std" in stats
             assert "ss" in stats
+
+
+class TestSharedRollout:
+    """The one rollout loop behind every eval primitive (evaluate/simulate.py)."""
+
+    def test_eval_rollout_matches_hand_rolled_loop(self, tiny_model_and_net):
+        """Same key, same clip, same shocks as the loop it replaced."""
+        import jax.numpy as jnp
+
+        from deqn_jax.evaluate.simulate import _draw_eval_shock, eval_rollout
+
+        model, net = tiny_model_and_net
+        ss_state, _ = model.steady_state_fn(model.constants)
+        start = ss_state[None, :]
+
+        def step(state, shock, _d):
+            policy = net(state)
+            if policy.ndim == 1:
+                policy = policy[None, :]
+            return model.step_fn(state, policy, shock, model.constants), state[0]
+
+        seen = []
+        eval_rollout(
+            model,
+            start,
+            jax.random.PRNGKey(7),
+            12,
+            step,
+            lambda t, out: seen.append(out[1]),
+        )
+
+        # Hand-rolled reference: the loop shape the diagnostics used to carry.
+        key = jax.random.PRNGKey(7)
+        state = start
+        expected = []
+        for _ in range(12):
+            key, shock_key = jax.random.split(key)
+            shock = _draw_eval_shock(model, shock_key, state)
+            next_state, st = step(state, shock, None)
+            expected.append(st)
+            state = (
+                model.clip_state_fn(next_state)
+                if model.clip_state_fn is not None
+                else next_state
+            )
+
+        np.testing.assert_array_equal(jnp.stack(seen), jnp.stack(expected))
+
+    def test_record_can_stop_the_rollout(self, tiny_model_and_net):
+        model, net = tiny_model_and_net
+        ss_state, _ = model.steady_state_fn(model.constants)
+        from deqn_jax.evaluate.simulate import eval_rollout
+
+        def step(state, shock, _d):
+            policy = net(state)
+            if policy.ndim == 1:
+                policy = policy[None, :]
+            return (model.step_fn(state, policy, shock, model.constants),)
+
+        seen = []
+
+        def record(t, _out):
+            seen.append(t)
+            return t == 3  # stop here
+
+        eval_rollout(model, ss_state[None, :], jax.random.PRNGKey(0), 50, step, record)
+        assert seen == [0, 1, 2, 3]
+
+    def test_discrete_plus_disaster_is_refused(self, tiny_model_and_net):
+        """The one branch combination whose draw order was never defined."""
+        import jax.numpy as jnp
+        import pytest as _pytest
+
+        from deqn_jax.evaluate.simulate import eval_rollout
+
+        model, net = tiny_model_and_net
+
+        def step_fn(state, policy, shock, constants, d_disaster=None):
+            return state
+
+        both = model._replace(
+            step_fn=step_fn,
+            transition_matrix=jnp.eye(2),
+            z_state_idx=1,
+            constants={**model.constants, "p_disaster": 0.1},
+        )
+        with _pytest.raises(NotImplementedError, match="discrete"):
+            eval_rollout(
+                both,
+                jnp.zeros((1, model.n_states)),
+                jax.random.PRNGKey(0),
+                1,
+                lambda s, sh, d: (s,),
+                lambda t, out: None,
+            )
+
+
+class TestIrfCsvMode:
+    """The CSV's mode column is derived from the results, not from a caller."""
+
+    def test_mode_column_is_derived(self, tmp_path):
+        from deqn_jax.irf import save_irf_csv
+
+        irf_results = {"period": [0, 1], "k": [1.0, 1.1]}
+        girf_results = {"_mode": "girf", **irf_results}
+
+        for results, flag in ((irf_results, "0"), (girf_results, "1")):
+            path = tmp_path / f"mode_{flag}.csv"
+            save_irf_csv(results, str(path))
+            rows = [line.strip().split(",") for line in path.read_text().splitlines()]
+            # Metadata keys never become columns.
+            assert rows[0] == ["period", "k", "mode"]
+            assert [r[-1] for r in rows[1:]] == [flag, flag]
+            # Every field stays numeric so float-parsing readers keep working.
+            for r in rows[1:]:
+                [float(v) for v in r]
+
+
+class TestActiveSubspaceSampler:
+    """The cli sampler's disaster branch (it used to have none)."""
+
+    def test_samples_disaster_model(self):
+        import jax.numpy as jnp
+
+        from deqn_jax.cli import sample_ergodic_states
+        from deqn_jax.networks.factory import build_policy_net
+
+        model = load_model("disaster")
+        model = model._replace(
+            constants={**model.constants, "p_disaster": 0.5}
+        )  # high p: both branches get visited
+        net = build_policy_net(model, jax.random.PRNGKey(0), (16,), None)
+
+        states = sample_ergodic_states(model, net, 20, jax.random.PRNGKey(3))
+        assert states.shape[1] == model.n_states
+        assert states.shape[0] > 0
+        assert bool(jnp.all(jnp.isfinite(states)))

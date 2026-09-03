@@ -12,7 +12,7 @@ Usage:
 import csv
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -21,6 +21,7 @@ import yaml
 from jax import Array
 
 from deqn_jax.models import load_model
+from deqn_jax.training.checkpointing import resume_from
 
 # ---------------------------------------------------------------------------
 # Core IRF simulation
@@ -133,8 +134,6 @@ def run_irf(
             else:
                 results[name].append(float("nan"))
 
-    zero_shock = jnp.zeros((1, n_shocks))
-
     # ---- Period 0: record pre-shock state ----
     policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
     if policy.ndim == 1:
@@ -156,8 +155,15 @@ def run_irf(
         else next_state
     )
 
-    # ---- Periods 2..horizon: deterministic ----
-    for t in range(1, horizon + 1):
+    # ---- Periods 2..horizon: deterministic (zero shock every period) ----
+    # Shares the rollout loop with the stochastic eval paths; the
+    # deterministic variant consumes no PRNG and feeds a zero shock.
+    # Imported here, not at module scope: ``evaluate/cli.py`` imports
+    # ``load_policy_from_checkpoint`` from this module, so a top-level
+    # import of the evaluate package would be circular.
+    from deqn_jax.evaluate.simulate import deterministic_rollout
+
+    def step(state, zero_shock, _d):
         policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
         if policy.ndim == 1:
             policy = policy[None, :]
@@ -177,13 +183,13 @@ def run_irf(
             residuals = model.equations_fn(
                 state, policy, next_state, next_policy, constants
             )
+        return next_state, state, policy, defs, residuals
 
-        record(t, state, policy, defs, residuals)
-        state = (
-            model.clip_state_fn(next_state)
-            if model.clip_state_fn is not None
-            else next_state
-        )
+    def record_period(i, outputs):
+        _next_state, st, pol, defs, residuals = outputs
+        record(i + 1, st, pol, defs, residuals)
+
+    deterministic_rollout(model, state, horizon, step, record_period)
 
     return results
 
@@ -216,12 +222,16 @@ def run_girf(
 
     Returns:
         Dict with ``period`` and per-variable deviation series of length
-        ``horizon + 1`` (t = 0..horizon).
+        ``horizon + 1`` (t = 0..horizon), plus the private marker
+        ``_mode = "girf"``. Keys starting with ``_`` are metadata, not
+        series: ``save_irf_csv`` turns the marker into the CSV's ``mode``
+        column and ``print_irf_summary`` skips them, so a GIRF table cannot
+        be mislabelled by a caller that forgets to say which mode it ran.
     """
     shocked = run_irf(policy_net, model, shock_name, shock_size, horizon)
     baseline = run_irf(policy_net, model, shock_name, 0.0, horizon)
 
-    out: Dict[str, List[float]] = {}
+    out: Dict[str, Any] = {"_mode": "girf"}
     for key, series in shocked.items():
         if key == "period":
             out[key] = list(series)
@@ -345,7 +355,10 @@ def load_policy_from_checkpoint(
         replay_config=replay_cfg,
     )
 
-    state = eqx.tree_deserialise_leaves(checkpoint_path, template_state)
+    # Deserialize through the trainer's own loader so checkpoint reading has
+    # one implementation. The FULL-NetworkConfig template above is still built
+    # here (see the 2026-07-11 note) — ``resume_from`` only fills its leaves.
+    state = resume_from(template_state, checkpoint_path)
     policy_net = state.params
 
     # NB: the previous "restore correct bounds" rehab block was a fix for
@@ -366,15 +379,25 @@ def load_policy_from_checkpoint(
 
 
 def save_irf_csv(results: Dict[str, List[float]], path: str):
-    """Save IRF results to CSV."""
-    keys = list(results.keys())
+    """Save IRF results to CSV.
+
+    The mode is read off the results dict itself (``run_girf`` sets
+    ``_mode = "girf"``), never supplied by the caller, so the label cannot
+    disagree with the numbers. It lands in a trailing ``mode`` column: ``0``
+    for a plain IRF, ``1`` for a GIRF (deviations from the matched no-shock
+    baseline). The flag is numeric so readers that parse every field as a
+    float (``scripts/make_plots.py``) keep working. Other ``_``-prefixed keys
+    are metadata too and are not written.
+    """
+    keys = [k for k in results if not k.startswith("_")]
     n_rows = len(results["period"])
+    mode_flag = 1 if results.get("_mode") == "girf" else 0
 
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(keys)
+        writer.writerow([*keys, "mode"])
         for i in range(n_rows):
-            writer.writerow([results[k][i] for k in keys])
+            writer.writerow([*(results[k][i] for k in keys), mode_flag])
 
 
 def print_irf_summary(results: Dict[str, List[float]], shock_name: str):
@@ -383,7 +406,11 @@ def print_irf_summary(results: Dict[str, List[float]], shock_name: str):
     # Find which keys are states, policies, equations
     # (equations have "eq" prefix)
     eq_keys = [k for k in results if k.startswith("eq")]
-    var_keys = [k for k in results if k not in ("period",) and k not in eq_keys]
+    var_keys = [
+        k
+        for k in results
+        if k not in ("period",) and k not in eq_keys and not k.startswith("_")
+    ]
 
     print(f"\nIRF: 1σ shock to {shock_name}, {len(periods)} periods")
     print("=" * 70)
@@ -479,9 +506,12 @@ def run_irf_cli(args):
             horizon=args.horizon,
         )
 
-        # Save CSV
-        suffix = "girf" if use_girf else "irf"
-        csv_path = os.path.join(outdir, f"{suffix}_{shock_name}.csv")
+        # Save CSV. Plain IRF keeps ``irf_<shock>.csv`` (the name
+        # scripts/make_plots.py reads); GIRF gets its own basename so a
+        # second run in the same outdir can't silently overwrite the first.
+        # Both carry the numeric ``mode`` column.
+        basename = f"irf_{shock_name}_girf.csv" if use_girf else f"irf_{shock_name}.csv"
+        csv_path = os.path.join(outdir, basename)
         save_irf_csv(results, csv_path)
         print(f"Saved: {csv_path}")
 
