@@ -14,7 +14,6 @@ from deqn_jax.evaluate.simulate import (
 from deqn_jax.training.loss import (
     QUADRATURE_EXPECTATION_TYPES,
     build_quadrature,
-    sample_antithetic_shocks,
 )
 
 
@@ -47,7 +46,6 @@ def euler_equation_errors(
     burn_in: Optional[int] = None,
     expectation_type: str = "gauss_hermite",
     n_quadrature_points: Optional[int] = None,
-    mc_samples: int = 5,
 ) -> Dict[str, Any]:
     """Simulate a long stochastic path and compute Euler residuals everywhere.
 
@@ -62,11 +60,15 @@ def euler_equation_errors(
         burn_in: Discard first N periods (reach ergodic distribution). If
             None, uses min(500, n_periods // 5) so short simulations still
             produce some output.
-        expectation_type: Training-time expectation rule for two-stage models.
+        expectation_type: Expectation rule for two-stage models. Deterministic
+            rules (`gauss_hermite`/`quadrature`/`gh`, `monomial`) are honored so
+            a monomial-trained checkpoint is evaluated under its own operator;
+            `mc` (the training default) keeps the evaluator's deterministic
+            Gauss-Hermite default — replicating training-time Monte Carlo noise
+            is a worse estimate of the same expectation, not parity.
         n_quadrature_points: Points per shock dimension for Gauss-Hermite. If
-            omitted, preserves the historical evaluator defaults (16 in one
-            dimension, otherwise 3). Ignored for monomial and Monte Carlo.
-        mc_samples: Antithetic sample count when ``expectation_type='mc'``.
+            omitted, the historical evaluator defaults apply (16 in one
+            dimension, otherwise 3). Ignored by monomial.
 
     Returns:
         Dict with:
@@ -197,27 +199,17 @@ def euler_equation_errors(
         nodes_per_dim = n_quadrature_points
         if nodes_per_dim is None:
             nodes_per_dim = 16 if n_shocks == 1 else 3
+        if expectation_type not in QUADRATURE_EXPECTATION_TYPES:
+            # 'mc' and anything else non-deterministic: keep the evaluator's
+            # own deterministic operator (see the docstring).
+            expectation_type = "gauss_hermite"
         quadrature = build_quadrature(expectation_type, n_shocks, nodes_per_dim)
-        if quadrature is not None:
-            qn, qw = quadrature
-        elif (
-            expectation_type == "mc" or expectation_type in QUADRATURE_EXPECTATION_TYPES
-        ):
-            if mc_samples <= 0:
-                raise ValueError(f"mc_samples must be positive, got {mc_samples}")
-            key, expectation_key = jax.random.split(key)
-            qn = sample_antithetic_shocks(
-                expectation_key,
-                mc_samples,
-                batch_size=1,
-                shock_dim=n_shocks,
-            )[:, 0, :]
-            qw = jnp.full(qn.shape[0], 1.0 / qn.shape[0])
-        else:
-            raise ValueError(
-                f"expectation_type={expectation_type!r} does not provide nodes "
-                "for a continuous two-stage model"
-            )
+        if quadrature is None:
+            # The Gauss-Hermite grid exceeds its safety cap; the linear-cost
+            # degree-3 monomial rule is the deterministic fallback here (the
+            # trainer falls back to Monte Carlo instead).
+            quadrature = build_quadrature("monomial", n_shocks, nodes_per_dim)
+        qn, qw = quadrature
         qn, qw = jnp.asarray(qn), jnp.asarray(qw)
 
         @eqx.filter_jit
@@ -378,7 +370,6 @@ def market_clearing_errors(
     burn_in: int = 500,
     expectation_type: str = "gauss_hermite",
     n_quadrature_points: Optional[int] = None,
-    mc_samples: int = 5,
 ) -> Dict[str, Any]:
     """Check resource constraint satisfaction along simulated path.
 
@@ -397,7 +388,6 @@ def market_clearing_errors(
         burn_in,
         expectation_type=expectation_type,
         n_quadrature_points=n_quadrature_points,
-        mc_samples=mc_samples,
     )
     residuals = result["residuals"]
     eq_names = result["equation_names"]

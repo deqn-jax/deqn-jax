@@ -103,6 +103,23 @@ class TestEulerEquationErrors:
         np.testing.assert_allclose(monomial["residuals"], [[16.0]])
         np.testing.assert_allclose(gauss_hermite["residuals"], [[12.0]])
 
+    def test_two_stage_mc_keeps_the_deterministic_default(self):
+        """An MC-trained checkpoint (the config default) is evaluated with the
+        evaluator's own Gauss-Hermite rule, never with training-time draws."""
+        model = _quartic_two_stage_model()
+        mc = euler_equation_errors(
+            _ZeroPolicy(), model, n_periods=1, burn_in=0, expectation_type="mc"
+        )
+        gh = euler_equation_errors(
+            _ZeroPolicy(),
+            model,
+            n_periods=1,
+            burn_in=0,
+            expectation_type="gauss_hermite",
+        )
+        np.testing.assert_allclose(mc["residuals"], gh["residuals"])
+        np.testing.assert_allclose(mc["residuals"], [[12.0]])
+
     def test_short_run_auto_clamps_burn_in(self, tiny_model_and_net):
         """Previously crashed with ValueError on n_periods < burn_in default of 500."""
         model, net = tiny_model_and_net
@@ -143,9 +160,7 @@ class TestEulerEquationErrors:
 
 def test_cli_threads_checkpoint_expectation_rule(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "expectation_type: monomial\nn_quadrature_points: 7\nmc_samples: 11\n"
-    )
+    config_path.write_text("expectation_type: monomial\nn_quadrature_points: 7\n")
     calls = {}
 
     monkeypatch.setattr(
@@ -199,7 +214,6 @@ def test_cli_threads_checkpoint_expectation_rule(tmp_path, monkeypatch):
     expected = {
         "expectation_type": "monomial",
         "n_quadrature_points": 7,
-        "mc_samples": 11,
     }
     assert {key: calls["euler"][key] for key in expected} == expected
     assert {key: calls["market"][key] for key in expected} == expected

@@ -49,7 +49,6 @@ def run_evaluate_cli(args):
     expectation_kwargs = {
         "expectation_type": cfg.get("expectation_type", "mc"),
         "n_quadrature_points": cfg.get("n_quadrature_points", 3),
-        "mc_samples": cfg.get("mc_samples", 5),
     }
 
     # 1. Stability check
