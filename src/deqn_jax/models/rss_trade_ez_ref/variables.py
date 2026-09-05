@@ -152,7 +152,7 @@ def state_names(n: int) -> Tuple[str, ...]:
     return tuple(names)
 
 
-# Policy blocks in the reference's order; "q" is the single world bond price.
+# Policy blocks in the reference's order; "q" is the single world bond return.
 POLICY_BLOCKS = (
     "P_C",
     "q",
@@ -257,8 +257,9 @@ UNIT_INTERVAL_BLOCKS = (
 )
 FLOOR_1E3_BLOCKS = ("U", "mu")
 
-# Deterministic steady-state capital stocks of the calibrated three-country
-# economy (per capita; used to center the initial sampler).
+# Steady-state capital stocks from the reference's own steady-state solve,
+# in the units of the state K_i (the equations treat K as the aggregate stock
+# alongside r K and w L); used to center the initial sampler.
 K_SS_REFERENCE = (0.103010021388303, 0.092479877721915, 0.349742620334530)
 
 DESCRIPTION = (

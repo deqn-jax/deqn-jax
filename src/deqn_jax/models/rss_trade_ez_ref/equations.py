@@ -86,10 +86,9 @@ def make_equations(layout: Layout):
         EZ kernel and is the only current-period quantity used here."""
         gama = float(constants["gama"])
         psi = float(constants["psi"])
-        p_exp = -gama + 1.0 / psi
         cur = core(state, policy, constants, layout)
         nxt = core(next_state, next_policy, constants, layout)
-        kernel = (nxt["U"] / cur["mu"] + 1e-8) ** p_exp * nxt["muc"]
+        kernel = ez_kernel(nxt["U"], cur["mu"], nxt["muc"], gama, psi)
         ce = nxt["U"] ** (1.0 - gama)
         eb = kernel * (1.0 + nxt["q"]) / nxt["P_C"]
         ec = kernel * nxt["P_X"] * (nxt["r"] / nxt["P_X"] - nxt["Phi_2"]) / nxt["P_C"]
@@ -244,12 +243,13 @@ def make_equations(layout: Layout):
 
 
 def ez_kernel(
-    U_next: Array, mu: Array, muc_next: Array, muc: Array, gama: float, psi: float
+    U_next: Array, mu: Array, muc_next: Array, gama: float, psi: float
 ) -> Array:
-    """Epstein–Zin stochastic discount factor kernel ``(U'/mu)^(1/psi - gama)
-    muc'/muc`` (writeup (26)); reduces to ``muc'/muc`` when ``gama = 1/psi``.
-    Exposed for the kernel sanity test."""
-    return (U_next / mu + 1e-8) ** (-gama + 1.0 / psi) * muc_next / muc
+    """Next-period part of the Epstein–Zin discount factor,
+    ``(U'/mu)^(1/psi - gama) muc'`` (writeup (26)); the division by today's
+    ``muc`` happens in ``combine_fn`` outside the expectation. Reduces to
+    ``muc'`` when ``gama = 1/psi``."""
+    return (U_next / mu + 1e-8) ** (-gama + 1.0 / psi) * muc_next
 
 
 __all__ = [

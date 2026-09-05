@@ -11,6 +11,7 @@ reference checkpoint itself is gate A of the port and lives outside the
 unit suite.
 """
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -112,11 +113,45 @@ def test_equation_keys_follow_equation_names(model, batch):
 
 
 def test_bond_projection_clears_the_world_market(model, batch):
-    """The net's A columns are projected so that sum_i L_i A_i = 0 exactly."""
-    _, s, p, _, _ = batch
+    """The net's A columns are projected so that sum_i L_i A_i = 0 exactly.
+
+    A fresh net outputs A = 0 (zero output bias), which would make the check
+    vacuous; perturb the output bias so the raw A columns are far from zero."""
+    net, s, _, _, _ = batch
     layout = Layout(3)
-    supply = p[:, layout.blocks["A"]] @ jnp.asarray(model.constants["L"])
+    bias = jax.random.normal(jax.random.PRNGKey(7), net.base_layers[-1].bias.shape)
+    net = eqx.tree_at(lambda n: n.base_layers[-1].bias, net, bias * 3.0)
+    p = jax.vmap(net)(s)
+    A = p[:, layout.blocks["A"]]
+    assert float(jnp.max(jnp.abs(A))) > 1e-3
+    supply = A @ jnp.asarray(model.constants["L"])
     np.testing.assert_allclose(np.asarray(supply), 0.0, atol=1e-6)
+
+
+def test_world_trade_payments_balance_under_tariffs(model, batch):
+    """What importers pay net of tariffs equals what exporters receive, summed
+    over the world -- with random positive tariffs so omega != 1. Fails if the
+    exporter/importer orientation of pi is transposed in the export sum."""
+    _, s, p, s2, p2 = batch
+    layout = Layout(3)
+    tau = jax.random.uniform(jax.random.PRNGKey(5), (16, 3, 3), maxval=0.5)
+    tau = tau * (1.0 - jnp.eye(3))
+    s = s.at[:, layout.tau.reshape(-1)].set(tau.reshape(16, -1))
+    d = core(s, p, model.constants, layout)
+    assert float(jnp.min(d["omega"])) < 0.9
+    imports_net = jnp.sum(
+        d["P_M"] * d["M"] * jnp.sum(d["pi"] * d["omega"], axis=2), axis=1
+    )
+    resid = model.equations_fn(s, p, s2, p2, model.constants)
+    pmy = d["P_M"] * d["Y_M"]
+    # market_clearing_M_i = (exports_i - pmy_i) / (-pmy_i)  ->  exports_i
+    exports = jnp.stack(
+        [pmy[:, i] * (1.0 - resid[f"market_clearing_M{i + 1}"]) for i in range(3)],
+        axis=1,
+    )
+    np.testing.assert_allclose(
+        np.asarray(jnp.sum(exports, axis=1)), np.asarray(imports_net), rtol=1e-5
+    )
 
 
 def test_budget_identity_and_trade_shares(model, batch):
@@ -155,12 +190,11 @@ def test_ez_kernel_reduces_to_crra_when_gamma_is_one_over_psi():
     U_next = jnp.array([0.8, 1.2, 2.0])
     mu = jnp.array([1.0, 1.0, 1.5])
     muc_next = jnp.array([2.0, 0.5, 1.0])
-    muc = jnp.array([1.0, 1.0, 2.0])
-    k = ez_kernel(U_next, mu, muc_next, muc, gama=2.0, psi=0.5)
-    np.testing.assert_allclose(np.asarray(k), np.asarray(muc_next / muc), rtol=1e-6)
+    k = ez_kernel(U_next, mu, muc_next, gama=2.0, psi=0.5)
+    np.testing.assert_allclose(np.asarray(k), np.asarray(muc_next), rtol=1e-6)
     # and the risk adjustment bites when gama > 1/psi: a better continuation
     # (U'/mu > 1) is discounted, a worse one (U'/mu < 1) is weighted up
-    k5 = ez_kernel(U_next, mu, muc_next, muc, gama=5.0, psi=0.5)
+    k5 = ez_kernel(U_next, mu, muc_next, gama=5.0, psi=0.5)
     assert float(k5[2]) < float(k[2])
     assert float(k5[0]) > float(k[0])
 

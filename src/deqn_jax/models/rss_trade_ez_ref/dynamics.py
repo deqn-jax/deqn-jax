@@ -39,8 +39,10 @@ def transport_truncated_normal(
     z: Array, mu: Array, sigma: Array, low: float = 0.0
 ) -> Array:
     """Map a standard-normal draw/node ``z`` to ``N(mu, sigma^2)`` truncated to
-    ``[low, inf)`` by CDF matching. Monotone in ``z``, differentiable, and
-    exactly the truncated law when ``z ~ N(0, 1)``."""
+    ``[low, inf)`` by CDF matching. Monotone in ``z`` and differentiable; the
+    truncated law when ``z ~ N(0, 1)`` up to the 1e-7 probability clips, which
+    put a tiny atom at each tail (outside the monomial nodes at |z| = sqrt(18)
+    for the calibrated means)."""
     a = (low - mu) / (sigma + 1e-10)
     phi_a = normal_cdf(a)
     u = phi_a + (1.0 - phi_a) * normal_cdf(z)

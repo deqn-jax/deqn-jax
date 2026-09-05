@@ -48,7 +48,9 @@ def run_evaluate_cli(args):
     label = args.label or Path(args.checkpoint).parent.name
     expectation_kwargs = {
         "expectation_type": cfg.get("expectation_type", "mc"),
-        "n_quadrature_points": cfg.get("n_quadrature_points", 3),
+        # None -> the evaluator's own default (16 nodes for one shock, 3 per
+        # dimension otherwise), also for MC-trained checkpoints.
+        "n_quadrature_points": cfg.get("n_quadrature_points"),
     }
 
     # 1. Stability check

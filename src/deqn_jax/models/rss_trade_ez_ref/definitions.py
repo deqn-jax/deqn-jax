@@ -28,7 +28,7 @@ def _c(constants, key):
 
 
 def clip_policy(policy: Array, layout: Layout) -> Array:
-    """The reference accessor layer's hard clips: shares and the bond price in
+    """The reference accessor layer's hard clips: shares and the bond return in
     [0, 1]; the value function and certainty equivalent floored at 1e-3.
     Applied wherever a policy enters a definition or residual."""
     lower = jnp.full(layout.n_policies, -jnp.inf)
@@ -70,9 +70,13 @@ def effective_calibration(state: Array, constants, layout: Layout) -> Dict[str, 
 def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Array]:
     """All definitions as ``[b, n]`` / ``[b, n, n]`` arrays.
 
-    Budget pieces (per capita positions ``A`` scaled by effective labor):
+    Budget pieces (per capita positions ``A`` scaled by effective labor;
+    ``q`` is the bond's net return in the reference's accounting -- holdings
+    pay ``1 + q`` next period -- not a discount price):
       B      = (A_policy - A_state) * L_eff                 (net bond purchase)
       wealth = max(-B + r K + w L_eff + q A_state L_eff, 1e-4)
+    Tariff revenue is not rebated to the household here, as in the reference
+    (graph @aleph/deqn: the accounting question is recorded on the port).
       C      = (1 - s) wealth / P_C,   X = s wealth / P_X   (savings share s)
     Capital adjustment terms Phi_1, Phi_2 (writeup (31)–(32)) from the
     accumulation identity K' = (1-delta) K + delta^(1-lambda) X^lambda K^(1-lambda);
