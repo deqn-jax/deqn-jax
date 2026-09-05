@@ -1,0 +1,35 @@
+# RSS-2019 three-country trade DSGE (Epstein–Zin), Phase-0 faithful replica.
+# Mirrors the reference run's recipe so that a checkpoint trained there can be
+# loaded and continued here: 512-path batch, 256-step episodes re-initialized
+# every episode, monomial quadrature over the 18 shocks, plain MSE, Adam 1e-4.
+# The network is the reference architecture (8-tanh ansatz + 512-512 MLP);
+# `hidden_sizes` must stay [512, 512] for checkpoint parity.
+model: rss_trade_ez_ref
+
+episodes: 10000
+batch_size: 512
+sim_batch: 512
+episode_length: 256
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+expectation_type: monomial
+loss_type: mse
+loss_reweight: none
+warm_start: false
+
+network:
+  type: rss_market_clearing_net
+  hidden_sizes: [512, 512]
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  grad_clip: 1.0
+
+checkpoint_every: 250
+save_best_checkpoint: false
+log_every: 50

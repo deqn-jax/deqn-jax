@@ -178,7 +178,14 @@ def test_factory_registers_fixed_checkpoint_architecture():
     assert network.input_scale is None
 
 
-def test_factory_rejects_nonreference_widths():
+def test_factory_takes_any_two_hidden_widths_but_not_three():
+    """Checkpoint parity needs the reference widths; smokes need small ones.
+    The architecture is fixed at two hidden layers either way."""
     config = NetworkConfig(type="rss_market_clearing_net", hidden_sizes=(8, 8))
-    with pytest.raises(ValueError, match="requires hidden_sizes"):
+    network = build_policy_net(_dummy_model(), jax.random.PRNGKey(0), (8,), config)
+    assert network.base_layers[0].weight.shape == (8, len(STATE_NAMES))
+    assert network.base_layers[1].weight.shape == (8, 8)
+
+    config = NetworkConfig(type="rss_market_clearing_net", hidden_sizes=(8, 8, 8))
+    with pytest.raises(ValueError, match="exactly two hidden"):
         build_policy_net(_dummy_model(), jax.random.PRNGKey(0), (8,), config)

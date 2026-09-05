@@ -212,12 +212,15 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             create_rss_market_clearing_net,
         )
 
-        if tuple(hidden_sizes) != BASE_HIDDEN_SIZES:
+        if len(hidden_sizes) != 2:
             raise ValueError(
-                "network.type='rss_market_clearing_net' requires "
-                f"hidden_sizes={BASE_HIDDEN_SIZES} for checkpoint parity"
+                "network.type='rss_market_clearing_net' takes exactly two hidden "
+                f"layers (the reference checkpoint uses {BASE_HIDDEN_SIZES}); "
+                f"got hidden_sizes={tuple(hidden_sizes)}"
             )
-        policy_net = create_rss_market_clearing_net(model, key=net_key)
+        policy_net = create_rss_market_clearing_net(
+            model, base_hidden_sizes=tuple(hidden_sizes), key=net_key
+        )
     else:
         policy_net = create_mlp(
             n_states=model.n_states,

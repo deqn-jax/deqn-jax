@@ -226,8 +226,10 @@ def create_rss_market_clearing_net(
     model: ModelSpec,
     *,
     key: Array,
+    base_hidden_sizes: Sequence[int] = BASE_HIDDEN_SIZES,
 ) -> RSSMarketClearingNet:
-    """Build the fixed Phase-0 RSS checkpoint-parity architecture."""
+    """Build the Phase-0 RSS architecture (``BASE_HIDDEN_SIZES`` = the
+    reference checkpoint's widths; smaller widths only for smokes)."""
     labor = model.constants.get("L")
     if labor is None:
         raise ValueError("rss_market_clearing_net requires model.constants['L']")
@@ -236,6 +238,7 @@ def create_rss_market_clearing_net(
         policy_names=model.policy_names,
         state_names=model.state_names,
         labor_endowments=labor,
+        base_hidden_sizes=base_hidden_sizes,
         key=key,
     )
 
