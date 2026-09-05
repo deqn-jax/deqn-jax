@@ -58,7 +58,10 @@ from deqn_jax.training.loop_control import (  # noqa: E402  (re-export)
     _OptimizerRuntime,
     _SaveBestTracker,
 )
-from deqn_jax.training.loss import gauss_hermite_nd
+from deqn_jax.training.loss import (
+    QUADRATURE_EXPECTATION_TYPES,
+    build_quadrature,
+)
 from deqn_jax.training.reporting import (
     count_params as _count_params,
 )
@@ -342,26 +345,28 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     if has_schedule:
         lr_schedule_fn = _build_lr_schedule(config.optimizer, total_for_schedule)
 
-    # ---- Pre-compute quadrature nodes (if using Gauss-Hermite) ----
+    # ---- Pre-compute deterministic quadrature nodes ----
     quad_nodes_jax = None
     quad_weights_jax = None
     exp_type = config.expectation_type
-    if exp_type in ("quadrature", "gh", "gauss_hermite"):
-        n_qp = config.n_quadrature_points
-        quad = gauss_hermite_nd(n_qp, model.n_shocks)
-        if quad is not None:
-            quad_nodes_jax = jnp.array(quad[0])
-            quad_weights_jax = jnp.array(quad[1])
-            if config.verbose:
+    n_qp = config.n_quadrature_points
+    quad = build_quadrature(exp_type, model.n_shocks, n_qp)
+    if quad is not None:
+        quad_nodes_jax = jnp.array(quad[0])
+        quad_weights_jax = jnp.array(quad[1])
+        if config.verbose:
+            if exp_type == "monomial":
+                print(f"  Quadrature: {quad[0].shape[0]} nodes (degree-3 monomial)")
+            else:
                 print(
                     f"  Quadrature: {n_qp}^{model.n_shocks} = {quad[0].shape[0]} nodes (Gauss-Hermite)"
                 )
+    elif exp_type in QUADRATURE_EXPECTATION_TYPES and config.verbose:
+        if exp_type == "monomial":
+            print("  Quadrature: monomial rule unavailable, falling back to MC")
         else:
             n_total = n_qp**model.n_shocks
-            if config.verbose:
-                print(
-                    f"  Quadrature: {n_total} nodes exceeds limit, falling back to MC"
-                )
+            print(f"  Quadrature: {n_total} nodes exceeds limit, falling back to MC")
 
     # ---- Determine history length from network (Python-level, before JIT) ----
     history_len = get_history_len(state.params)

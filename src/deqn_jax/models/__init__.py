@@ -29,6 +29,7 @@ from deqn_jax.models.irbc import MODEL as _irbc
 from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
 from deqn_jax.models.olg_lifecycle import MODEL as _olg_lifecycle
 from deqn_jax.models.olg_lifecycle_56 import MODEL as _olg_lifecycle_56
+from deqn_jax.models.rss_trade_ez_ref import MODEL as _rss_trade_ez_ref
 from deqn_jax.types import ModelSpec
 
 _MODELS = {
@@ -43,6 +44,7 @@ _MODELS = {
     "olg_lifecycle_56": _olg_lifecycle_56,
     "irbc": _irbc,
     "disaster": _disaster,
+    "rss_trade_ez_ref": _rss_trade_ez_ref,
 }
 
 # One source of truth for the blurbs: each model package's

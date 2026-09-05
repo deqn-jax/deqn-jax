@@ -1,9 +1,13 @@
 """Tests for the evaluation suite."""
 
+from types import SimpleNamespace
+
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import deqn_jax.evaluate.cli as evaluate_cli
 from deqn_jax.evaluate import (
     euler_equation_errors,
     print_moments,
@@ -11,6 +15,52 @@ from deqn_jax.evaluate import (
 )
 from deqn_jax.models import load_model
 from deqn_jax.networks import create_mlp
+from deqn_jax.types import ModelSpec
+
+
+class _ZeroPolicy:
+    def __call__(self, state):
+        return jnp.zeros((*state.shape[:-1], 1))
+
+
+def _quartic_two_stage_model(n_shocks=4):
+    """Toy whose GH-3 and degree-3 monomial expectations differ."""
+
+    def step(state, policy, shock, constants):
+        del state, policy, constants
+        return jnp.sum(shock**4, axis=-1, keepdims=True)
+
+    def equations(state, policy, next_state, next_policy, constants):
+        del state, policy, next_policy, constants
+        return {"quartic": next_state[:, 0]}
+
+    def inside(state, policy, next_state, next_policy, constants):
+        del state, policy, next_policy, constants
+        return {"quartic": next_state[:, 0]}
+
+    def combine(state, policy, expectations, constants):
+        del state, policy, constants
+        return {"quartic": expectations["quartic"]}
+
+    def steady_state(constants):
+        del constants
+        return jnp.zeros(1), jnp.zeros(1)
+
+    return ModelSpec(
+        name="quartic_two_stage",
+        n_states=1,
+        n_policies=1,
+        n_shocks=n_shocks,
+        equations_fn=equations,
+        step_fn=step,
+        constants={},
+        state_names=("moment",),
+        policy_names=("zero",),
+        equation_names=("quartic",),
+        steady_state_fn=steady_state,
+        inside_fn=inside,
+        combine_fn=combine,
+    )
 
 
 @pytest.fixture
@@ -29,6 +79,47 @@ def tiny_model_and_net():
 
 
 class TestEulerEquationErrors:
+    def test_two_stage_honors_monomial_expectation_rule(self):
+        model = _quartic_two_stage_model()
+
+        monomial = euler_equation_errors(
+            _ZeroPolicy(),
+            model,
+            n_periods=1,
+            burn_in=0,
+            expectation_type="monomial",
+        )
+        gauss_hermite = euler_equation_errors(
+            _ZeroPolicy(),
+            model,
+            n_periods=1,
+            burn_in=0,
+            expectation_type="gauss_hermite",
+            n_quadrature_points=3,
+        )
+
+        # Monomial nodes are +/-2 e_i, so sum(epsilon_i**4) is always 16.
+        # GH-3 integrates the true fourth moment: 4 dimensions * 3 = 12.
+        np.testing.assert_allclose(monomial["residuals"], [[16.0]])
+        np.testing.assert_allclose(gauss_hermite["residuals"], [[12.0]])
+
+    def test_two_stage_mc_keeps_the_deterministic_default(self):
+        """An MC-trained checkpoint (the config default) is evaluated with the
+        evaluator's own Gauss-Hermite rule, never with training-time draws."""
+        model = _quartic_two_stage_model()
+        mc = euler_equation_errors(
+            _ZeroPolicy(), model, n_periods=1, burn_in=0, expectation_type="mc"
+        )
+        gh = euler_equation_errors(
+            _ZeroPolicy(),
+            model,
+            n_periods=1,
+            burn_in=0,
+            expectation_type="gauss_hermite",
+        )
+        np.testing.assert_allclose(mc["residuals"], gh["residuals"])
+        np.testing.assert_allclose(mc["residuals"], [[12.0]])
+
     def test_short_run_auto_clamps_burn_in(self, tiny_model_and_net):
         """Previously crashed with ValueError on n_periods < burn_in default of 500."""
         model, net = tiny_model_and_net
@@ -65,6 +156,67 @@ class TestEulerEquationErrors:
         result = euler_equation_errors(net, model, n_periods=50, seed=0)
         residuals = np.asarray(result["residuals"])
         assert np.any(np.abs(residuals) > 1e-6)
+
+
+def test_cli_threads_checkpoint_expectation_rule(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("expectation_type: monomial\nn_quadrature_points: 7\n")
+    calls = {}
+
+    monkeypatch.setattr(
+        evaluate_cli,
+        "load_policy_from_checkpoint",
+        lambda checkpoint, config: ((), SimpleNamespace(name="toy")),
+    )
+    monkeypatch.setattr(
+        evaluate_cli,
+        "stability_check",
+        lambda *args, **kwargs: {
+            "nan_free": True,
+            "bound_hit_pct": 0.0,
+            "max_ss_deviation_pct": 0.0,
+            "stable": True,
+        },
+    )
+
+    def fake_euler(*args, **kwargs):
+        calls["euler"] = kwargs
+        return {
+            "residuals": jnp.zeros((1, 1)),
+            "equation_names": ("zero",),
+            "states": jnp.zeros((1, 1)),
+        }
+
+    def fake_market(*args, **kwargs):
+        calls["market"] = kwargs
+        return {"error": "no resource equation"}
+
+    monkeypatch.setattr(evaluate_cli, "euler_equation_errors", fake_euler)
+    monkeypatch.setattr(evaluate_cli, "market_clearing_errors", fake_market)
+    monkeypatch.setattr(
+        evaluate_cli, "print_euler_errors", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(evaluate_cli, "simulated_moments", lambda *args, **kwargs: {})
+    monkeypatch.setattr(evaluate_cli, "print_moments", lambda *args, **kwargs: None)
+
+    evaluate_cli.run_evaluate_cli(
+        SimpleNamespace(
+            checkpoint=str(tmp_path / "checkpoint.eqx"),
+            config=str(config_path),
+            label=None,
+            periods=1,
+            seed=0,
+            dynare_dir=None,
+            output=None,
+        )
+    )
+
+    expected = {
+        "expectation_type": "monomial",
+        "n_quadrature_points": 7,
+    }
+    assert {key: calls["euler"][key] for key in expected} == expected
+    assert {key: calls["market"][key] for key in expected} == expected
 
 
 class TestPrintMoments:
