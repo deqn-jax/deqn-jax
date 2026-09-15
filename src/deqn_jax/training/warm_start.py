@@ -61,7 +61,7 @@ def _init_output_bias_to_ss(
 
     # Set the last layer's bias and zero its weights. ``.layers`` is
     # an MLP-subclass attribute; the base Module type doesn't expose it.
-    # For composite policy classes (e.g. KfAnchoredMLP) the trainable
+    # For composite policy classes (e.g. DisasterPolicyNet) the trainable
     # MLP is nested under ``.inner_mlp``; dispatch through to the inner
     # net so the bias init still works. The K/F-anchored outputs are
     # pinned to the linearization and don't need (and can't accept) a

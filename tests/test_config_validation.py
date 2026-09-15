@@ -598,7 +598,7 @@ class TestEdgeCases:
     def test_partial_yaml_only_optimizer(self):
         yaml_content = """
 optimizer:
-  name: lion
+  name: muon
   learning_rate: 0.002
 """
         with tempfile.NamedTemporaryFile(
@@ -610,7 +610,7 @@ optimizer:
             f.flush()
             cfg = TrainConfig.from_yaml(f.name)
         os.unlink(f.name)
-        assert cfg.optimizer.name == "lion"
+        assert cfg.optimizer.name == "muon"
         assert cfg.optimizer.learning_rate == 0.002
         assert cfg.model == "brock_mirman"  # default
         assert cfg.episodes == 1000  # default
@@ -877,11 +877,11 @@ class TestTypeValidation:
         ):
             NetworkConfig(activation=0)
 
-    def test_multi_head_int_raises(self):
+    def test_bool_field_int_raises(self):
         with pytest.raises(
-            TypeError, match="NetworkConfig.multi_head.*expected bool.*got int"
+            TypeError, match="NetworkConfig.use_zlb_feature.*expected bool.*got int"
         ):
-            NetworkConfig(multi_head=1)
+            NetworkConfig(use_zlb_feature=1)
 
     # -- CompositeLossConfig --
     def test_anchor_weight_list_raises(self):

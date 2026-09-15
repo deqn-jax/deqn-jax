@@ -1,10 +1,10 @@
 """Disaster certification sweep — NGC-container launcher (GPU).
 
-Same 4 arms x 3 seeds as scripts/disaster_cert_sweep.sh, but as a python
-launcher for scripts/run_sweep_in_container.sh (in-process, no uv/console
+Same 4 arms x 3 seeds as scripts/dgx/disaster_cert_sweep.sh, but as a python
+launcher for scripts/dgx/run_sweep_in_container.sh (in-process, no uv/console
 scripts needed inside the container):
 
-  LAUNCHER=scripts/cert_sweep_container.py ./scripts/run_sweep_in_container.sh
+  LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh
 
 Resumable: a tag is skipped iff its DONE marker exists (checkpoint_best.eqx
 alone is not enough — fallback saves write it mid-run).

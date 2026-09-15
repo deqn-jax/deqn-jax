@@ -2,8 +2,8 @@
 
 Provides the bounding, clipping, output-link, activation, and
 initialization helpers shared by every policy architecture: ``MLP`` /
-``ResMLP`` / ``MultiHeadMLP`` (``networks/mlp.py``), ``LSTMPolicy``,
-``TransformerPolicy``, ``LinearPlusMLP``, ``KfAnchoredMLP``, the
+``LSTMPolicy``,
+``TransformerPolicy``, ``LinearPlusMLP``, the
 disaster-specific ``DisasterPolicyNet`` (``models/disaster/network.py``)
 and the interpretability re-implementations in ``interp.py``.
 
@@ -176,7 +176,7 @@ def _apply_hard_clip(
     where the two arguments compare equal, and XLA has been observed to
     fold ``min(x, inf)`` into a select whose dead branch is ``inf - inf``.
 
-    ``margin`` shrinks the feasible box symmetrically (``KfAnchoredMLP``
+    ``margin`` shrinks the feasible box symmetrically (the anchored networks
     keeps its anchored outputs 1e-4 inside the model bounds). At the
     default ``0.0`` no arithmetic is performed on the bounds at all, so
     the result is bit-identical to a bare ``maximum``/``minimum`` pair.

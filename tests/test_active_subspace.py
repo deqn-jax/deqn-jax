@@ -15,8 +15,6 @@ Tests pin three contracts using closed-form policies:
   3. Constant policy → all eigenvalues ~0, effective dim 0,
      summary shows trace ~0.
 
-Plus an end-to-end test on the disaster KfAnchoredMLP confirming that
-the analysis runs without NaN poisoning and produces reasonable
 spectra (anchored K/F outputs should be 1-d by construction since
 they're linear in state; non-anchored outputs should have richer
 spectra).
@@ -36,7 +34,6 @@ from deqn_jax.active_subspace import (  # noqa: E402
     estimate_gradient_covariance,
     policy_grid_on_subspace,
     project_states,
-    summarize_subspace_per_policy,
 )
 
 # ---------------------------------------------------------------------------
@@ -206,42 +203,3 @@ def test_policy_grid_1d_when_direction_2_is_none():
 # ---------------------------------------------------------------------------
 # End-to-end on a real network
 # ---------------------------------------------------------------------------
-
-
-def test_end_to_end_on_kf_anchored_disaster():
-    """Run the full per-policy summary on a fresh KfAnchored MLP for disaster.
-
-    Doesn't pin specific eigenvalues (those depend on the random init),
-    just confirms (a) the pipeline runs without NaN poisoning,
-    (b) all 11 outputs produce finite spectra,
-    (c) the K/F-anchored outputs (which are linear in state) all have
-        effective_dim == 1 — proves the rank-1 contract holds end-to-end.
-    """
-    from deqn_jax.models import load_model
-    from deqn_jax.networks.kf_anchored_mlp import create_kf_anchored_mlp
-
-    model = load_model("disaster")
-    net = create_kf_anchored_mlp(
-        model, hidden_sizes=(16,), activation="tanh", key=jr.PRNGKey(0)
-    )
-    ss_state, _ = model.steady_state_fn(model.constants)
-    states = ss_state[None, :] + 1e-2 * jr.normal(jr.PRNGKey(7), (200, model.n_states))
-
-    summary = summarize_subspace_per_policy(
-        net, states, list(model.policy_names), threshold=0.95
-    )
-
-    # All 11 policies present, all finite, all gave at least most samples.
-    assert set(summary.keys()) == set(model.policy_names)
-    for name, sub in summary.items():
-        assert bool(jnp.all(jnp.isfinite(sub["eigenvalues"])))
-        assert sub["n_finite_samples"] > 100  # most of 200 should be clean
-
-    # K/F outputs are pinned to a linear anchor: each is a fixed linear
-    # function of state, so the per-output gradient is constant ⇒ exactly
-    # one nonzero eigenvalue.
-    for kf_name in ("F_p", "K_p", "F_w", "K_w"):
-        assert summary[kf_name]["effective_dim"] == 1, (
-            f"{kf_name} (linear anchor) should have eff_dim 1, "
-            f"got {summary[kf_name]['effective_dim']}"
-        )

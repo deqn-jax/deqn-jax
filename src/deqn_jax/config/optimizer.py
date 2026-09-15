@@ -30,7 +30,7 @@ class OptimizerConfig(_ConfigBase):
 
     name: str = Field(
         default="adam",
-        description="Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `ign`, `lm`.",
+        description="Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`.",
     )
     learning_rate: float = Field(
         default=1e-3,
@@ -65,52 +65,30 @@ class OptimizerConfig(_ConfigBase):
     )
     lr_schedule: str = Field(
         default="constant",
-        description="LR schedule: `constant`, `cosine`, or `reduce_on_plateau`.",
+        description="LR schedule: `constant` or `cosine`.",
     )
     lr_warmup: int = Field(
         default=0, description="Linear warmup episodes before `lr_schedule` kicks in."
     )
     lr_min_factor: float = Field(
         default=0.0,
-        description="Minimum LR as a fraction of peak (cosine / reduce_on_plateau floor).",
-    )
-    lr_reduce_factor: float = Field(
-        default=0.5,
-        description="ReduceLROnPlateau: multiply LR by this factor on plateau.",
-    )
-    lr_reduce_patience: int = Field(
-        default=500,
-        description="ReduceLROnPlateau: episodes without improvement before decay.",
-    )
-    lr_reduce_cooldown: int = Field(
-        default=100,
-        description="ReduceLROnPlateau: episodes to wait after a decay before resuming monitoring.",
-    )
-    lr_reduce_min_delta: float = Field(
-        default=1e-6,
-        description="ReduceLROnPlateau: minimum loss drop that counts as improvement.",
+        description="Minimum LR as a fraction of peak (cosine floor).",
     )
 
     VALID_NAMES: ClassVar[frozenset] = frozenset(
         {
             "adam",
-            "sgd",
-            "adamw",
-            "lion",
             "muon",
             "ngd",
             "shampoo",
             "lbfgs",
             "mao",
-            "mao_kfac",
             "gn",
             "ign",
             "lm",
         }
     )
-    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset(
-        {"constant", "cosine", "reduce_on_plateau"}
-    )
+    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset({"constant", "cosine"})
 
     @field_validator(
         "learning_rate",
@@ -122,8 +100,6 @@ class OptimizerConfig(_ConfigBase):
         "decay",
         "cg_tol",
         "lr_min_factor",
-        "lr_reduce_factor",
-        "lr_reduce_min_delta",
         mode="before",
     )
     @classmethod
@@ -141,8 +117,6 @@ class OptimizerConfig(_ConfigBase):
         "ns_steps",
         "cg_iters",
         "lr_warmup",
-        "lr_reduce_patience",
-        "lr_reduce_cooldown",
         mode="before",
     )
     @classmethod

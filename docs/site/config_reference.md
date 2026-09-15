@@ -2,10 +2,10 @@
 
 Every field on the four Pydantic config classes (``TrainConfig``, ``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``) with its type, default, and a one-line description.
 
-Generated from introspection by ``scripts/gen_config_reference.py`` — regenerate after any config change:
+Generated from introspection by ``scripts/dev/gen_config_reference.py`` — regenerate after any config change:
 
 ```bash
-uv run python scripts/gen_config_reference.py
+uv run python scripts/dev/gen_config_reference.py
 ```
 
 Fields with description ``—`` haven't had an explicit ``Field(description=...)`` added yet; the generator surfaces these as a TODO list for the docs effort. Start there when a user asks "what does X do."
@@ -22,7 +22,7 @@ Top-level training configuration.
 | `episodes` | `int` | `1000` | Number of outer training cycles (rollout + minibatch sweep). |
 | `batch_size` | `int` | `64` | Minibatch size used for each gradient step. |
 | `episode_length` | `int` | `100` | Trajectory length per rollout (T). With T=1 you must set `initialize_each_episode=True` (see validator). |
-| `mc_samples` | `int` | `5` | Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type` is `quadrature`/`gh`/`gauss_hermite` or `discrete`. |
+| `mc_samples` | `int` | `5` | Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type` is `quadrature`/`gh`/`gauss_hermite`, `monomial` or `discrete`. |
 | `seed` | `int` | `42` | Top-level PRNG seed. Controls network init and the rollout/loss shock streams. |
 | `network` | `NetworkConfig` | `PydanticUndefined` | Policy network architecture; see NetworkConfig. |
 | `optimizer` | `OptimizerConfig` | `PydanticUndefined` | Optimizer and LR schedule; see OptimizerConfig. |
@@ -58,8 +58,8 @@ Top-level training configuration.
 | `curriculum_start` | `float` | `0.1` | Initial `shock_scale` when curriculum is active. |
 | `ss_reset_frac` | `float` | `0.0` | Fraction of batch re-initialized to SS-neighborhood each rollout (prevents trajectory drift). Orthogonal to `initialize_each_episode`. |
 | `initialize_each_episode` | `bool` | `False` | If True, replace episode_state with a fresh `init_state_fn` draw at the start of every rollout cycle (non-ergodic training, matches DEQN-MAO's flag of the same name). False = continue trajectory across cycles (ergodic). Required True when `episode_length=1`. |
-| `expectation_type` | `str` | `'mc'` | How to integrate over shocks in the residual: `mc` (antithetic Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` (deterministic tensor-product grid, uses `n_quadrature_points`) or `discrete` (exact enumeration over a finite-state Markov chain; requires `model.transition_matrix` and `model.z_state_idx`). Trajectory rollout uses Gaussian draws for `mc`/`quadrature` and categorical draws from `Π[z_t]` for `discrete`. |
-| `n_quadrature_points` | `int` | `3` | Quadrature points per shock dimension when `expectation_type` is `quadrature`/`gh`/`gauss_hermite`. Total nodes = n_quadrature_points^n_shocks. |
+| `expectation_type` | `str` | `'mc'` | How to integrate over shocks in the residual: `mc` (antithetic Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` (deterministic tensor-product grid, uses `n_quadrature_points`) or `monomial` (degree-3, 2*n_shocks nodes, practical when n_shocks > 6) or `discrete` (exact enumeration over a finite-state Markov chain; requires `model.transition_matrix` and `model.z_state_idx`). Trajectory rollout uses Gaussian draws for `mc`/`quadrature`/`monomial` and categorical draws from `Π[z_t]` for `discrete`. |
+| `n_quadrature_points` | `int` | `3` | Quadrature points per shock dimension when `expectation_type` is `quadrature`/`gh`/`gauss_hermite` (total nodes = n_quadrature_points^n_shocks). Ignored by `monomial`, whose node count is always 2*n_shocks. |
 | `barrier_weight` | `float` | `0.0` | Legacy state-barrier penalty weight. 0 disables. Prefer `definition_bounds` on the ModelSpec for new models. |
 | `shock_mask` | `Union[list[float], None]` | `None` | Per-dimension multiplicative mask over shocks (length must equal `model.n_shocks`). Values in [0, 1]; 0 zeroes that shock entirely. Applied to BOTH the residual expectation and the rollout state path. |
 | `target_update_every` | `int` | `0` | Target-network update interval in episodes. 0 disables target network entirely. |
@@ -78,7 +78,7 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `ign`, `lm`. |
+| `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`. |
 | `learning_rate` | `float` | `0.001` | Peak learning rate (or constant LR when `lr_schedule='constant'`). |
 | `grad_clip` | `Union[float, None]` | `None` | Global gradient-norm clipping. None disables. |
 | `weight_decay` | `float` | `0.0` | L2 weight decay (used by adamw only). |
@@ -92,13 +92,9 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 | `ns_steps` | `int` | `5` | Muon Newton-Schulz iteration count. |
 | `cg_iters` | `int` | `20` | Implicit Gauss-Newton conjugate-gradient iteration cap. |
 | `cg_tol` | `float` | `1e-06` | Implicit Gauss-Newton relative conjugate-gradient residual tolerance. |
-| `lr_schedule` | `str` | `'constant'` | LR schedule: `constant`, `cosine`, or `reduce_on_plateau`. |
+| `lr_schedule` | `str` | `'constant'` | LR schedule: `constant` or `cosine`. |
 | `lr_warmup` | `int` | `0` | Linear warmup episodes before `lr_schedule` kicks in. |
-| `lr_min_factor` | `float` | `0.0` | Minimum LR as a fraction of peak (cosine / reduce_on_plateau floor). |
-| `lr_reduce_factor` | `float` | `0.5` | ReduceLROnPlateau: multiply LR by this factor on plateau. |
-| `lr_reduce_patience` | `int` | `500` | ReduceLROnPlateau: episodes without improvement before decay. |
-| `lr_reduce_cooldown` | `int` | `100` | ReduceLROnPlateau: episodes to wait after a decay before resuming monitoring. |
-| `lr_reduce_min_delta` | `float` | `1e-06` | ReduceLROnPlateau: minimum loss drop that counts as improvement. |
+| `lr_min_factor` | `float` | `0.0` | Minimum LR as a fraction of peak (cosine floor). |
 
 ## `NetworkConfig`
 
@@ -106,13 +102,11 @@ Policy network architecture; nested under ``network:`` in YAML.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | `str` | `'mlp'` | Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), or `kf_anchored_mlp` (legacy K/F gauge elimination). |
+| `type` | `str` | `'mlp'` | Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), or `rss_market_clearing_net` (fixed RSS checkpoint-parity architecture). |
 | `hidden_sizes` | `tuple[int, Ellipsis]` | `(64, 64)` | Hidden layer widths. E.g. `(64, 64)` = two 64-unit hidden layers. |
 | `activation` | `str` | `'tanh'` | Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `softplus`. |
 | `activations` | `Union[tuple[str, Ellipsis], None]` | `None` | Per-layer activations if different per layer. None = use `activation` uniformly. Length = `len(hidden_sizes)`. |
 | `init` | `str` | `'default'` | Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`. |
-| `multi_head` | `bool` | `False` | If True, use separate output heads per policy dimension (experimental). |
-| `skip_connections` | `bool` | `False` | If True, add residual connections between matching-width hidden layers. |
 | `history_len` | `int` | `1` | History window length for sequence policies. 1 = MLP (no history). >1 = LSTM / Transformer. |
 | `num_heads` | `int` | `4` | Transformer: attention heads per layer. |
 | `n_layers` | `int` | `2` | Transformer: number of transformer blocks. |
@@ -120,7 +114,7 @@ Policy network architecture; nested under ``network:`` in YAML.
 | `use_zlb_feature` | `bool` | `False` | `disaster_policy_net` only: prepend `(R_lag - R_lb)` as an extra MLP input feature. |
 | `bk_pin` | `bool` | `False` | `disaster_policy_net` only: Blanchard-Kahn selection by construction — subtract the MLP delta's value and tangent at the steady state, so pi(s*)=pi* and dpi/ds(s*)=P hold exactly for every parameter value. The residual loss then shapes only second-order-and-beyond deviations. |
 | `zlb_feature_kind` | `Literal[raw, kink]` | `'raw'` | `disaster_policy_net` only, when use_zlb_feature=true: 'raw' = signed distance R_lag - R_lb; 'kink' = max(R_lag - R_lb, 0), PINN-style explicit kink at the floor. |
-| `kf_names` | `tuple[str, Ellipsis]` | `('F_p', 'K_p', 'F_w', 'K_w')` | `kf_anchored_mlp` and `disaster_policy_net`: policy names whose MLP delta is masked to zero (gauge fix). Default targets the four CMR Calvo Phillips-curve auxiliaries. |
+| `kf_names` | `tuple[str, Ellipsis]` | `('F_p', 'K_p', 'F_w', 'K_w')` | `disaster_policy_net`: policy names whose MLP delta is masked to zero (gauge fix). Default targets the four CMR Calvo Phillips-curve auxiliaries. |
 | `reparam_q_as_m` | `bool` | `False` | `disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP. Eliminates the eq 7 sign-flip pathology by parameterization. |
 | `reparam_pi_as_kp_inner` | `bool` | `False` | `disaster_policy_net` only: treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner. |
 | `reparam_wtilda_as_kw_inner` | `bool` | `False` | `disaster_policy_net` only: treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam. |

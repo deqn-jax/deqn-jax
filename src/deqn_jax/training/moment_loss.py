@@ -2,7 +2,7 @@
 
 Why this exists: residual minimization on its own can land in a *wrong-
 attractor* manifold even when the structural gauge freedom is removed
-(see ``networks/kf_anchored_mlp.py``). The K/F-anchor fix closes the
+. The K/F-anchor fix closes the
 mean gap to ~18%, but the std gap stays high (~80%) because the network
 can satisfy residuals while keeping its policies near-constant — a
 state-blind solution. Direct fix: penalize ``(net_std − target_std)²``

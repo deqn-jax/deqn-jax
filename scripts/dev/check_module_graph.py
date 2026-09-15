@@ -1,7 +1,7 @@
 """Verify the hand-drawn module dependency graph in docs/site/architecture.md
 against the actual import graph extracted by pydeps.
 
-Usage: ``uv run python scripts/check_module_graph.py``
+Usage: ``uv run python scripts/dev/check_module_graph.py``
 
 Exits 0 with a "no drift" report if the package-level edges in
 DRAWN_EDGES below match the real import graph at depth 2.

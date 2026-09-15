@@ -38,18 +38,14 @@ class TestDiscovery:
 
     def test_list_optimizers_returns_full_set(self):
         opts = api.list_optimizers()
-        # The 13 documented optimizer names must all be present.
+        # The 9 documented optimizer names must all be present.
         for required in (
             "adam",
-            "sgd",
-            "adamw",
-            "lion",
             "muon",
             "ngd",
             "shampoo",
             "lbfgs",
             "mao",
-            "mao_kfac",
             "gn",
             "ign",
             "lm",

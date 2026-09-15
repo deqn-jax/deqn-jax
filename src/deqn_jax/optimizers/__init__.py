@@ -8,14 +8,13 @@ Includes:
 - L-BFGS via optax
 - Gauss-Newton / implicit Gauss-Newton / Levenberg-Marquardt for residual minimization
 
-All standard/NGD/Shampoo/Lion/Muon/K-FAC optimizers are registered in the
+All standard/NGD/Shampoo/Muon optimizers are registered in the
 registry and created via ``create_optimizer(config)``.
 """
 
 # Import all optimizer modules to trigger @register_optimizer
 from deqn_jax.optimizers import lbfgs as _lbfgs_mod  # noqa: F401
 from deqn_jax.optimizers import mao as _mao_mod  # noqa: F401
-from deqn_jax.optimizers import mao_kfac as _mao_kfac_mod  # noqa: F401
 from deqn_jax.optimizers import ngd as _ngd_mod  # noqa: F401
 from deqn_jax.optimizers import shampoo as _shampoo_mod  # noqa: F401
 from deqn_jax.optimizers.gauss_newton import (
@@ -29,7 +28,6 @@ from deqn_jax.optimizers.gauss_newton import (
     levenberg_marquardt,
 )
 from deqn_jax.optimizers.mao import MAOState, MAOTransform
-from deqn_jax.optimizers.mao_kfac import MAOKFACState, MAOKFACTransform
 from deqn_jax.optimizers.ngd import NGDState, ngd
 from deqn_jax.optimizers.registry import (  # noqa: F401
     OptimizerKind,
@@ -48,8 +46,6 @@ __all__ = [
     # Custom optimizers
     "MAOTransform",
     "MAOState",
-    "MAOKFACTransform",
-    "MAOKFACState",
     "ngd",
     "NGDState",
     "shampoo",

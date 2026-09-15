@@ -386,7 +386,7 @@ def save_irf_csv(results: Dict[str, List[float]], path: str):
     disagree with the numbers. It lands in a trailing ``mode`` column: ``0``
     for a plain IRF, ``1`` for a GIRF (deviations from the matched no-shock
     baseline). The flag is numeric so readers that parse every field as a
-    float (``scripts/make_plots.py``) keep working. Other ``_``-prefixed keys
+    float (``scripts/dev/make_plots.py``) keep working. Other ``_``-prefixed keys
     are metadata too and are not written.
     """
     keys = [k for k in results if not k.startswith("_")]
@@ -507,7 +507,7 @@ def run_irf_cli(args):
         )
 
         # Save CSV. Plain IRF keeps ``irf_<shock>.csv`` (the name
-        # scripts/make_plots.py reads); GIRF gets its own basename so a
+        # scripts/dev/make_plots.py reads); GIRF gets its own basename so a
         # second run in the same outdir can't silently overwrite the first.
         # Both carry the numeric ``mode`` column.
         basename = f"irf_{shock_name}_girf.csv" if use_girf else f"irf_{shock_name}.csv"

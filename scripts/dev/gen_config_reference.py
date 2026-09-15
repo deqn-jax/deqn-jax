@@ -1,6 +1,6 @@
 """Generate docs/site/config_reference.md from Pydantic config introspection.
 
-Usage: ``uv run python scripts/gen_config_reference.py``
+Usage: ``uv run python scripts/dev/gen_config_reference.py``
 
 Output overwrites ``docs/site/config_reference.md`` with one table per
 config class (OptimizerConfig / NetworkConfig / CompositeLossConfig /
@@ -112,17 +112,17 @@ def render_class(name: str, cls: _t.Any, subtitle: str) -> str:
 
 def main() -> None:
     out_path = (
-        Path(__file__).resolve().parent.parent / "docs" / "site" / "config_reference.md"
+        Path(__file__).resolve().parents[2] / "docs" / "site" / "config_reference.md"
     )
 
     preface = """# Config reference
 
 Every field on the four Pydantic config classes (``TrainConfig``, ``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``) with its type, default, and a one-line description.
 
-Generated from introspection by ``scripts/gen_config_reference.py`` — regenerate after any config change:
+Generated from introspection by ``scripts/dev/gen_config_reference.py`` — regenerate after any config change:
 
 ```bash
-uv run python scripts/gen_config_reference.py
+uv run python scripts/dev/gen_config_reference.py
 ```
 
 Fields with description ``—`` haven't had an explicit ``Field(description=...)`` added yet; the generator surfaces these as a TODO list for the docs effort. Start there when a user asks "what does X do."

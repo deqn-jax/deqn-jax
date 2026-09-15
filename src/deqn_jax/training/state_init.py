@@ -701,14 +701,14 @@ def _build_initial_state(
         replay_config=config.replay_buffer,
     )
 
-    # BK-anchored nets (linear_plus_mlp, disaster_policy_net, kf_anchored_mlp)
+    # BK-anchored nets (linear_plus_mlp, disaster_policy_net)
     # start AT the linearized policy by construction; fitting them to a
     # CONSTANT SS policy teaches the MLP delta to cancel the linear slope.
     # Measured 2026-09-02 on the shipped disaster recipe: the warm start moved
     # rho(SS) from the 0.98699 exogenous floor to 1.14 before episode 1, and
     # every 2026-07 certification arm ran through it (the skip below used to
     # test for linear_plus_mlp only). Detect the anchor structurally.
-    is_bk_anchored = any(hasattr(state.params, a) for a in ("P", "P_kf"))
+    is_bk_anchored = hasattr(state.params, "P")
     if config.warm_start and is_bk_anchored:
         if config.verbose:
             print(

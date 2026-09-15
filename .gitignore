@@ -45,23 +45,9 @@ wandb/
 configs/archive/
 configs/_diag_*.yaml
 configs/dgx_*.yaml
-# Experiment scripts and working notes. Checked-in exceptions below.
-scripts/*
-!scripts/make_plots.py
-!scripts/gen_config_reference.py
-!scripts/check_module_graph.py
-!scripts/sweep_disaster_second_order.py
-!scripts/sweep_disaster_kf_validation.py
-!scripts/aio_head_to_head.py
-!scripts/aio_bias_floor_diagnostic.py
-!scripts/disaster_anchor_diagnostic.py
-!scripts/run_sweep_in_container.sh
-!scripts/fetch_sweep_results.sh
-!scripts/ewm_seed_sweep.sh
-!scripts/ewm_stress_table.py
-!scripts/disaster_cert_sweep.sh
-!scripts/cert_sweep_container.py
-!scripts/disaster_ss_probe.py
+# Local scratch scripts; everything else under scripts/ is tracked.
+scripts/local/
+scripts/**/__pycache__/
 dynare/
 PLAN.md
 docs/session_log.md
@@ -104,8 +90,6 @@ docs/*.log
 docs/*.out
 docs/*.toc
 docs/*.synctex.gz
-!scripts/disaster_risky_ss.py
-!scripts/gn_polish.py
 
 # local caches / node tooling
 .cache/

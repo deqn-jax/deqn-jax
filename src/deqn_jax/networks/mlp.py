@@ -4,7 +4,6 @@ from typing import Callable, Optional, Sequence
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 from jax import Array
 
 from deqn_jax.networks.common import (
@@ -125,191 +124,6 @@ class MLP(eqx.Module):
             return jax.vmap(self._forward_single)(x)
 
 
-class ResMLP(eqx.Module):
-    """MLP with residual (skip) connections between hidden layers.
-
-    Each hidden layer computes: h_{i+1} = act(W_i @ h_i + b_i) + proj(h_i)
-    where proj is identity if sizes match, or a learned linear projection
-    if hidden sizes differ.
-
-    This improves gradient flow and lets the network learn corrections
-    rather than full mappings — helpful for multi-equation PINNs.
-    """
-
-    layers: list
-    skip_projs: list  # Linear projections for size mismatches (or None)
-    activations: tuple = eqx.field(static=True)
-    output_lower: Optional[tuple] = eqx.field(static=True)
-    output_upper: Optional[tuple] = eqx.field(static=True)
-    _has_upper: Optional[tuple] = eqx.field(static=True)
-    input_shift: Optional[tuple] = eqx.field(static=True)
-    input_scale: Optional[tuple] = eqx.field(static=True)
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        hidden_sizes: Sequence[int] = (64, 64),
-        activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
-        output_lower: Optional[Array] = None,
-        output_upper: Optional[Array] = None,
-        input_shift: Optional[Array] = None,
-        input_scale: Optional[Array] = None,
-        init: str = "default",
-        *,
-        key: Array,
-    ):
-        self.activations = tuple(activations)
-        self.output_lower = _to_tuple(output_lower)
-        safe_upper, mask = _sanitize_upper(output_upper, output_lower)
-        self.output_upper = safe_upper
-        self._has_upper = mask
-        self.input_shift = _to_tuple(input_shift)
-        self.input_scale = _to_tuple(input_scale)
-
-        sizes = [in_features] + list(hidden_sizes) + [out_features]
-        n_layers = len(sizes) - 1
-        use_custom_init = init != "default" and init in INIT_FNS
-
-        # Keys: layers + skip projections (separate split to not change MLP PRNG)
-        layer_keys = jax.random.split(key, n_layers)
-        skip_key = jax.random.fold_in(key, 999)
-        skip_keys = jax.random.split(skip_key, n_layers)
-
-        if use_custom_init:
-            init_key = jax.random.fold_in(key, 998)
-            init_keys = jax.random.split(init_key, n_layers)
-
-        self.layers = []
-        self.skip_projs = []
-        for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
-            layer = eqx.nn.Linear(in_size, out_size, key=layer_keys[i])
-            if use_custom_init:
-                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-            self.layers.append(layer)
-
-            # Skip connection for hidden layers (not the output layer)
-            if i < n_layers - 1:
-                if in_size == out_size:
-                    self.skip_projs.append(None)  # identity
-                else:
-                    self.skip_projs.append(
-                        eqx.nn.Linear(
-                            in_size, out_size, use_bias=False, key=skip_keys[i]
-                        )
-                    )
-            else:
-                self.skip_projs.append(None)  # no skip for output layer
-
-    def _forward_single(self, x: Array) -> Array:
-        x = _normalize_input(x, self.input_shift, self.input_scale)
-
-        for i, layer in enumerate(self.layers[:-1]):
-            residual = x
-            x = self.activations[i](layer(x))
-            # Add skip connection
-            proj = self.skip_projs[i]
-            if proj is not None:
-                x = x + proj(residual)
-            else:
-                x = x + residual
-
-        # Output layer (no skip, no activation before bounds)
-        x = self.layers[-1](x)
-
-        x = _apply_bounds(x, self.output_lower, self.output_upper, self._has_upper)
-
-        return x
-
-    def __call__(self, x: Array) -> Array:
-        if x.ndim == 1:
-            return self._forward_single(x)
-        else:
-            return jax.vmap(self._forward_single)(x)
-
-
-class MultiHeadMLP(eqx.Module):
-    """MLP with separate output heads per policy variable.
-
-    Shared trunk → per-policy linear heads. Gives each policy its own
-    output parameters, reducing gradient interference between equations
-    that depend on different policies.
-    """
-
-    trunk_layers: list
-    heads: list  # list of eqx.nn.Linear, one per output
-    activations: tuple = eqx.field(static=True)
-    output_lower: Optional[tuple] = eqx.field(static=True)
-    output_upper: Optional[tuple] = eqx.field(static=True)
-    _has_upper: Optional[tuple] = eqx.field(static=True)
-    input_shift: Optional[tuple] = eqx.field(static=True)
-    input_scale: Optional[tuple] = eqx.field(static=True)
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        hidden_sizes: Sequence[int] = (64, 64),
-        activations: Sequence[Callable] = (jax.nn.tanh, jax.nn.tanh),
-        output_lower: Optional[Array] = None,
-        output_upper: Optional[Array] = None,
-        input_shift: Optional[Array] = None,
-        input_scale: Optional[Array] = None,
-        init: str = "default",
-        *,
-        key: Array,
-    ):
-        self.activations = tuple(activations)
-        self.output_lower = _to_tuple(output_lower)
-        safe_upper, mask = _sanitize_upper(output_upper, output_lower)
-        self.output_upper = safe_upper
-        self._has_upper = mask
-        self.input_shift = _to_tuple(input_shift)
-        self.input_scale = _to_tuple(input_scale)
-
-        # Build trunk (hidden layers only, no output layer)
-        sizes = [in_features] + list(hidden_sizes)
-        n_trunk = len(sizes) - 1
-        use_custom_init = init != "default" and init in INIT_FNS
-
-        key, *trunk_keys = jax.random.split(key, n_trunk + 1)
-        if use_custom_init:
-            key, *init_keys = jax.random.split(key, n_trunk + 1)
-
-        self.trunk_layers = []
-        for i, (in_size, out_size) in enumerate(zip(sizes[:-1], sizes[1:])):
-            layer = eqx.nn.Linear(in_size, out_size, key=trunk_keys[i])
-            if use_custom_init:
-                layer = _apply_init(layer, INIT_FNS[init], init_keys[i])  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-            self.trunk_layers.append(layer)
-
-        # Build per-policy output heads: each hidden_sizes[-1] → 1
-        head_keys = jax.random.split(key, out_features)
-        self.heads = [
-            eqx.nn.Linear(hidden_sizes[-1], 1, key=head_keys[i])
-            for i in range(out_features)
-        ]
-
-    def _forward_single(self, x: Array) -> Array:
-        x = _normalize_input(x, self.input_shift, self.input_scale)
-
-        for i, layer in enumerate(self.trunk_layers):
-            x = self.activations[i](layer(x))
-
-        # Each head produces one scalar, concat into [out_features]
-        raw = jnp.concatenate([head(x) for head in self.heads], axis=-1)
-
-        raw = _apply_bounds(raw, self.output_lower, self.output_upper, self._has_upper)
-
-        return raw
-
-    def __call__(self, x: Array) -> Array:
-        if x.ndim == 1:
-            return self._forward_single(x)
-        else:
-            return jax.vmap(self._forward_single)(x)
-
-
 def create_mlp(
     n_states: int,
     n_policies: int,
@@ -319,8 +133,6 @@ def create_mlp(
     init: str = "default",
     policy_lower: Optional[Array] = None,
     policy_upper: Optional[Array] = None,
-    multi_head: bool = False,
-    skip_connections: bool = False,
     input_shift: Optional[Array] = None,
     input_scale: Optional[Array] = None,
     *,
@@ -338,10 +150,6 @@ def create_mlp(
               "he_normal", "he_uniform", "lecun_normal", "default")
         policy_lower: Lower bounds for policy outputs
         policy_upper: Upper bounds for policy outputs
-        multi_head: Use MultiHeadMLP (shared trunk + one linear head per
-            policy). Takes precedence over skip_connections.
-        skip_connections: Use ResMLP (residual connections between hidden
-            layers). Ignored when multi_head is True.
         input_shift: Input normalization shift, subtracted before the first
             layer. Paired with input_scale; pass both or neither.
         input_scale: Input normalization scale, divided after the shift.
@@ -364,13 +172,7 @@ def create_mlp(
         act_fn = _resolve_activation(activation)
         act_fns = tuple(act_fn for _ in range(n_hidden))
 
-    if multi_head:
-        cls = MultiHeadMLP
-    elif skip_connections:
-        cls = ResMLP
-    else:
-        cls = MLP
-    return cls(
+    return MLP(
         in_features=n_states,
         out_features=n_policies,
         hidden_sizes=hidden_sizes,
