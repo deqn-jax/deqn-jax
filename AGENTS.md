@@ -379,6 +379,7 @@ legs are the stress grid and the residuals at ŝ — say which is which. **Probe
 | DGX sync | `rsync -az --exclude .venv --exclude .git <worktree>/ anna@130.223.169.108:~/projects/<lane-dir>/` (one directory per lane; never the main checkout) |
 | DGX GPU sweep | `LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh` (DONE-marker resumable) |
 | docs deploy | `mkdocs gh-deploy --remote-name pages` |
+| cold review (Astra) | `codex exec -m gpt-6-astra --sandbox read-only -c model_reasoning_effort=high "<brief: branch vs origin/master, what to attack, file:line + failing input>"` from the branch's worktree; the Codex companion plugin refuses this model, the CLI does not. Findings and dispositions go on the PR as a comment |
 
 Always `uv run`; never activate the venv manually. On the DGX, non-interactive shells
 need `export PATH=$HOME/.local/bin:$PATH` before `uv`.
