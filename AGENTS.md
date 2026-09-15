@@ -369,7 +369,7 @@ legs are the stress grid and the residuals at ŝ — say which is which. **Probe
 ## Commands
 | task | command |
 |---|---|
-| test | `uv run pytest tests/ -q` (654 collected @2026-09-03, 10 of them `slow`; 18 skips when Dynare fixtures are absent; full suite runs on the DGX host) |
+| test | `uv run pytest tests/ -q` (724 collected @2026-09-05, 10 of them `slow`; 21 skips when Dynare fixtures are absent (18) and for the steady-state legs the RSS replica has no steady state for (3); full suite runs on the DGX host) |
 | lint | `uv run ruff check src/ tests/ scripts/` (zero-error; CI-enforced) |
 | format | `uv run ruff format src/ tests/ scripts/` |
 | typecheck (advisory) | `uv run pyright` (basic mode; dev group; not in CI) |
@@ -389,7 +389,7 @@ src/deqn_jax/
   config/        # Pydantic v2: TrainConfig + nested blocks (optimizer, network, composite_loss, coverage, replay_buffer, moment_matching); io.py derives --set dispatch from model_fields
   types.py       # ModelSpec, TrainState, Metrics — NamedTuple pytrees
   cli.py         # train / list / info / optimizers / check / irf / evaluate / active-subspace / init-config
-  models/        # 11 registered models (`deqn-jax list`); each: variables, equations, dynamics, steady_state
+  models/        # 12 registered models (`deqn-jax list`); each: variables, equations, dynamics, steady_state
   networks/      # factory.py + common / mlp / lstm / transformer / linear_plus_mlp / kf_anchored_mlp; models/disaster/network.py (π_BK + δ, bk_pin)
   optimizers/    # registry + standard / pcgrad / mao / lbfgs / gauss_newton (+ ngd, shampoo, mao_kfac)
   training/      # trainer, state_init (dispatch + validators), cycle, loss, composite_loss, coverage, episode, shocks, linearize, warm_start

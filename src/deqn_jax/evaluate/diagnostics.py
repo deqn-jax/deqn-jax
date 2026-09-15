@@ -11,6 +11,10 @@ from deqn_jax.evaluate.simulate import (
     eval_p_disaster,
     eval_rollout,
 )
+from deqn_jax.training.loss import (
+    QUADRATURE_EXPECTATION_TYPES,
+    build_quadrature,
+)
 
 
 def _sim_seed_state(model, key):
@@ -40,6 +44,8 @@ def euler_equation_errors(
     n_periods: int = 10_000,
     seed: int = 123,
     burn_in: Optional[int] = None,
+    expectation_type: str = "gauss_hermite",
+    n_quadrature_points: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Simulate a long stochastic path and compute Euler residuals everywhere.
 
@@ -54,6 +60,15 @@ def euler_equation_errors(
         burn_in: Discard first N periods (reach ergodic distribution). If
             None, uses min(500, n_periods // 5) so short simulations still
             produce some output.
+        expectation_type: Expectation rule for two-stage models. Deterministic
+            rules (`gauss_hermite`/`quadrature`/`gh`, `monomial`) are honored so
+            a monomial-trained checkpoint is evaluated under its own operator;
+            `mc` (the training default) keeps the evaluator's deterministic
+            Gauss-Hermite default — replicating training-time Monte Carlo noise
+            is a worse estimate of the same expectation, not parity.
+        n_quadrature_points: Points per shock dimension for Gauss-Hermite. If
+            omitted, the historical evaluator defaults apply (16 in one
+            dimension, otherwise 3). Ignored by monomial.
 
     Returns:
         Dict with:
@@ -172,8 +187,8 @@ def euler_equation_errors(
 
     # Two-stage models (inside_fn/combine_fn, e.g. the olg_lifecycle family):
     # the FB nonlinearity wraps an EXPECTATION, so a single-draw residual is
-    # biased (E[fb] != fb(E)). Mirror the trainer: Gauss-Hermite E[inside]
-    # first, then combine_fn — the rollout still advances on a drawn shock.
+    # biased (E[fb] != fb(E)). Mirror the trainer's configured expectation of
+    # inside first, then combine_fn — rollout still advances on a drawn shock.
     use_two_stage = (
         not use_discrete
         and p_disaster == 0.0
@@ -181,10 +196,20 @@ def euler_equation_errors(
         and model.combine_fn is not None
     )
     if use_two_stage:
-        from deqn_jax.training.loss import gauss_hermite_nd
-
-        nodes_per_dim = 16 if n_shocks == 1 else 3
-        qn, qw = gauss_hermite_nd(nodes_per_dim, n_shocks)
+        nodes_per_dim = n_quadrature_points
+        if nodes_per_dim is None:
+            nodes_per_dim = 16 if n_shocks == 1 else 3
+        if expectation_type not in QUADRATURE_EXPECTATION_TYPES:
+            # 'mc' and anything else non-deterministic: keep the evaluator's
+            # own deterministic operator (see the docstring).
+            expectation_type = "gauss_hermite"
+        quadrature = build_quadrature(expectation_type, n_shocks, nodes_per_dim)
+        if quadrature is None:
+            # The Gauss-Hermite grid exceeds its safety cap; the linear-cost
+            # degree-3 monomial rule is the deterministic fallback here (the
+            # trainer falls back to Monte Carlo instead).
+            quadrature = build_quadrature("monomial", n_shocks, nodes_per_dim)
+        qn, qw = quadrature
         qn, qw = jnp.asarray(qn), jnp.asarray(qw)
 
         @eqx.filter_jit
@@ -343,6 +368,8 @@ def market_clearing_errors(
     n_periods: int = 10_000,
     seed: int = 123,
     burn_in: int = 500,
+    expectation_type: str = "gauss_hermite",
+    n_quadrature_points: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Check resource constraint satisfaction along simulated path.
 
@@ -353,7 +380,15 @@ def market_clearing_errors(
     Returns dict with ``equation``, ``mean_abs``, ``max_abs``, ``mean_log10``,
     ``max_log10`` — or ``{"error": ...}`` when no resource equation exists.
     """
-    result = euler_equation_errors(policy_net, model, n_periods, seed, burn_in)
+    result = euler_equation_errors(
+        policy_net,
+        model,
+        n_periods,
+        seed,
+        burn_in,
+        expectation_type=expectation_type,
+        n_quadrature_points=n_quadrature_points,
+    )
     residuals = result["residuals"]
     eq_names = result["equation_names"]
 
