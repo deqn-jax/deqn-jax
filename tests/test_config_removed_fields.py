@@ -54,13 +54,14 @@ def test_saved_yaml_with_removed_fields_loads_with_a_warning(tmp_path):
     assert cfg.model == "brock_mirman"
 
 
-def test_enabled_removed_flag_is_refused_not_tolerated():
+@pytest.mark.parametrize("flag", ["skip_connections", "multi_head"])
+def test_enabled_removed_flag_is_refused_not_tolerated(flag):
     """A config that enabled a removed architecture flag belongs to old code;
     dropping the flag would silently build a different network on the
     checkpoint's leaves."""
     d = {
         "model": "brock_mirman",
-        "network": {"type": "mlp", "hidden_sizes": [8], "skip_connections": True},
+        "network": {"type": "mlp", "hidden_sizes": [8], flag: True},
     }
     with pytest.raises(ValueError, match="pre-prune-2026-09-15"):
         TrainConfig.from_dict(d)

@@ -245,7 +245,7 @@ src/deqn_jax/
 
   optimizers/
     registry.py           @register_optimizer, OptimizerKind, factory
-    {adam,sgd,ngd,shampoo,mao,lbfgs,gauss_newton}.py
+    standard.py / pcgrad.py / mao.py / lbfgs.py / gauss_newton.py / ngd.py / shampoo.py (+ _step_common.py, the shared loss call and finalize step)
 
   training/
     trainer.py            Main loop (slim orchestrator; 5 train-step variants STANDARD, PCGRAD, MAO, LBFGS, GN dispatched by make_train_step in state_init.py)

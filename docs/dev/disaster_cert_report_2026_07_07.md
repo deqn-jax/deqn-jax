@@ -751,3 +751,10 @@ Artifacts: `runs/disaster_cert/<arm>_s<seed>/` (checkpoints + config), sweep log
 HEAD probe in `runs/disaster_head_probe`.
 
 **Paths (2026-09-15).** The scripts named in this report moved without change of content: `scripts/disaster_ss_probe.py`, `scripts/ewm_stress_table.py`, `scripts/disaster_risky_ss.py`, `scripts/gn_polish.py` → `scripts/cert/`; `scripts/run_sweep_in_container.sh`, `scripts/cert_sweep_container.py`, `scripts/disaster_cert_sweep.sh` → `scripts/dgx/`. The commands above run with the new prefixes; the DGX certification checkout keeps the old ones.
+
+```bash
+# the same two commands at the new paths (2026-09-15):
+LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh
+JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py \
+    --runs-dir runs/disaster_cert --json-out runs/disaster_cert/probe.json
+```

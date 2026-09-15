@@ -207,8 +207,9 @@ def test_policy_grid_1d_when_direction_2_is_none():
 
 
 def test_end_to_end_on_the_disaster_policy_net():
-    """Full per-policy summary on a fresh disaster network (K/F heads held
-    linear by the default mask): the pipeline runs without NaN poisoning,
+    """Full per-policy summary on a fresh disaster network with a non-zero
+    MLP correction (init_scale 0.1), so only the default K/F mask keeps those
+    four heads linear: the pipeline runs without NaN poisoning,
     every output has a finite spectrum, and the four linear heads have
     effective_dim == 1 (a fixed linear function of state has a constant
     gradient, hence exactly one nonzero eigenvalue)."""
@@ -221,7 +222,7 @@ def test_end_to_end_on_the_disaster_policy_net():
         model,
         jr.PRNGKey(0),
         (16,),
-        NetworkConfig(type="disaster_policy_net", hidden_sizes=(16,), init_scale=0.0),
+        NetworkConfig(type="disaster_policy_net", hidden_sizes=(16,), init_scale=0.1),
     )
     ss_state, _ = model.steady_state_fn(model.constants)
     states = ss_state[None, :] + 1e-2 * jr.normal(jr.PRNGKey(7), (200, model.n_states))

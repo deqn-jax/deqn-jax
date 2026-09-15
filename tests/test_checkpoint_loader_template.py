@@ -68,3 +68,28 @@ class TestLoaderTemplateCompleteness:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
+
+
+def test_enabled_removed_flag_in_a_saved_config_is_refused(tmp_path):
+    """The loader routes the saved config through the removed-field shim:
+    an *enabled* removed architecture flag belongs to older code and must
+    not be dropped silently (the leaves would load into a different net)."""
+    ckpt = _save_run(tmp_path)
+    cfg_path = tmp_path / "config.yaml"
+    cfg = yaml.safe_load(cfg_path.read_text())
+    cfg["network"]["skip_connections"] = True
+    cfg_path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError, match="pre-prune-2026-09-15"):
+        load_policy_from_checkpoint(ckpt)
+
+
+def test_inert_removed_fields_in_a_saved_config_are_tolerated(tmp_path):
+    ckpt = _save_run(tmp_path)
+    cfg_path = tmp_path / "config.yaml"
+    cfg = yaml.safe_load(cfg_path.read_text())
+    cfg["network"]["multi_head"] = False
+    cfg["optimizer"] = {"name": "adam", "weight_decay": 0.0, "lr_reduce_factor": 0.5}
+    cfg_path.write_text(yaml.safe_dump(cfg))
+    with pytest.warns(UserWarning, match="ignoring removed field"):
+        net, _ = load_policy_from_checkpoint(ckpt)
+    assert net is not None
