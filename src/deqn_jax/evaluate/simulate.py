@@ -1,7 +1,7 @@
 """Shared eval-rollout helpers: discrete-chain detection, shock draw, rollout loop.
 
 Every evaluation-side simulation (Euler residuals, simulated moments,
-stability, the active-subspace sampler, the deterministic IRF path) is the
+stability, the deterministic IRF path) is the
 same loop: draw a shock, step, record, clip, repeat. It used to be written
 out six times, each copy carrying a different subset of the branches
 (disaster Bernoulli, discrete Markov chain, two-stage quadrature). The loop

@@ -34,7 +34,7 @@ uv build                                   # produces wheel + sdist in dist/
 ```
 
 The CLI exposes nine subcommands — `train`, `list`, `info`, `optimizers`,
-`irf`, `evaluate`, `check`, `active-subspace`, `init-config`. Run any with
+`irf`, `evaluate`, `check`, `init-config`. Run any with
 `--help`.
 
 ## The layout in one glance
