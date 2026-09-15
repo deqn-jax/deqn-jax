@@ -40,6 +40,32 @@ def test_removed_fields_are_really_gone_from_the_models():
         assert f not in OptimizerConfig.model_fields
 
 
+def test_saved_yaml_with_removed_fields_loads_with_a_warning(tmp_path):
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "model: brock_mirman\n"
+        "network:\n  type: mlp\n  hidden_sizes: [8]\n  multi_head: false\n"
+        "  skip_connections: false\n"
+        "optimizer:\n  name: adam\n  learning_rate: 0.001\n  weight_decay: 0.0\n"
+        "  lr_reduce_factor: 0.5\n"
+    )
+    with pytest.warns(UserWarning, match="ignoring removed field"):
+        cfg = TrainConfig.from_yaml(str(yaml_path))
+    assert cfg.model == "brock_mirman"
+
+
+def test_enabled_removed_flag_is_refused_not_tolerated():
+    """A config that enabled a removed architecture flag belongs to old code;
+    dropping the flag would silently build a different network on the
+    checkpoint's leaves."""
+    d = {
+        "model": "brock_mirman",
+        "network": {"type": "mlp", "hidden_sizes": [8], "skip_connections": True},
+    }
+    with pytest.raises(ValueError, match="pre-prune-2026-09-15"):
+        TrainConfig.from_dict(d)
+
+
 def test_removed_field_in_a_set_override_is_still_an_error():
     with pytest.raises(ValueError, match="Unknown keys"):
         load_config(overrides={"network.multi_head": True})

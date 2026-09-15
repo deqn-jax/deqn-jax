@@ -50,13 +50,6 @@ class TestOptimizerConfigValidation:
         cfg = OptimizerConfig(grad_clip=None)
         assert cfg.grad_clip is None
 
-    def test_weight_decay_negative_raises(self):
-        with pytest.raises(ValueError, match="weight_decay"):
-            OptimizerConfig(weight_decay=-0.01)
-
-    def test_weight_decay_zero_ok(self):
-        OptimizerConfig(weight_decay=0.0)
-
     def test_beta1_zero_raises(self):
         with pytest.raises(ValueError, match="beta1"):
             OptimizerConfig(beta1=0.0)

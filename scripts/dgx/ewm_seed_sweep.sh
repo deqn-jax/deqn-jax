@@ -8,7 +8,7 @@
 # Evaluate afterwards with scripts/cert/ewm_stress_table.py (rho(SS) +
 # held-out stress/base grids).
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
 mkdir -p runs/ewm_sweep logs
 

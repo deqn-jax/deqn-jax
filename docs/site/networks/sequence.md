@@ -148,7 +148,6 @@ uv run deqn-jax list   # registered models, to see which carry history
     | LSTM | `lstm` | experimental — history window, recurrence |
     | Transformer | `transformer` | experimental — history window, attention |
     | DisasterPolicyNet | `disaster_policy_net` | experimental — LinearPlusMLP + CMR-specific priors |
-    | KfAnchoredMLP | `kf_anchored_mlp` | legacy — superseded by `disaster_policy_net` |
 
     The lineage that matters: `mlp` &rarr; `linear_plus_mlp` (add a BK floor)
     &rarr; `disaster_policy_net` (add model-specific priors). Sequence nets sit on

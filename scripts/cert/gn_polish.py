@@ -31,7 +31,7 @@ different layer shapes): rebuild the wide template exactly as the
 overridden to (N, N)), then deserialise into that.
 
 Usage (DGX):
-  uv run python scripts/gn_polish.py \
+  uv run python scripts/cert/gn_polish.py \
       --ckpt runs/disaster_cert/disaster_gated_pcgrad_s0/checkpoint_003000.eqx \
       --m 64 --iters 40
 """

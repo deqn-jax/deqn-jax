@@ -106,7 +106,7 @@ Ten models are registered today (`uv run deqn-jax list`). The small Brock–Mirm
 | `disaster` — NK-DSGE with financial frictions (+ capital destruction) | experimental | 13 states, 11 policies, numerical SS. Baseline CMR converges reliably; the disaster block is implemented but still under validation. |
 | Networks: `MLP`, `LSTM`, `Transformer` | stable | History-dependent (sequence) policies supported; MLP is the validated default. |
 | Network: `LinearPlusMLP` (residual over the Blanchard–Kahn solution) | stable | Recommended for medium-scale DSGE — `networks/linear_plus_mlp.py`. |
-| Optimizers: `adam`, `adamw`, `sgd`, `lion`, `muon`, `ngd`, `shampoo`, `mao`, `mao_kfac`, `lbfgs`, `gn`, `ign`, `lm` | varying | `adam` is the validated first-order method. Second-order (`gn`/`ign`/`lm`, `shampoo`, `ngd`, `mao*`) work but are less tested. |
+| Optimizers: `adam`, `muon`, `ngd`, `shampoo`, `mao`, `lbfgs`, `gn`, `ign`, `lm` | varying | `adam` is the validated first-order method. Second-order (`gn`/`ign`/`lm`, `shampoo`, `ngd`, `mao`) work but are less tested. |
 | Composite loss (anchor + Jacobian + barrier + Newton) | stable | Optional supervised priors toward the linearized policy. |
 | Warm start | stable | L-BFGS fit to steady state, or Dynare/Blanchard–Kahn linearization import. |
 | Curriculum on shock magnitude | stable | Ramp shocks from small to full over N episodes. |

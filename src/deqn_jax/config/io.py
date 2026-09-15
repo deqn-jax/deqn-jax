@@ -22,19 +22,42 @@ from deqn_jax.config.train import TrainConfig
 REMOVED_FIELDS: Dict[str, Set[str]] = {
     "network": {"multi_head", "skip_connections"},
     "optimizer": {
+        "weight_decay",
         "lr_reduce_factor",
         "lr_reduce_patience",
         "lr_reduce_cooldown",
         "lr_reduce_min_delta",
     },
 }
+# Removed fields whose *enabled* value changed the network's forward graph.
+# A saved config that enabled one belongs to code this tree no longer has:
+# loading it here would silently build a different architecture on the
+# checkpoint's leaves, so it is refused instead of tolerated.
+REMOVED_FLAGS_INERT_ONLY_WHEN_FALSE: Dict[str, Set[str]] = {
+    "network": {"multi_head", "skip_connections"},
+}
+REMOVED_AT_TAG = "pre-prune-2026-09-15"
 
 
 def _drop_removed_fields(block: str, sub: Dict[str, Any]) -> Dict[str, Any]:
-    """Return ``sub`` without the keys removed from ``block``; warn once per call."""
+    """Return ``sub`` without the keys removed from ``block``.
+
+    Warns once per call for the inert ones; raises for a removed flag that
+    was enabled (see ``REMOVED_FLAGS_INERT_ONLY_WHEN_FALSE``).
+    """
     gone = sorted(k for k in sub if k in REMOVED_FIELDS.get(block, set()))
     if not gone:
         return sub
+    enabled = [
+        k
+        for k in gone
+        if k in REMOVED_FLAGS_INERT_ONLY_WHEN_FALSE.get(block, set()) and bool(sub[k])
+    ]
+    if enabled:
+        raise ValueError(
+            f"config.{block}: {enabled} enabled a feature this version no longer "
+            f"has; the checkpoint it belongs to needs the code at tag {REMOVED_AT_TAG}."
+        )
     warnings.warn(
         f"config.{block}: ignoring removed field(s) {gone} "
         "(kept in older saved run configs; they no longer have any effect)",

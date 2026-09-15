@@ -140,8 +140,8 @@ registered* and *what to import*.
     ---
 
     The inner solve. `create_optimizer(config)` resolves a name from the
-    registry of **13**. `adam`/`adamw`/`sgd` are validated; `gn`/`ign`/`lm`/`lbfgs`
-    are the Newton-style polish you know from GMM/MLE; `mao`/`mao_kfac` are
+    registry of **9**. `adam` is validated; `gn`/`ign`/`lm`/`lbfgs`
+    are the Newton-style polish you know from GMM/MLE; `mao` is
     multi-equation. `list_optimizers()` is the source of truth.
 
     [:octicons-arrow-right-24: Optimizers](optimizers.md)
@@ -155,14 +155,12 @@ registered* and *what to import*.
     | Name | Family | Status |
     |---|---|---|
     | `adam` | first-order (STANDARD) | **validated — the default** |
-    | `adamw` | first-order | validated |
-    | `sgd` | first-order | validated |
     | `gn`, `ign`, `lm` | Gauss-Newton / Levenberg-Marquardt | experimental — Newton-style polish (anchor to GMM/MLE) |
     | `lbfgs` | quasi-Newton | experimental — also the steady-state warm-start engine |
-    | `mao`, `mao_kfac` | multi-equation (per-equation moments) | experimental |
-    | `lion`, `muon`, `ngd`, `shampoo` | deep-learning optimizers | experimental — *a macro model won't need these* |
+    | `mao` | multi-equation (per-equation moments) | experimental |
+    | `muon`, `ngd`, `shampoo` | deep-learning optimizers | experimental — *a macro model won't need these* |
 
-    `mao_kfac` resolves its task count (one moment per equilibrium equation) at
+    `mao` resolves its task count (one moment per equilibrium equation) at
     train-state construction, when the model's equation count is known.
 
 ??? abstract "Networks registered (`NetworkConfig.type`)"
@@ -172,7 +170,6 @@ registered* and *what to import*.
     | `linear_plus_mlp` | validated | BK linear rule + zero-init MLP correction; policy *is* the BK solution at init |
     | `lstm`, `transformer` | experimental | history-dependent (sequence) policies |
     | `disaster_policy_net` | experimental | LinearPlusMLP + CMR-specific shape priors; not general-purpose |
-    | `kf_anchored_mlp` | legacy | earlier gauge fix, superseded by `disaster_policy_net` |
 
     The classes (`MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`) and
     their `create_*` factories are exported from `deqn_jax.api` for the rare manual

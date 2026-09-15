@@ -95,7 +95,7 @@ Everything below is re-exported from `deqn_jax.api`. Import from there.
 | **Evaluation** | `euler_equation_errors`, `print_euler_errors`, `stability_check`, `simulated_moments`, `print_moments`, `market_clearing_errors` |
 | **IRF** | `run_irf`, `run_girf`, `load_policy_from_checkpoint`, `save_irf_csv`, `print_irf_summary` |
 | **Steady state** | `solve_steady_state`, `verify_steady_state`, `euler_from_period_return` |
-| **Networks (advanced)** | `MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`, `KfAnchoredMLP`, `create_mlp`, `create_lstm`, `create_transformer`, `create_linear_plus_mlp`, `create_kf_anchored_mlp` |
+| **Networks (advanced)** | `MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`, `create_mlp`, `create_lstm`, `create_transformer`, `create_linear_plus_mlp` |
 
 If you find yourself importing from `deqn_jax.training.*` or `deqn_jax.optimizers.*`
 directly, you've stepped past the stable surface. File an issue requesting that
@@ -195,7 +195,6 @@ If you don't have a closed form, use the framework's numerical fallback
 Used by:
 
 - `network.type='linear_plus_mlp'` (residual parameterization needs SS),
-- `network.type='kf_anchored_mlp'` (anchors K/F outputs to BK linearization),
 - input-normalization (`(state - ss) / max(|ss|, 0.01)`),
 - warm-start (L-BFGS pre-fit to the SS policy),
 - IRF (starting state is SS).
@@ -511,28 +510,25 @@ are constructed via `default_factory` — omitting a sub-block is safe.
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `type` | str | `"mlp"` | One of `mlp`, `lstm`, `transformer`, `linear_plus_mlp`, `kf_anchored_mlp` |
+| `type` | str | `"mlp"` | One of `mlp`, `lstm`, `transformer`, `linear_plus_mlp`, `disaster_policy_net`, `rss_market_clearing_net` |
 | `hidden_sizes` | tuple[int, ...] | (64, 64) | |
 | `activation` | str | `"tanh"` | `tanh`, `relu`, `gelu`, `silu`, `softplus` |
 | `activations` | tuple[str, ...] \| None | None | Per-layer override |
 | `init` | str | `"default"` | `default`, `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal` |
-| `multi_head` | bool | False | Per-policy output heads (experimental) |
-| `skip_connections` | bool | False | Residual MLP |
 | `history_len` | int | 1 | 1 = MLP; >1 = LSTM/Transformer |
 | `num_heads` | int | 4 | Transformer attention heads |
 | `n_layers` | int | 2 | Transformer block count |
 | `init_scale` | float | 0.0 | `linear_plus_mlp` only — MLP delta init scale (0 = start at linear) |
 | `use_zlb_feature` | bool | False | `linear_plus_mlp` + disaster only |
-| `kf_names` | tuple[str, ...] | `("F_p","K_p","F_w","K_w")` | `kf_anchored_mlp` only |
+| `kf_names` | tuple[str, ...] | `("F_p","K_p","F_w","K_w")` | `disaster_policy_net` only |
 
 ### `OptimizerConfig`
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `name` | str | `"adam"` | One of: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `ign`, `lm` |
+| `name` | str | `"adam"` | One of: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm` |
 | `learning_rate` | float | 1e-3 | Peak LR |
 | `grad_clip` | float \| None | None | Global gradient-norm clipping |
-| `weight_decay` | float | 0.0 | adamw / adam / sgd |
 | `beta1`, `beta2`, `epsilon` | float | adam defaults | First/second-moment decay + numerical floor |
 | `damping` | float | 1e-4 | Preconditioner damping for NGD/GN/IGN/LM |
 | `decay` | float | 0.999 | NGD / Shampoo preconditioner EMA |
@@ -540,10 +536,9 @@ are constructed via `default_factory` — omitting a sub-block is safe.
 | `memory_size` | int | 10 | L-BFGS history |
 | `ns_steps` | int | 5 | Muon Newton-Schulz iter count |
 | `cg_iters`, `cg_tol` | int, float | 20, 1e-6 | Implicit GN conjugate gradient |
-| `lr_schedule` | str | `"constant"` | `constant`, `cosine`, `reduce_on_plateau` |
+| `lr_schedule` | str | `"constant"` | `constant`, `cosine` |
 | `lr_warmup` | int | 0 | Linear warmup episodes |
 | `lr_min_factor` | float | 0.0 | Cosine / plateau floor as fraction of peak |
-| `lr_reduce_factor`, `lr_reduce_patience`, `lr_reduce_cooldown`, `lr_reduce_min_delta` | various | various | `reduce_on_plateau` parameters |
 
 ### `CompositeLossConfig`
 
@@ -746,7 +741,6 @@ minibatch sweep + gradient updates fuse into one JIT region per cycle.
 | `lstm` | LSTM over a history window | History-dependent policies | `networks.lstm.LSTMPolicy` |
 | `transformer` | Multi-head attention over a history window | Same | `networks.transformer.TransformerPolicy` |
 | `linear_plus_mlp` | `policy = linear(state) + mlp(state)`; init at the BK linearization | Models with a known good local solution | `networks.linear_plus_mlp.LinearPlusMLP` |
-| `kf_anchored_mlp` | K/F gauge elimination via BK linearization anchor | CMR-class disaster models | `networks.kf_anchored_mlp` |
 
 Output bounds (per policy dimension) are enforced **at the network output**:
 
@@ -769,9 +763,9 @@ at construction time (before JIT):
 
 | Family | Names | Step shape |
 | --- | --- | --- |
-| **STANDARD** | adam, sgd, adamw, lion, muon, ngd, shampoo | `jax.grad → opt.update(grads, state, params)` |
+| **STANDARD** | adam, muon, ngd, shampoo | `jax.grad → opt.update(grads, state, params)` |
 | **PCGRAD** | (gradient_surgery) | Per-equation gradients with conflict projection |
-| **MAO** | mao, mao_kfac | Per-equation Jacobian via `jax.jacrev` → MAO update |
+| **MAO** | mao | Per-equation Jacobian via `jax.jacrev` → MAO update |
 | **LBFGS** | lbfgs | Optax LBFGS with line search |
 | **GN** | gn, ign, lm | Gauss-Newton / Levenberg-Marquardt: `Δθ = −(JᵀJ)⁻¹ Jᵀr` |
 
@@ -1049,18 +1043,16 @@ src/deqn_jax/
 
   networks/
     common.py               # _normalize_input, _apply_bounds, INIT_FNS
-    mlp.py                  # MLP, ResMLP, MultiHeadMLP, create_mlp
+    mlp.py                  # MLP, create_mlp
     lstm.py                 # LSTMPolicy, create_lstm
     transformer.py          # TransformerPolicy, create_transformer
     linear_plus_mlp.py      # LinearPlusMLP, create_linear_plus_mlp
-    kf_anchored_mlp.py      # KFAnchoredMLP
 
   optimizers/
     registry.py             # OptimizerKind enum, register_optimizer, create_optimizer
-    standard.py             # make_grad_step_standard (adam/sgd/adamw/lion/muon/...)
+    standard.py             # make_grad_step_standard (adam/muon/...)
     pcgrad.py               # make_grad_step_pcgrad
     mao.py                  # MAO + factory + make_grad_step_mao
-    mao_kfac.py             # MAO with KFAC preconditioner
     lbfgs.py                # make_grad_step_lbfgs (optax wrapper)
     gauss_newton.py         # GN, IGN, LM
     ngd.py                  # Diagonal Fisher NGD

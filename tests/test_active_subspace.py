@@ -34,6 +34,7 @@ from deqn_jax.active_subspace import (  # noqa: E402
     estimate_gradient_covariance,
     policy_grid_on_subspace,
     project_states,
+    summarize_subspace_per_policy,
 )
 
 # ---------------------------------------------------------------------------
@@ -203,3 +204,34 @@ def test_policy_grid_1d_when_direction_2_is_none():
 # ---------------------------------------------------------------------------
 # End-to-end on a real network
 # ---------------------------------------------------------------------------
+
+
+def test_end_to_end_on_the_disaster_policy_net():
+    """Full per-policy summary on a fresh disaster network (K/F heads held
+    linear by the default mask): the pipeline runs without NaN poisoning,
+    every output has a finite spectrum, and the four linear heads have
+    effective_dim == 1 (a fixed linear function of state has a constant
+    gradient, hence exactly one nonzero eigenvalue)."""
+    from deqn_jax.config import NetworkConfig
+    from deqn_jax.models import load_model
+    from deqn_jax.networks.factory import build_policy_net
+
+    model = load_model("disaster")
+    net = build_policy_net(
+        model,
+        jr.PRNGKey(0),
+        (16,),
+        NetworkConfig(type="disaster_policy_net", hidden_sizes=(16,), init_scale=0.0),
+    )
+    ss_state, _ = model.steady_state_fn(model.constants)
+    states = ss_state[None, :] + 1e-2 * jr.normal(jr.PRNGKey(7), (200, model.n_states))
+
+    summary = summarize_subspace_per_policy(
+        net, states, list(model.policy_names), threshold=0.95
+    )
+    assert set(summary.keys()) == set(model.policy_names)
+    for name, sub in summary.items():
+        assert bool(jnp.all(jnp.isfinite(sub["eigenvalues"]))), name
+        assert sub["n_finite_samples"] > 100, name
+    for kf_name in ("F_p", "K_p", "F_w", "K_w"):
+        assert summary[kf_name]["effective_dim"] == 1, kf_name

@@ -327,7 +327,7 @@ def _validate_train_config(config) -> None:
                 f"'{config.optimizer.name}'. Composite auxiliary losses "
                 "(anchor, Jacobian, barriers, Newton) would appear in logs "
                 "but not affect parameter updates on this path. Use optimizer "
-                "'adam'/'sgd'/'adamw'/'lion'/'muon'/'ngd'/'shampoo' (the "
+                "'adam'/'muon'/'ngd'/'shampoo' (the "
                 "STANDARD variant, with or without gradient_surgery='pcgrad') "
                 "or 'lbfgs', or switch to loss_type='mse'."
             )
@@ -364,7 +364,7 @@ def _validate_train_config(config) -> None:
             f"gradient_surgery='pcgrad' has no effect with optimizer "
             f"'{config.optimizer.name}': PCGrad is only wired for the STANDARD "
             "grad-step variant, so the setting would be silently ignored. Use "
-            "a STANDARD optimizer (adam/sgd/adamw/lion/muon/ngd/shampoo) or "
+            "a STANDARD optimizer (adam/muon/ngd/shampoo) or "
             "set gradient_surgery='none'."
         )
 
@@ -426,7 +426,7 @@ def _validate_train_config(config) -> None:
                 f"configured options on its update path: {', '.join(_ignored)}. "
                 "They appear in logs/config but do NOT affect parameter updates "
                 "(PCGrad/MAO/GN/IGN/LM update from base, unweighted MSE "
-                "residuals). Use a STANDARD optimizer (adam/sgd/adamw/lion/muon/"
+                "residuals). Use a STANDARD optimizer (adam/muon/"
                 "ngd/shampoo with gradient_surgery='none') or 'lbfgs' to use "
                 "these options, or remove them."
             )
@@ -445,7 +445,7 @@ def _validate_train_config(config) -> None:
                 + (" + gradient_surgery='pcgrad'" if _cov_pcgrad else "")
                 + " differentiates the per-equation/residual vector, so the "
                 "stress/local pools (folded into the scalar total) would be "
-                "silently dropped from the gradient. Use adam/sgd/adamw/lion/"
+                "silently dropped from the gradient. Use adam/"
                 "muon/ngd/shampoo."
             )
         if config.loss_type != "composite" and (

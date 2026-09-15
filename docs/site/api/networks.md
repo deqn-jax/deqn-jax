@@ -4,11 +4,10 @@ Five built-in architectures, dispatched by `NetworkConfig.type`:
 
 | `type` | Module | Use case |
 | --- | --- | --- |
-| `mlp` | `mlp.MLP`, `MultiHeadMLP`, `ResMLP` | Most models; default |
+| `mlp` | `mlp.MLP` | Most models; default |
 | `lstm` | `lstm.LSTMPolicy` | History-dependent policies, `history_len > 1` |
 | `transformer` | `transformer.TransformerPolicy` | Same; multi-head attention over history window |
 | `linear_plus_mlp` | `linear_plus_mlp.LinearPlusMLP` | `policy = linear(state) + mlp(state)`; init at the BK linearization |
-| `kf_anchored_mlp` | `kf_anchored_mlp` | CMR-class disaster: K/F outputs pinned to BK anchor |
 
 All factories take `(n_states, n_policies, hidden_sizes, ..., key)` and
 return an Equinox `eqx.Module` whose `__call__(state) -> policy` works on

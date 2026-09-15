@@ -314,6 +314,9 @@ def load_policy_from_checkpoint(
         opt_cfg_dict["name"] = switch_opt
         if cfg.get("switch_lr") is not None:
             opt_cfg_dict["learning_rate"] = cfg["switch_lr"]
+    from deqn_jax.config.io import _drop_removed_fields
+
+    opt_cfg_dict = _drop_removed_fields("optimizer", dict(opt_cfg_dict))
     opt_cfg = OptimizerConfig(
         **{k: v for k, v in opt_cfg_dict.items() if k in OptimizerConfig.model_fields}
     )
@@ -328,6 +331,7 @@ def load_policy_from_checkpoint(
     # leaf deserialization can't repair a wrong graph (2026-07-11, caught
     # by an impossible bkpin probe: pi(s*) is pinned by construction, yet
     # the loaded net showed 476% SS error).
+    net_cfg = _drop_removed_fields("network", dict(net_cfg))
     net_config = NetworkConfig(
         **{k: v for k, v in net_cfg.items() if k in NetworkConfig.model_fields}
     )

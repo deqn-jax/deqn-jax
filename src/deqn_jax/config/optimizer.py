@@ -39,9 +39,6 @@ class OptimizerConfig(_ConfigBase):
     grad_clip: Optional[float] = Field(
         default=None, description="Global gradient-norm clipping. None disables."
     )
-    weight_decay: float = Field(
-        default=0.0, description="L2 weight decay (used by adamw only)."
-    )
     beta1: float = Field(default=0.9, description="Adam / MAO first-moment decay.")
     beta2: float = Field(default=0.999, description="Adam / MAO second-moment decay.")
     epsilon: float = Field(default=1e-8, description="Adam / MAO numerical floor.")
@@ -92,7 +89,6 @@ class OptimizerConfig(_ConfigBase):
 
     @field_validator(
         "learning_rate",
-        "weight_decay",
         "beta1",
         "beta2",
         "epsilon",
@@ -142,8 +138,6 @@ class OptimizerConfig(_ConfigBase):
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if self.grad_clip is not None and self.grad_clip <= 0:
             raise ValueError(f"grad_clip must be > 0, got {self.grad_clip}")
-        if self.weight_decay < 0:
-            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
         if not (0 < self.beta1 < 1):
             raise ValueError(f"beta1 must be in (0, 1), got {self.beta1}")
         if not (0 < self.beta2 < 1):

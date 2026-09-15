@@ -13,7 +13,7 @@ gate's premise (how much of the anchor cloud sits past the floor) is
 visible next to the outcome.
 
 Usage (DGX):
-  JAX_ENABLE_X64=1 uv run python scripts/disaster_ss_probe.py \
+  JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py \
       --runs-dir runs/disaster_cert \
       --arms disaster,disaster_gated,disaster_elbcov,disaster_gated_elbcov \
       --seeds 0,1,2

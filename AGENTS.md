@@ -315,7 +315,7 @@ knowledge from the inside.
 ## Reality — what a claim is checked against
 | Claim class | Canonical carrier | How to observe | Who can |
 |---|---|---|---|
-| "model X is solved / certified" | the **final** checkpoint on the DGX, `runs/<arm>_s<seed>/checkpoint_003000.eqx`, three seeds, fp64 | `JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py --runs-dir runs/disaster_cert --arms <arm> --seeds 0,1,2` on the DGX host; stress grid via `scripts/ewm_stress_table.py`; report the learned-block ρ, ŝ, residuals at ŝ | agent (ssh) |
+| "model X is solved / certified" | the **final** checkpoint on the DGX, `runs/<arm>_s<seed>/checkpoint_003000.eqx`, three seeds, fp64 | `JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py --runs-dir runs/disaster_cert --arms <arm> --seeds 0,1,2` on the DGX host; stress grid via `scripts/cert/ewm_stress_table.py`; report the learned-block ρ, ŝ, residuals at ŝ | agent (ssh) |
 | "the code is correct / tests pass" | the suite run on the DGX host, not the laptop | `ssh anna@130.223.169.108 'export PATH=$HOME/.local/bin:$PATH; cd ~/projects/<lane-dir> && uv run pytest tests/ -q -m "not slow"'` | agent |
 | "CI is green" | the GitHub Actions run for the PR/commit | `gh pr checks <n> --watch` / `gh run list --branch <b>` | agent |
 | "a training recipe behaves" | the run directory on the DGX (checkpoints, `DONE` marker, config, TensorBoard) | `ls runs/<arm>_s<seed>/`, `logs/cert_container*.log` | agent (launch: `run_sweep_in_container.sh` in the NGC container) |
@@ -377,7 +377,7 @@ legs are the stress grid and the residuals at ŝ — say which is which. **Probe
 | list models / optimizers | `uv run deqn-jax list` / `uv run deqn-jax optimizers` |
 | certificates | `JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py --runs-dir runs/disaster_cert --arms <a> --seeds 0,1,2` |
 | DGX sync | `rsync -az --exclude .venv --exclude .git <worktree>/ anna@130.223.169.108:~/projects/<lane-dir>/` (one directory per lane; never the main checkout) |
-| DGX GPU sweep | `./scripts/dgx/run_sweep_in_container.sh` (DONE-marker resumable) |
+| DGX GPU sweep | `LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh` (DONE-marker resumable) |
 | docs deploy | `mkdocs gh-deploy --remote-name pages` |
 
 Always `uv run`; never activate the venv manually. On the DGX, non-interactive shells

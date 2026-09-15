@@ -119,7 +119,7 @@ flowchart TD
     turnkey recommendation.
 
 ??? note "Footnote: the deep-learning optimizers you can ignore"
-    `lion`, `muon`, `shampoo`, and `ngd` are **deep-learning optimizers** exposed
+    `muon`, `shampoo`, and `ngd` are **deep-learning optimizers** exposed
     for completeness and ablation. They are sign-momentum, orthogonalized-update,
     Kronecker-factored, and diagonal-Fisher variants respectively -- useful if you
     are stress-testing the trainer, but on a typical macro model **you will not
@@ -154,14 +154,10 @@ packaged API.
     | Optimizer | Variant | Status | When to reach for it |
     |---|---|---|---|
     | `adam` | STANDARD | validated | **The default.** Start here; only move if it stalls. |
-    | `adamw` | STANDARD | validated | Adam with decoupled weight decay -- mild regularization for a large net. |
-    | `sgd` | STANDARD | validated | Baselines and ablations; rarely the production choice. |
-    | `lion` | STANDARD | experimental | Sign-momentum; cheaper state than Adam. (DL optimizer -- see footnote.) |
     | `muon` | STANDARD | experimental | Newton-Schulz orthogonalized updates. (DL optimizer -- see footnote.) |
     | `ngd` | STANDARD | experimental | Diagonal-Fisher natural gradient. (DL optimizer -- see footnote.) |
     | `shampoo` | STANDARD | experimental | Kronecker-factored second-order. (DL optimizer -- see footnote.) |
     | `mao` | MAO | experimental | **Multi-equation models.** A separate Adam moment per equation so a loud equation can't drown a quiet one -- built for the 11-equation disaster system. |
-    | `mao_kfac` | MAO | experimental | MAO plus a shared-input Kronecker preconditioner. |
     | `lbfgs` | LBFGS | experimental | Quasi-Newton with line search; near-deterministic residuals, and the **steady-state warm-start engine**. |
     | `gn` | GN | experimental | Dense Gauss-Newton (H&asymp;J&#7488;J). Quadratic convergence *near* a solution -- a polish step. |
     | `ign` | GN | experimental | Matrix-free implicit Gauss-Newton via conjugate gradients. |
@@ -190,11 +186,9 @@ packaged API.
     | **LSTM** | `lstm` | experimental | History-dependent policies: a window of past states. |
     | **Transformer** | `transformer` | experimental | Same history window, attention instead of recurrence. |
     | **DisasterPolicyNet** | `disaster_policy_net` | experimental | LinearPlusMLP *plus* model-specific shape priors for CMR-style NK-DSGE (ZLB kink feature, Calvo reparameterizations, K/F gauge mask). The disaster superset -- not general-purpose. |
-    | **KfAnchoredMLP** | `kf_anchored_mlp` | legacy | An earlier, narrower gauge fix, **superseded by `disaster_policy_net`**. Kept for reproducibility; don't start new work on it. |
 
     > The lineage that matters: `mlp` &rarr; `linear_plus_mlp` (add a BK floor)
-    > &rarr; `disaster_policy_net` (add model-specific priors). `kf_anchored_mlp`
-    > is an accidental earlier fork of the same gauge fix.
+    > &rarr; `disaster_policy_net` (add model-specific priors).
 
     See [LinearPlusMLP](../networks/linear_plus_mlp.md) for the residual-ansatz math.
 

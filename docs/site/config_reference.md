@@ -81,7 +81,6 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 | `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`. |
 | `learning_rate` | `float` | `0.001` | Peak learning rate (or constant LR when `lr_schedule='constant'`). |
 | `grad_clip` | `Union[float, None]` | `None` | Global gradient-norm clipping. None disables. |
-| `weight_decay` | `float` | `0.0` | L2 weight decay (used by adamw only). |
 | `beta1` | `float` | `0.9` | Adam / MAO first-moment decay. |
 | `beta2` | `float` | `0.999` | Adam / MAO second-moment decay. |
 | `epsilon` | `float` | `1e-08` | Adam / MAO numerical floor. |
