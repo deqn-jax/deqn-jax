@@ -1,6 +1,6 @@
 """IRF / GIRF grid plots.
 
-Takes the ``Dict[str, List[float]]`` output of ``deqn_jax.irf.run_irf``
+Takes the ``Dict[str, List[float]]`` output of ``deqn_jax.evaluate.irf.run_irf``
 or ``run_girf`` (or a parsed CSV with the same schema) and produces a
 shock × variable grid of trajectories.
 

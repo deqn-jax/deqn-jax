@@ -31,7 +31,7 @@ def compare_to_dynare_moments(
     "are policies moving the right amount" is the cleanest single check
     for non-degeneracy near the ergodic distribution.
     """
-    from deqn_jax.dynare_io import deqn_policy_to_dynare, load_dynare_moments
+    from deqn_jax.evaluate.dynare_io import deqn_policy_to_dynare, load_dynare_moments
 
     dyn_moments = load_dynare_moments(dynare_dir)
     net_moments = simulated_moments(policy_net, model, n_periods=n_periods, seed=seed)
@@ -123,7 +123,7 @@ def compare_to_dynare_ghx(
         seed: PRNG seed for the perturbations (deterministic for
             reproducibility across eval runs).
     """
-    from deqn_jax.dynare_io import load_dynare_jacobian
+    from deqn_jax.evaluate.dynare_io import load_dynare_jacobian
 
     assert model.steady_state_fn is not None
     ss_state, _ = model.steady_state_fn(model.constants)
@@ -195,8 +195,8 @@ def compare_to_dynare_irfs(
     appear in both Dynare's CSV and our IRF output (= states ∪ policies ∪
     definitions) are compared; the rest are skipped.
     """
-    from deqn_jax.dynare_io import deqn_policy_to_dynare, load_dynare_irf
-    from deqn_jax.irf import run_girf, run_irf
+    from deqn_jax.evaluate.dynare_io import deqn_policy_to_dynare, load_dynare_irf
+    from deqn_jax.evaluate.irf import run_girf, run_irf
 
     if not model.shock_names:
         return {"per_shock": {}, "shocks_skipped": []}

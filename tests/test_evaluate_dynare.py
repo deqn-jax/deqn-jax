@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
-from deqn_jax.dynare_io import (
+from deqn_jax.evaluate.dynare_io import (
     deqn_policy_to_dynare,
     deqn_state_col_to_dynare,
     load_dynare_irf,

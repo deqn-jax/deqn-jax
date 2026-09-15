@@ -49,7 +49,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
-from deqn_jax.irf import load_policy_from_checkpoint  # noqa: E402
+from deqn_jax.training.checkpointing import load_policy_from_checkpoint  # noqa: E402
 from deqn_jax.training.composite_loss import prepare_composite_data  # noqa: E402
 from deqn_jax.training.linearize import linearize_model  # noqa: E402
 from deqn_jax.training.loss import gauss_hermite_nd  # noqa: E402

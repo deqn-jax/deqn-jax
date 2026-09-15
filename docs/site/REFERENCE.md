@@ -1028,12 +1028,10 @@ Both in-tree and runtime-registered models appear in `list_models()`.
 src/deqn_jax/
   api.py                    # ★ stable agent-facing surface (this doc's contract)
   __init__.py               # legacy re-exports (subset of api.py)
-  cli.py                    # entry point: train, list, optimizers, evaluate, irf
+  cli/                      # entry point; one module per subcommand
   config/                   # TrainConfig, OptimizerConfig, NetworkConfig (Pydantic v2)
   types.py                  # ModelSpec, TrainState, ReweightState, Metrics
   evaluate/                 # euler_equation_errors, stability_check, moments
-  irf.py                    # run_irf, run_girf, load_policy_from_checkpoint
-  metrics.py                # TensorBoard / W&B logger backends
   benchmark.py              # train-step performance benchmarks
 
   models/

@@ -247,7 +247,6 @@ packaged API.
     | **Simulated moments** | `evaluate/diagnostics.py: simulated_moments` | validated | Ergodic means/stds vs a reference. Catches a *state-blind* policy. |
     | **Stability check** | `evaluate/diagnostics.py: stability_check` | validated | Flags policies pinned to bounds, states drifting from SS, NaNs. A fast pass/fail gate. |
     | **Dynare Jacobian match** | `evaluate/dynare.py` | validated | Frobenius distance between the network's policy slope at SS and the Dynare/BK matrix `P`. |
-    | **Active subspace / effective dimension** | `active_subspace.py` | experimental | Eigenanalysis of the policy-gradient covariance + a degeneracy detector. |
     | **Ergodic replay buffer** | `training/replay.py` | experimental | A prioritized ring buffer so the policy doesn't forget rare-event branches (ZLB, disaster). A training mechanism, not a metric. |
     | **Bias floor -- MSE vs AiO** | dev analysis (`docs/dev/aio_loss_estimator.md`) | research probe | Estimates the MC bias floor with no ground truth. A write-up + probe, not shipped API. |
 

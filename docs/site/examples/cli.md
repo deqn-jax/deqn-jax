@@ -1,7 +1,7 @@
 # CLI examples
 
 The `deqn-jax` CLI exposes nine subcommands: `train`, `list`, `info`,
-`check`, `evaluate`, `irf`, `optimizers`, `active-subspace`, `init-config`
+`check`, `evaluate`, `irf`, `optimizers`, `init-config`
 (plus `--version`).
 
 ## Discovery

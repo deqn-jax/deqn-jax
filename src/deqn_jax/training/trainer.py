@@ -20,7 +20,6 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.metrics import create_logger
 from deqn_jax.optimizers.registry import OptimizerKind
 from deqn_jax.training.checkpointing import (
     best_checkpoint_path as _best_checkpoint_path,
@@ -62,6 +61,7 @@ from deqn_jax.training.loss import (
     QUADRATURE_EXPECTATION_TYPES,
     build_quadrature,
 )
+from deqn_jax.training.metrics import create_logger
 from deqn_jax.training.reporting import (
     count_params as _count_params,
 )

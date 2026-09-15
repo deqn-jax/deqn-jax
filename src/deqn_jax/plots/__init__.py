@@ -23,7 +23,7 @@ Training diagnostics from a ``history`` dict returned by
     from deqn_jax.plots import plot_loss_curve, plot_grad_norm
 
 IRF / GIRF from an ``irf_results`` dict returned by
-``deqn_jax.irf.run_irf`` / ``run_girf``::
+``deqn_jax.evaluate.irf.run_irf`` / ``run_girf``::
 
     from deqn_jax.plots import plot_irf_grid
 

@@ -365,7 +365,7 @@ class TestIrfCsvMode:
     """The CSV's mode column is derived from the results, not from a caller."""
 
     def test_mode_column_is_derived(self, tmp_path):
-        from deqn_jax.irf import save_irf_csv
+        from deqn_jax.evaluate.irf import save_irf_csv
 
         irf_results = {"period": [0, 1], "k": [1.0, 1.1]}
         girf_results = {"_mode": "girf", **irf_results}
@@ -380,24 +380,3 @@ class TestIrfCsvMode:
             # Every field stays numeric so float-parsing readers keep working.
             for r in rows[1:]:
                 [float(v) for v in r]
-
-
-class TestActiveSubspaceSampler:
-    """The cli sampler's disaster branch (it used to have none)."""
-
-    def test_samples_disaster_model(self):
-        import jax.numpy as jnp
-
-        from deqn_jax.cli import sample_ergodic_states
-        from deqn_jax.networks.factory import build_policy_net
-
-        model = load_model("disaster")
-        model = model._replace(
-            constants={**model.constants, "p_disaster": 0.5}
-        )  # high p: both branches get visited
-        net = build_policy_net(model, jax.random.PRNGKey(0), (16,), None)
-
-        states = sample_ergodic_states(model, net, 20, jax.random.PRNGKey(3))
-        assert states.shape[1] == model.n_states
-        assert states.shape[0] > 0
-        assert bool(jnp.all(jnp.isfinite(states)))

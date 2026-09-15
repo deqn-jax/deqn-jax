@@ -12,6 +12,9 @@ in any minor version bump.
 
 ### Removed
 
+- The mechanistic-interpretability tooling of the May study (`active_subspace`,
+  its plots, `interp`) and the `deqn-jax active-subspace` command; the study's
+  figures stay under `docs/dev/figures/interp/`.
 - Dormant research code no shipped configuration used: the `kf_anchored_mlp`
   network and its validation sweep, the `ResMLP` / `MultiHeadMLP` variants
   (`network.multi_head`, `network.skip_connections`), the `mao_kfac`, `sgd`,
@@ -22,6 +25,11 @@ in any minor version bump.
 
 ### Changed
 
+- Module layout: `deqn_jax.irf` → `deqn_jax.evaluate.irf` (IRFs) with
+  `load_policy_from_checkpoint` in `deqn_jax.training.checkpointing`;
+  `deqn_jax.dynare_io` → `deqn_jax.evaluate.dynare_io`; `deqn_jax.metrics` →
+  `deqn_jax.training.metrics`; `deqn_jax.cli` is a package with one module per
+  subcommand. The public surface `deqn_jax.api` is unchanged.
 - `scripts/` is tracked as a whole and organized by purpose: `scripts/cert/`
   (certification probes), `scripts/dgx/` (container sweeps), `scripts/dev/`
   (plots, config reference, module graph). `scripts/local/` is ignored scratch.
