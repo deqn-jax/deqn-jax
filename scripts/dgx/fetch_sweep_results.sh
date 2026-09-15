@@ -10,8 +10,8 @@
 #   - runs/<sweep>/.wandb/*        (wandb cache)
 #
 # Usage:
-#   bash scripts/fetch_sweep_results.sh                  # default: sweep_so
-#   SWEEP=sweep_kf bash scripts/fetch_sweep_results.sh   # K/F validation sweep
+#   bash scripts/dgx/fetch_sweep_results.sh                  # default: sweep_so
+#   SWEEP=sweep_kf bash scripts/dgx/fetch_sweep_results.sh   # K/F validation sweep
 #
 # Env:
 #   DGX_HOST    defaults to anna@130.223.169.108
@@ -23,7 +23,7 @@ set -euo pipefail
 DGX_HOST="${DGX_HOST:-anna@130.223.169.108}"
 DGX_REPO="${DGX_REPO:-/home/anna/projects/deqn-jax}"
 SWEEP="${SWEEP:-sweep_so}"
-LOCAL_REPO="$(cd "$(dirname "$0")/.." && pwd)"
+LOCAL_REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 mkdir -p "$LOCAL_REPO/runs/$SWEEP"
 

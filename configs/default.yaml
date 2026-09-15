@@ -15,7 +15,6 @@ optimizer:
   name: adam
   learning_rate: 1.0e-3
   grad_clip: null
-  weight_decay: 0.0
 
 warm_start: false
 loss_reweight: none

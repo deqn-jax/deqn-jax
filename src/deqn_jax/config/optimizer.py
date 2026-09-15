@@ -30,7 +30,7 @@ class OptimizerConfig(_ConfigBase):
 
     name: str = Field(
         default="adam",
-        description="Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `mao_kfac`, `gn`, `ign`, `lm`.",
+        description="Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`.",
     )
     learning_rate: float = Field(
         default=1e-3,
@@ -38,9 +38,6 @@ class OptimizerConfig(_ConfigBase):
     )
     grad_clip: Optional[float] = Field(
         default=None, description="Global gradient-norm clipping. None disables."
-    )
-    weight_decay: float = Field(
-        default=0.0, description="L2 weight decay (used by adamw only)."
     )
     beta1: float = Field(default=0.9, description="Adam / MAO first-moment decay.")
     beta2: float = Field(default=0.999, description="Adam / MAO second-moment decay.")
@@ -65,56 +62,33 @@ class OptimizerConfig(_ConfigBase):
     )
     lr_schedule: str = Field(
         default="constant",
-        description="LR schedule: `constant`, `cosine`, or `reduce_on_plateau`.",
+        description="LR schedule: `constant` or `cosine`.",
     )
     lr_warmup: int = Field(
         default=0, description="Linear warmup episodes before `lr_schedule` kicks in."
     )
     lr_min_factor: float = Field(
         default=0.0,
-        description="Minimum LR as a fraction of peak (cosine / reduce_on_plateau floor).",
-    )
-    lr_reduce_factor: float = Field(
-        default=0.5,
-        description="ReduceLROnPlateau: multiply LR by this factor on plateau.",
-    )
-    lr_reduce_patience: int = Field(
-        default=500,
-        description="ReduceLROnPlateau: episodes without improvement before decay.",
-    )
-    lr_reduce_cooldown: int = Field(
-        default=100,
-        description="ReduceLROnPlateau: episodes to wait after a decay before resuming monitoring.",
-    )
-    lr_reduce_min_delta: float = Field(
-        default=1e-6,
-        description="ReduceLROnPlateau: minimum loss drop that counts as improvement.",
+        description="Minimum LR as a fraction of peak (cosine floor).",
     )
 
     VALID_NAMES: ClassVar[frozenset] = frozenset(
         {
             "adam",
-            "sgd",
-            "adamw",
-            "lion",
             "muon",
             "ngd",
             "shampoo",
             "lbfgs",
             "mao",
-            "mao_kfac",
             "gn",
             "ign",
             "lm",
         }
     )
-    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset(
-        {"constant", "cosine", "reduce_on_plateau"}
-    )
+    VALID_LR_SCHEDULES: ClassVar[frozenset] = frozenset({"constant", "cosine"})
 
     @field_validator(
         "learning_rate",
-        "weight_decay",
         "beta1",
         "beta2",
         "epsilon",
@@ -122,8 +96,6 @@ class OptimizerConfig(_ConfigBase):
         "decay",
         "cg_tol",
         "lr_min_factor",
-        "lr_reduce_factor",
-        "lr_reduce_min_delta",
         mode="before",
     )
     @classmethod
@@ -141,8 +113,6 @@ class OptimizerConfig(_ConfigBase):
         "ns_steps",
         "cg_iters",
         "lr_warmup",
-        "lr_reduce_patience",
-        "lr_reduce_cooldown",
         mode="before",
     )
     @classmethod
@@ -168,8 +138,6 @@ class OptimizerConfig(_ConfigBase):
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if self.grad_clip is not None and self.grad_clip <= 0:
             raise ValueError(f"grad_clip must be > 0, got {self.grad_clip}")
-        if self.weight_decay < 0:
-            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
         if not (0 < self.beta1 < 1):
             raise ValueError(f"beta1 must be in (0, 1), got {self.beta1}")
         if not (0 < self.beta2 < 1):

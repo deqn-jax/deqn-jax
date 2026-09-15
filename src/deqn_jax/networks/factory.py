@@ -2,7 +2,7 @@
 
 ``build_policy_net`` handles the generic net types (mlp / linear_plus_mlp /
 lstm / transformer) inline and the disaster-specific types
-(disaster_policy_net / kf_anchored_mlp) via lazy imports. It is the ONE place
+(disaster_policy_net) via a lazy import. It is the ONE place
 a ``NetworkConfig`` is turned into a module — checkpoint loaders must rebuild
 their template through it with the full config (static fields such as
 ``bk_pin`` change the forward graph and are not repaired by leaf
@@ -18,8 +18,7 @@ differ, and fields a branch does not honor are **silently ignored** here:
 ``type``              additionally honored
 ===================== ==========================================================
 ``mlp``               ``activation``, ``activations`` (per-layer, overrides
-                      ``activation``), ``init``, ``multi_head``,
-                      ``skip_connections``
+                      ``activation``), ``init``
 ``lstm``              ``history_len`` only — ``activation``, ``activations``
                       and ``init`` are NOT forwarded to ``create_lstm``
 ``transformer``       ``history_len``, ``num_heads``, ``n_layers`` — again
@@ -34,7 +33,6 @@ differ, and fields a branch does not honor are **silently ignored** here:
                       ``kf_names``, ``use_zlb_feature``, ``zlb_feature_kind``,
                       ``bk_pin``, ``reparam_q_as_m``,
                       ``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``
-``kf_anchored_mlp``   ``activation``, ``init``, ``kf_names``
 ===================== ==========================================================
 
 TODO: reject the ignored combinations (e.g. ``type: lstm`` with a non-default
@@ -63,7 +61,7 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     ``network_config=None`` builds a plain bounded MLP from the defaults
     below. Note those defaults are NOT identical to ``NetworkConfig()``'s:
     ``init`` is ``"xavier_normal"`` here versus ``"default"`` on the config.
-    Callers that pass None (evaluation smokes, ``scripts/gn_polish.py``)
+    Callers that pass None (evaluation smokes, ``scripts/cert/gn_polish.py``)
     depend on the weights this produces, so the divergence is preserved.
 
     See the module docstring for which config fields each branch honors.
@@ -75,8 +73,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     activation = "tanh"
     activations = None
     init = "xavier_normal"
-    multi_head = False
-    skip_connections = False
     net_type = "mlp"
     history_len = 1
     num_heads = 4
@@ -88,8 +84,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
         activation = network_config.activation
         activations = network_config.activations
         init = network_config.init
-        multi_head = network_config.multi_head
-        skip_connections = network_config.skip_connections
         net_type = network_config.type
         history_len = network_config.history_len
         num_heads = network_config.num_heads
@@ -190,22 +184,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             output_links=output_links,
             key=net_key,
         )
-    elif net_type == "kf_anchored_mlp":
-        # K/F gauge elimination: network outputs only non-K/F policies; K/F
-        # values come from the model's Blanchard-Kahn linearization at each
-        # state. See networks/kf_anchored_mlp.py for the rationale.
-        from deqn_jax.networks.kf_anchored_mlp import create_kf_anchored_mlp
-
-        policy_net = create_kf_anchored_mlp(
-            model=model,
-            hidden_sizes=hidden_sizes,
-            activation=activation,
-            init=init,
-            kf_names=network_config.kf_names,
-            input_shift=input_shift,
-            input_scale=input_scale,
-            key=net_key,
-        )
     elif net_type == "rss_market_clearing_net":
         from deqn_jax.networks.rss_net import (
             BASE_HIDDEN_SIZES,
@@ -231,8 +209,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             init=init,
             policy_lower=model.policy_lower,
             policy_upper=model.policy_upper,
-            multi_head=multi_head,
-            skip_connections=skip_connections,
             input_shift=input_shift,
             input_scale=input_scale,
             key=net_key,

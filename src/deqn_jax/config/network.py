@@ -30,7 +30,6 @@ class NetworkConfig(_ConfigBase):
             "lstm",
             "transformer",
             "linear_plus_mlp",
-            "kf_anchored_mlp",
             "disaster_policy_net",
             "rss_market_clearing_net",
         }
@@ -51,7 +50,7 @@ class NetworkConfig(_ConfigBase):
 
     type: str = Field(
         default="mlp",
-        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), `kf_anchored_mlp` (legacy K/F gauge elimination), or `rss_market_clearing_net` (fixed RSS checkpoint-parity architecture).",
+        description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), or `rss_market_clearing_net` (fixed RSS checkpoint-parity architecture).",
     )
     hidden_sizes: Tuple[int, ...] = Field(
         default=(64, 64),
@@ -68,14 +67,6 @@ class NetworkConfig(_ConfigBase):
     init: str = Field(
         default="default",
         description="Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`.",
-    )
-    multi_head: bool = Field(
-        default=False,
-        description="If True, use separate output heads per policy dimension (experimental).",
-    )
-    skip_connections: bool = Field(
-        default=False,
-        description="If True, add residual connections between matching-width hidden layers.",
     )
     history_len: int = Field(
         default=1,
@@ -109,7 +100,7 @@ class NetworkConfig(_ConfigBase):
 
     kf_names: Tuple[str, ...] = Field(
         default=("F_p", "K_p", "F_w", "K_w"),
-        description="`kf_anchored_mlp` and `disaster_policy_net`: policy names whose MLP delta is masked to zero (gauge fix). Default targets the four CMR Calvo Phillips-curve auxiliaries.",
+        description="`disaster_policy_net`: policy names whose MLP delta is masked to zero (gauge fix). Default targets the four CMR Calvo Phillips-curve auxiliaries.",
     )
 
     reparam_q_as_m: bool = Field(
@@ -198,9 +189,7 @@ class NetworkConfig(_ConfigBase):
             )
         return v
 
-    @field_validator(
-        "multi_head", "skip_connections", "use_zlb_feature", "bk_pin", mode="before"
-    )
+    @field_validator("use_zlb_feature", "bk_pin", mode="before")
     @classmethod
     def _check_bool_type(cls, v, info):
         if not isinstance(v, bool):

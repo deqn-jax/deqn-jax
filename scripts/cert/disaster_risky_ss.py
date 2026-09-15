@@ -22,7 +22,7 @@ business-cycle risk only, and future behavior is first-order (the
 policy-curvature part of the true risky SS is not captured).
 
 Usage (DGX):
-  uv run python scripts/disaster_risky_ss.py [--nodes 3] \
+  uv run python scripts/cert/disaster_risky_ss.py [--nodes 3] \
       [--ckpt runs/disaster_cert/disaster_gated_pcgrad_s0/checkpoint_003000.eqx]
 """
 

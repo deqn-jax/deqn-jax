@@ -149,7 +149,6 @@ def _episode_lr_scale(
 ) -> Tuple[Array, float]:
     """Return ``(lr_scale jnp scalar, current_lr float for logging)``.
 
-    Stateful schedules (ReduceLROnPlateau) consume the most recent loss;
     stateless schedules accept but ignore it. NaN-rollback LR reduction
     is folded in via ``nan.lr_scale``.
     """

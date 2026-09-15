@@ -327,7 +327,7 @@ def _validate_train_config(config) -> None:
                 f"'{config.optimizer.name}'. Composite auxiliary losses "
                 "(anchor, Jacobian, barriers, Newton) would appear in logs "
                 "but not affect parameter updates on this path. Use optimizer "
-                "'adam'/'sgd'/'adamw'/'lion'/'muon'/'ngd'/'shampoo' (the "
+                "'adam'/'muon'/'ngd'/'shampoo' (the "
                 "STANDARD variant, with or without gradient_surgery='pcgrad') "
                 "or 'lbfgs', or switch to loss_type='mse'."
             )
@@ -364,7 +364,7 @@ def _validate_train_config(config) -> None:
             f"gradient_surgery='pcgrad' has no effect with optimizer "
             f"'{config.optimizer.name}': PCGrad is only wired for the STANDARD "
             "grad-step variant, so the setting would be silently ignored. Use "
-            "a STANDARD optimizer (adam/sgd/adamw/lion/muon/ngd/shampoo) or "
+            "a STANDARD optimizer (adam/muon/ngd/shampoo) or "
             "set gradient_surgery='none'."
         )
 
@@ -426,7 +426,7 @@ def _validate_train_config(config) -> None:
                 f"configured options on its update path: {', '.join(_ignored)}. "
                 "They appear in logs/config but do NOT affect parameter updates "
                 "(PCGrad/MAO/GN/IGN/LM update from base, unweighted MSE "
-                "residuals). Use a STANDARD optimizer (adam/sgd/adamw/lion/muon/"
+                "residuals). Use a STANDARD optimizer (adam/muon/"
                 "ngd/shampoo with gradient_surgery='none') or 'lbfgs' to use "
                 "these options, or remove them."
             )
@@ -445,7 +445,7 @@ def _validate_train_config(config) -> None:
                 + (" + gradient_surgery='pcgrad'" if _cov_pcgrad else "")
                 + " differentiates the per-equation/residual vector, so the "
                 "stress/local pools (folded into the scalar total) would be "
-                "silently dropped from the gradient. Use adam/sgd/adamw/lion/"
+                "silently dropped from the gradient. Use adam/"
                 "muon/ngd/shampoo."
             )
         if config.loss_type != "composite" and (
@@ -701,14 +701,14 @@ def _build_initial_state(
         replay_config=config.replay_buffer,
     )
 
-    # BK-anchored nets (linear_plus_mlp, disaster_policy_net, kf_anchored_mlp)
+    # BK-anchored nets (linear_plus_mlp, disaster_policy_net)
     # start AT the linearized policy by construction; fitting them to a
     # CONSTANT SS policy teaches the MLP delta to cancel the linear slope.
     # Measured 2026-09-02 on the shipped disaster recipe: the warm start moved
     # rho(SS) from the 0.98699 exogenous floor to 1.14 before episode 1, and
     # every 2026-07 certification arm ran through it (the skip below used to
     # test for linear_plus_mlp only). Detect the anchor structurally.
-    is_bk_anchored = any(hasattr(state.params, a) for a in ("P", "P_kf"))
+    is_bk_anchored = hasattr(state.params, "P")
     if config.warm_start and is_bk_anchored:
         if config.verbose:
             print(

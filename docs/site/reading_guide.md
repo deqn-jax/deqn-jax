@@ -53,7 +53,6 @@ src/deqn_jax/
     standard.py     Adam / SGD / AdamW / Lion / Muon (one grad_step path)
     pcgrad.py       Per-equation gradient surgery (PCGrad)
     mao.py          Multi-Adaptive Optimizer (per-equation moments)
-    mao_kfac.py     K-FAC variant of MAO
     ngd.py          Diagonal-Fisher natural gradient
     shampoo.py      Kronecker-factored Shampoo
     lbfgs.py        Thin wrapper around optax.lbfgs (line-search args)

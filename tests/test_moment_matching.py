@@ -171,7 +171,7 @@ def test_end_to_end_train_with_moment_matching():
             "verbose": False,
             "log_every": 1,
             "curriculum_episodes": 0,
-            "network": {"type": "kf_anchored_mlp", "hidden_sizes": [8]},
+            "network": {"type": "mlp", "hidden_sizes": [8]},
             "optimizer": {"name": "adam", "learning_rate": 1e-3},
             "moment_matching": {
                 "enabled": True,

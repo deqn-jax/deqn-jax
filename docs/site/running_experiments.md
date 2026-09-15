@@ -278,7 +278,6 @@ Baseline Adam is fine for most models. Reach for specialized optimizers when:
 
 - `constant` — debugging only.
 - `cosine` — default for single-phase training. `lr_min_factor: 0.1` retains meaningful gradient pressure at the end.
-- `reduce_on_plateau` — single-phase runs where convergence stalls unpredictably.
 
 ### Reweighting
 

@@ -591,7 +591,11 @@ class TrainConfig(_ConfigBase):
         coverage, ...), derived from the model so a new block needs no edits
         here (see ``config.io._nested_blocks``).
         """
-        from deqn_jax.config.io import _check_unknown_keys, _nested_blocks
+        from deqn_jax.config.io import (
+            _check_unknown_keys,
+            _drop_removed_fields,
+            _nested_blocks,
+        )
 
         d = copy.deepcopy(d)
         blocks = _nested_blocks()
@@ -607,7 +611,9 @@ class TrainConfig(_ConfigBase):
             shorthand_key = cls._BLOCK_SHORTHAND_KEY.get(name)
             if shorthand_key is not None and isinstance(sub, str):
                 sub = {shorthand_key: sub}
-            block_dicts[name] = sub
+            block_dicts[name] = (
+                _drop_removed_fields(name, sub) if isinstance(sub, dict) else sub
+            )
 
         # Validate: reject unknown keys (with did-you-mean suggestions)
         for name, block_cls in blocks.items():

@@ -5,10 +5,10 @@
 # run saves checkpoint_best.eqx + checkpoint_004000.eqx (~final) +
 # config.yaml under runs/ewm_sweep/<tag>/. Completed tags are skipped,
 # so re-running after adding arms only trains the new ones.
-# Evaluate afterwards with scripts/ewm_stress_table.py (rho(SS) +
+# Evaluate afterwards with scripts/cert/ewm_stress_table.py (rho(SS) +
 # held-out stress/base grids).
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
 mkdir -p runs/ewm_sweep logs
 

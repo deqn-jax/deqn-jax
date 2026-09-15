@@ -94,7 +94,6 @@ from deqn_jax.networks import (
     create_mlp,
     create_transformer,
 )
-from deqn_jax.networks.kf_anchored_mlp import KfAnchoredMLP, create_kf_anchored_mlp
 from deqn_jax.networks.linear_plus_mlp import LinearPlusMLP
 from deqn_jax.optimizers.registry import list_optimizers
 
@@ -183,10 +182,8 @@ __all__ = [
     "LSTMPolicy",
     "TransformerPolicy",
     "LinearPlusMLP",
-    "KfAnchoredMLP",
     "create_mlp",
     "create_lstm",
     "create_transformer",
     "create_linear_plus_mlp",
-    "create_kf_anchored_mlp",
 ]

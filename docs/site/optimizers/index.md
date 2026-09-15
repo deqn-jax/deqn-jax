@@ -9,7 +9,7 @@ How DEQN steps the network parameters to drive your equilibrium residuals to zer
 flowchart TD
     A["adam stalled or looks wrong"] --> B{What broke?}
     B -->|"Residual plateaus,<br/>won't fall near a solution"| C["Newton-style: gn / lm / ign / lbfgs<br/>(the GMM / MLE solvers, on residuals)"]
-    B -->|"One loud equation<br/>drowns the others"| D["Multi-equation: mao / mao_kfac<br/>or gradient_surgery: pcgrad"]
+    B -->|"One loud equation<br/>drowns the others"| D["Multi-equation: mao<br/>or gradient_surgery: pcgrad"]
     B -->|"adam steps fine,<br/>policy is just wrong"| E["Not an optimizer problem —<br/>try network = linear_plus_mlp"]
     style C fill:#e8f4ea
     style D fill:#e8f4ea
@@ -23,7 +23,7 @@ flowchart TD
 
     ---
 
-    `adam`, `adamw`, `sgd`. First-order, exercised by the test suite and gallery on working models. **`adam` is the default**; `adamw` adds decoupled weight decay for a large net; `sgd` is for baselines and ablations.
+    `adam`. First-order, exercised by the test suite and gallery on working models. **`adam` is the default.**
 
 -   :material-function-variant:{ .lg .middle } __Newton-style — the polish step__
 
@@ -35,11 +35,11 @@ flowchart TD
 
     ---
 
-    `mao`, `mao_kfac`, and the orthogonal `gradient_surgery: pcgrad`. Built for systems like the 11-equation disaster model where one residual swamps the gradient and starves the rest. (experimental)
+    `mao` and the orthogonal `gradient_surgery: pcgrad`. Built for systems like the 11-equation disaster model where one residual swamps the gradient and starves the rest. (experimental)
 
 </div>
 
-!!! warning "Deep-learning optimizers you can ignore: `lion`, `muon`, `shampoo`, `ngd`"
+!!! warning "Deep-learning optimizers you can ignore: `muon`, `shampoo`, `ngd`"
     These are sign-momentum, orthogonalized-update, Kronecker-factored, and diagonal-Fisher optimizers from the deep-learning literature. They are exposed for completeness and trainer stress-testing — on a typical macro model **you will not need them**, and the decision tree above never routes you here. If `adam` stalls, the fix is almost always a better *network* (`linear_plus_mlp`) or a *Newton-style* solver, not a fancier first-order step rule.
 
 Use any optimizer with one flag:
@@ -64,15 +64,11 @@ uv run deqn-jax optimizers   # the 13 registered optimizers, live
     | Optimizer | Variant | Status | When to reach for it |
     |---|---|---|---|
     | `adam` | STANDARD | **validated** | **The default.** Start here; only move if it stalls. |
-    | `adamw` | STANDARD | **validated** | Adam with decoupled weight decay — mild regularization for a large net. |
-    | `sgd` | STANDARD | **validated** | Baselines and ablations; rarely the production choice. |
     | `gn` | GN | Newton-style *(exp.)* | Dense Gauss–Newton (H&asymp;J&#7488;J). Quadratic convergence *near* a solution — a polish step. The estimation solver you know, on residuals. |
     | `lm` | GN | Newton-style *(exp.)* | Levenberg–Marquardt: damped Gauss–Newton, the robust GN member. |
     | `ign` | GN | Newton-style *(exp.)* | Matrix-free implicit Gauss–Newton: solves `(J&#7488;J + &lambda;I)&delta; = -J&#7488;r` by conjugate gradients on JVP/VJP products — GN without forming the dense Jacobian. |
     | `lbfgs` | LBFGS | Newton-style *(exp.)* | Quasi-Newton with line search; also the **steady-state warm-start engine**. |
     | `mao` | MAO | multi-eq *(exp.)* | **Multi-equation models.** A separate Adam moment per equation, so a loud equation can't drown a quiet one — built for the 11-equation disaster system. |
-    | `mao_kfac` | MAO | multi-eq *(exp.)* | `mao` plus a shared-input Kronecker preconditioner. |
-    | `lion` | STANDARD | DL — skip | Sign-momentum; cheaper state than Adam. Deep-learning optimizer; you won't need it. |
     | `muon` | STANDARD | DL — skip | Newton–Schulz orthogonalized updates. Deep-learning optimizer; you won't need it. |
     | `ngd` | STANDARD | DL — skip | Diagonal-Fisher natural gradient. Deep-learning optimizer; you won't need it. |
     | `shampoo` | STANDARD | DL — skip | Kronecker-factored second-order. Deep-learning optimizer; you won't need it. |
@@ -93,9 +89,9 @@ uv run deqn-jax optimizers   # the 13 registered optimizers, live
 ??? abstract "The five train-step variants — why the table has a 'Variant' column"
     The optimizer's variant determines how gradients are formed inside the single JIT'd train step, dispatched once at construction time. Four of the five are selected by the optimizer's registered kind; the fifth (PCGRAD) is selected by the `gradient_surgery` flag.
 
-    - **STANDARD** — `jax.grad` of the scalar loss, then `opt.update`. (`adam`, `adamw`, `sgd`, `lion`, `muon`, `ngd`, `shampoo`)
+    - **STANDARD** — `jax.grad` of the scalar loss, then `opt.update`. (`adam`, `muon`, `ngd`, `shampoo`)
     - **PCGRAD** — per-equation gradients with conflict projection, then a STANDARD update. (`gradient_surgery: pcgrad`)
-    - **MAO** — per-equation Jacobian via `jax.jacrev`, then per-equation moment updates. (`mao`, `mao_kfac`)
+    - **MAO** — per-equation Jacobian via `jax.jacrev`, then per-equation moment updates. (`mao`)
     - **LBFGS** — `optax.lbfgs` with line search; needs value, grad, and a value function. (`lbfgs`)
     - **GN** — residual Jacobian `J`, update `= -(J&#7488;J)^{-1} J&#7488;r`. (`gn`, `ign`, `lm`)
 

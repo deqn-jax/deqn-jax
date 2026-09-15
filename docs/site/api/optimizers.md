@@ -6,9 +6,9 @@
 
 | Family | Names | Step shape |
 | --- | --- | --- |
-| **STANDARD** | `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo` | `jax.grad → opt.update(grads, state, params)` |
+| **STANDARD** | `adam`, `muon`, `ngd`, `shampoo` | `jax.grad → opt.update(grads, state, params)` |
 | **PCGRAD** | (`gradient_surgery: pcgrad`) | Per-equation grads with conflict projection |
-| **MAO** | `mao`, `mao_kfac` | Per-equation Jacobian via `jax.jacrev` → MAO update |
+| **MAO** | `mao` | Per-equation Jacobian via `jax.jacrev` → MAO update |
 | **LBFGS** | `lbfgs` | Optax LBFGS with line search (needs `value`, `grad`, `value_fn`) |
 | **GN** | `gn`, `ign`, `lm` | Gauss-Newton / Levenberg-Marquardt: `Δθ = −(JᵀJ)⁻¹ Jᵀr` |
 

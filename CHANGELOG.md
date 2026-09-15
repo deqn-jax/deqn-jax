@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While the version is `0.x.y` the public API is unstable and may change
 in any minor version bump.
 
+## [Unreleased]
+
+### Removed
+
+- Dormant research code no shipped configuration used: the `kf_anchored_mlp`
+  network and its validation sweep, the `ResMLP` / `MultiHeadMLP` variants
+  (`network.multi_head`, `network.skip_connections`), the `mao_kfac`, `sgd`,
+  `adamw` and `lion` optimizers, the `reduce_on_plateau` LR schedule and its
+  four `optimizer.lr_reduce_*` fields, the one-shot AIO and anchor diagnostics
+  and the second-order sweep. The last commit carrying them is tagged
+  `pre-prune-2026-09-15`.
+
+### Changed
+
+- `scripts/` is tracked as a whole and organized by purpose: `scripts/cert/`
+  (certification probes), `scripts/dgx/` (container sweeps), `scripts/dev/`
+  (plots, config reference, module graph). `scripts/local/` is ignored scratch.
+
 ## [0.2.0] — 2026-04-17
 
 The disaster block now converges. Between v0.1.0 and v0.2.0 the disaster

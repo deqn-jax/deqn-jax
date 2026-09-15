@@ -1,6 +1,6 @@
 """The constant-SS warm start must never run on a BK-anchored network.
 
-Anchored nets (``linear_plus_mlp``, ``disaster_policy_net``, ``kf_anchored_mlp``)
+Anchored nets (``linear_plus_mlp``, ``disaster_policy_net``)
 start at the Blanchard-Kahn linear policy by construction (``init_scale: 0``).
 Fitting them to a CONSTANT steady-state policy teaches the MLP delta to cancel
 the linear slope: measured on the shipped disaster recipe (2026-09-02), the

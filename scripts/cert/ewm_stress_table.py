@@ -24,7 +24,7 @@ comparing to the paper, convert to residual (unsquared) units: factor F
 in (E[r])^2 is sqrt(F) in |E[r]|.
 
 Usage:
-  uv run python scripts/ewm_stress_table.py \
+  uv run python scripts/cert/ewm_stress_table.py \
       --runs-dir runs/ewm_sweep \
       --arms irbc_plain,irbc_ewm,irbc,irbc_ewm_anchor \
       --seeds 0,1,2,3,4

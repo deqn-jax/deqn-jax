@@ -90,7 +90,7 @@ graph TD
 The diagram above is hand-drawn but validated edge-for-edge against the real import graph: **22 package-level edges in `pydeps` output, 22 in the mermaid, exact match**. Regenerate the diff with:
 
 ```bash
-uv run python scripts/check_module_graph.py
+uv run python scripts/dev/check_module_graph.py
 ```
 
 For the full module-level picture (each `*.py` as a node, clustered by package), here's the auto-generated companion via `pydeps`:

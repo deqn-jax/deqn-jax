@@ -4,10 +4,10 @@
 # Sequential; each run saves checkpoint_best.eqx + config.yaml under
 # runs/disaster_cert/<tag>/. Completed tags are skipped on re-run.
 # Evaluate afterwards with:
-#   JAX_ENABLE_X64=1 uv run python scripts/disaster_ss_probe.py \
+#   JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py \
 #       --runs-dir runs/disaster_cert --json-out runs/disaster_cert/probe.json
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
 mkdir -p runs/disaster_cert logs
 

@@ -3,32 +3,29 @@
 #
 # Mounts the repo at /workspace, pip-installs project deps that aren't in the
 # NGC base image (equinox, tensorboardX, wandb, tqdm, pydantic-settings, rich),
-# then runs the launcher selected by ``LAUNCHER`` (default:
-# ``scripts/sweep_disaster_second_order.py``).
+# then runs the launcher named by ``LAUNCHER`` with any extra arguments.
 #
 # Env:
 #   REPO_DIR        defaults to /home/anna/projects/deqn-jax
 #   IMAGE           defaults to nvcr.io/nvidia/jax:26.02-py3
-#   LAUNCHER        path (relative to repo) of the sweep launcher to run.
-#                   Defaults to scripts/sweep_disaster_second_order.py for
-#                   backward compat. Set to scripts/sweep_disaster_kf_validation.py
-#                   for the K/F-anchor validation sweep.
+#   LAUNCHER        required: path (relative to the repo) of the launcher to
+#                   run inside the container. The certification sweep is
+#                   scripts/dgx/cert_sweep_container.py (takes no arguments;
+#                   DONE-marker resumable).
 #   WANDB_DIR_NAME  per-sweep wandb subdir name (default: sweep_so)
 #   WANDB_API_KEY   optional; if unset, the launcher disables W&B
 #
 # Usage:
-#   ./scripts/run_sweep_in_container.sh                          # full sweep
-#   LAUNCHER=scripts/sweep_disaster_kf_validation.py \
-#     WANDB_DIR_NAME=sweep_kf ./scripts/run_sweep_in_container.sh
-#   ./scripts/run_sweep_in_container.sh --only <cell>            # one cell
-#   ./scripts/run_sweep_in_container.sh --list                   # dry-run grid
-#   ./scripts/run_sweep_in_container.sh --redo                   # overwrite results
+#   LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh
+#
+# Arguments after the script name are passed to the launcher verbatim; a
+# launcher that parses none ignores them.
 
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/home/anna/projects/deqn-jax}"
 IMAGE="${IMAGE:-nvcr.io/nvidia/jax:26.02-py3}"
-LAUNCHER="${LAUNCHER:-scripts/sweep_disaster_second_order.py}"
+LAUNCHER="${LAUNCHER:?set LAUNCHER to the launcher path relative to the repo, e.g. scripts/dgx/cert_sweep_container.py}"
 WANDB_DIR_NAME="${WANDB_DIR_NAME:-sweep_so}"
 
 if [ ! -d "$REPO_DIR" ]; then

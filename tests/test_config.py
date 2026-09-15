@@ -76,8 +76,8 @@ class TestTrainConfig:
         """Optimizer can be specified as a plain string."""
         from deqn_jax.config import TrainConfig
 
-        cfg = TrainConfig.from_dict({"optimizer": "sgd"})
-        assert cfg.optimizer.name == "sgd"
+        cfg = TrainConfig.from_dict({"optimizer": "muon"})
+        assert cfg.optimizer.name == "muon"
 
     def test_from_yaml(self):
         from deqn_jax.config import TrainConfig
