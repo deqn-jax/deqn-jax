@@ -19,7 +19,7 @@ from deqn_jax.evaluate.dynare import (
     compare_to_dynare_moments,
     print_dynare_comparison,
 )
-from deqn_jax.irf import load_policy_from_checkpoint
+from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 
 # ---------------------------------------------------------------------------
 # CLI entry point

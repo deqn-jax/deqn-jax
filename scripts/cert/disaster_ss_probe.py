@@ -31,7 +31,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp  # noqa: E402
 
-from deqn_jax.irf import load_policy_from_checkpoint  # noqa: E402
+from deqn_jax.training.checkpointing import load_policy_from_checkpoint  # noqa: E402
 
 
 def probe(ckpt: str) -> dict:

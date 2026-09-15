@@ -14,7 +14,9 @@ only when a behavioural change to the variants is intended and stated:
 
 Bit-identity is a property of one machine, one JAX build and one float mode —
 not of the code. The committed references were recorded on **macOS arm64,
-jax 0.9.0, x64 off**, and the npz carries that platform key. On the recording
+jax 0.9.0, x64 on** (the suite's ``conftest.py`` enables 64-bit before any
+module is imported; record with ``JAX_ENABLE_X64=1``), and the npz carries that
+platform key. On the recording
 platform the test compares exactly: loss histories bit-for-bit and
 parameter-leaf hashes.
 

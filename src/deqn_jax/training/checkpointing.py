@@ -15,9 +15,12 @@ save / prune / resume, not the storage layout.
 import glob as glob_mod
 import math
 import os
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional, Tuple
 
 import equinox as eqx
+import jax
+import yaml
 
 from deqn_jax.types import TrainState
 
@@ -193,3 +196,137 @@ def final_save_best_fallback(config, state: TrainState, nan, tracker, history) -
             f"Best checkpoint: FALLBACK save (post-grace losses all NaN) "
             f"→ {best_checkpoint_path(config.checkpoint_dir)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Loading a trained policy back (evaluation, IRFs, probes)
+# ---------------------------------------------------------------------------
+
+
+def load_policy_from_checkpoint(
+    checkpoint_path: str,
+    config_path: Optional[str] = None,
+) -> Tuple[eqx.Module, object]:
+    """Load trained policy network from checkpoint.
+
+    Args:
+        checkpoint_path: Path to .eqx checkpoint file
+        config_path: Path to config.yaml (auto-detected from checkpoint dir if None)
+
+    Returns:
+        (policy_net, model) tuple
+    """
+    # Auto-detect config
+    if config_path is None:
+        ckpt_dir = Path(checkpoint_path).parent
+        config_path = str(ckpt_dir / "config.yaml")
+        if not Path(config_path).exists():
+            raise FileNotFoundError(
+                f"No config.yaml found in {ckpt_dir}. Pass --config explicitly."
+            )
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    # Enable fp64 if checkpoint was trained with it
+    if cfg.get("fp64", False):
+        jax.config.update("jax_enable_x64", True)
+
+    from deqn_jax.models import load_model
+
+    model = load_model(cfg["model"])
+
+    # Extract network config
+    net_cfg = cfg.get("network", {})
+    hidden_sizes = tuple(net_cfg.get("hidden_sizes", [64, 64]))
+
+    key = jax.random.PRNGKey(0)  # doesn't matter, will be overwritten
+
+    # Deserialize — the checkpoint is a full TrainState, we need just params
+    # Build a template TrainState to match the checkpoint structure
+    from deqn_jax.config import OptimizerConfig
+    from deqn_jax.training.trainer import create_train_state
+
+    n_equations = (
+        len(model.equation_names) if model.equation_names else model.n_policies
+    )
+
+    # Parse loss_weights from config
+    loss_weights = cfg.get("loss_weights", None)
+
+    opt_cfg_dict = cfg.get("optimizer", {"name": "adam"})
+    # If checkpoint was saved after optimizer switch, use the switched optimizer
+    switch_opt = cfg.get("switch_optimizer", None)
+    switch_ep = cfg.get("switch_episode", 0)
+    # Extract episode number from checkpoint filename (e.g. checkpoint_010000.eqx)
+    ckpt_ep = 0
+    try:
+        ckpt_ep = int(Path(checkpoint_path).stem.split("_")[-1])
+    except (ValueError, IndexError):
+        pass
+    if switch_opt and ckpt_ep >= switch_ep:
+        opt_cfg_dict = dict(opt_cfg_dict)
+        opt_cfg_dict["name"] = switch_opt
+        if cfg.get("switch_lr") is not None:
+            opt_cfg_dict["learning_rate"] = cfg["switch_lr"]
+    from deqn_jax.config.io import _drop_removed_fields
+
+    opt_cfg_dict = _drop_removed_fields("optimizer", dict(opt_cfg_dict))
+    opt_cfg = OptimizerConfig(
+        **{k: v for k, v in opt_cfg_dict.items() if k in OptimizerConfig.model_fields}
+    )
+
+    from deqn_jax.config import NetworkConfig
+
+    # Pass through EVERY recognized network field, exactly like the
+    # OptimizerConfig construction above. A hand-picked subset here silently
+    # dropped STATIC fields that change the forward graph (bk_pin,
+    # use_zlb_feature, reparam flags): the template net was then built with
+    # a different architecture than the checkpoint was trained with, and
+    # leaf deserialization can't repair a wrong graph (2026-07-11, caught
+    # by an impossible bkpin probe: pi(s*) is pinned by construction, yet
+    # the loaded net showed 476% SS error).
+    net_cfg = _drop_removed_fields("network", dict(net_cfg))
+    net_config = NetworkConfig(
+        **{k: v for k, v in net_cfg.items() if k in NetworkConfig.model_fields}
+    )
+
+    # sim_batch and replay_buffer also shape the TrainState pytree
+    # (episode_state carries sim_batch trajectories; replay_state is a
+    # whole subtree) — same silent-drop class as the network fields above.
+    from deqn_jax.config import ReplayBufferConfig
+
+    replay_dict = cfg.get("replay_buffer") or {}
+    replay_cfg = ReplayBufferConfig(
+        **{k: v for k, v in replay_dict.items() if k in ReplayBufferConfig.model_fields}
+    )
+
+    template_state, _, _ = create_train_state(
+        model,
+        key,
+        hidden_sizes=hidden_sizes,
+        batch_size=cfg.get("batch_size", 64),
+        loss_weights=loss_weights,
+        n_equations=n_equations,
+        optimizer_config=opt_cfg,
+        network_config=net_config,
+        sim_batch=cfg.get("sim_batch"),
+        replay_config=replay_cfg,
+    )
+
+    # Deserialize through the trainer's own loader so checkpoint reading has
+    # one implementation. The FULL-NetworkConfig template above is still built
+    # here (see the 2026-07-11 note) — ``resume_from`` only fills its leaves.
+    state = resume_from(template_state, checkpoint_path)
+    policy_net = state.params
+
+    # NB: the previous "restore correct bounds" rehab block was a fix for
+    # a former bug where output_lower / output_upper drifted under Adam-
+    # family second-moment updates. That bug was closed structurally in
+    # ``f5041c8`` (bound + normalization fields are now ``eqx.field(static=True)``
+    # tuples, excluded from the trainable pytree). New checkpoints inherit
+    # the correct bounds from the template state's ``__init__`` at load
+    # time, so no post-load rehab is needed — and ``eqx.tree_at`` on
+    # static fields raises, since static fields aren't pytree leaves.
+
+    return policy_net, model

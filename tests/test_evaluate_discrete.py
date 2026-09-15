@@ -27,7 +27,7 @@ from deqn_jax.evaluate import (
     euler_equation_errors,
     simulated_moments,
 )
-from deqn_jax.irf import run_irf
+from deqn_jax.evaluate.irf import run_irf
 from deqn_jax.types import ModelSpec
 
 # ---------------------------------------------------------------------------

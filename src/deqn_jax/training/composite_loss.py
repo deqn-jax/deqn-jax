@@ -708,7 +708,10 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
         getattr(config, "moment_matching", None) is not None
         and config.moment_matching.enabled
     ):
-        from deqn_jax.dynare_io import deqn_policy_to_dynare, load_dynare_moments
+        from deqn_jax.evaluate.dynare_io import (
+            deqn_policy_to_dynare,
+            load_dynare_moments,
+        )
         from deqn_jax.training.moment_loss import (
             _resolve_target_indices,
             make_moment_matching_wrapper,

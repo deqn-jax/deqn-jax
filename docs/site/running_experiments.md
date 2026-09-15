@@ -216,7 +216,7 @@ View:
 uv run tensorboard --logdir runs/
 ```
 
-The framework's logger lives in `src/deqn_jax/metrics.py` (class `TensorBoardLogger`). All scalar/histogram calls go through a shared `MetricLogger` interface so TB, W&B, and the null logger are swappable.
+The framework's logger lives in `src/deqn_jax/training/metrics.py` (class `TensorBoardLogger`). All scalar/histogram calls go through a shared `MetricLogger` interface so TB, W&B, and the null logger are swappable.
 
 ---
 

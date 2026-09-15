@@ -23,7 +23,6 @@ Most notebooks are generated from `_build_<name>_notebook.py` builders
 | 7 | [irbc](irbc.ipynb) | 2-country IRBC, irreversible investment | **KKT multipliers as network outputs**; quadrature expectations; **BK-anchored stability** | Euler med 10⁻⁴·³, ARC med 10⁻²·⁹, ρ(SS)=0.98 |
 | 8 | [disaster](disaster.ipynb) | NK-DSGE with financial frictions (13 states, 11 equations) | **certified equilibrium selection**: BK-linear core + tangent anchoring, spectral-radius certificate | ρ(SS) = BK eigenvalue to 6 digits; beats its own linearized anchor |
 
-Appendix: [interp_brock_mirman](interp_brock_mirman.ipynb) — function-approximation
 preliminaries on the Brock-Mirman policy.
 
 **In progress:** `aiyagari` (continuum of agents), 56-agent OLG benchmark,

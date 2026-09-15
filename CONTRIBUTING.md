@@ -34,7 +34,7 @@ uv build                                   # produces wheel + sdist in dist/
 ```
 
 The CLI exposes nine subcommands — `train`, `list`, `info`, `optimizers`,
-`irf`, `evaluate`, `check`, `active-subspace`, `init-config`. Run any with
+`irf`, `evaluate`, `check`, `init-config`. Run any with
 `--help`.
 
 ## The layout in one glance
@@ -42,7 +42,7 @@ The CLI exposes nine subcommands — `train`, `list`, `info`, `optimizers`,
 ```
 src/deqn_jax/
   api.py             The stable public surface — import from here (see REFERENCE.md)
-  cli.py             Entry point for the nine subcommands
+  cli/               Entry point; one module per subcommand (eight of them)
   types.py           ModelSpec, TrainState, Metrics (NamedTuples — JAX pytrees)
   config/            Pydantic configs + YAML + CLI override chain
   models/

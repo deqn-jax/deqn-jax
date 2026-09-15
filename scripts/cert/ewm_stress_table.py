@@ -41,7 +41,7 @@ import jax.numpy as jnp
 import numpy as np
 import yaml
 
-from deqn_jax.irf import load_policy_from_checkpoint
+from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 from deqn_jax.training.loss import compute_loss, gauss_hermite_nd
 
 HEADLINE_EQS = ("fb_0", "fb_1", "arc")

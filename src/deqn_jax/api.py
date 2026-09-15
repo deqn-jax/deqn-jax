@@ -66,10 +66,7 @@ from deqn_jax.evaluate import (
     simulated_moments,
     stability_check,
 )
-
-# --- Impulse response functions ---------------------------------------
-from deqn_jax.irf import (
-    load_policy_from_checkpoint,
+from deqn_jax.evaluate.irf import (
     print_irf_summary,
     run_girf,
     run_irf,
@@ -103,6 +100,9 @@ from deqn_jax.optimizers.registry import list_optimizers
 # Path A (planner / autodiff). Stable because three in-tree models
 # already depend on it.
 from deqn_jax.training.autodiff import euler_from_period_return
+
+# --- Impulse response functions ---------------------------------------
+from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 
 # --- Numerical steady-state helpers ------------------------------------
 # When no analytical steady_state_fn is available, codegen / agent stacks

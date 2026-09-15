@@ -226,7 +226,7 @@ def main() -> None:
     # --- optional: network rest point for comparison ------------------------
     rel_hat = None
     if args.ckpt:
-        from deqn_jax.irf import load_policy_from_checkpoint
+        from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 
         net, model_c = load_policy_from_checkpoint(args.ckpt)
         zero = jnp.zeros((1, model_c.n_shocks))

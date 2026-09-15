@@ -3,9 +3,8 @@
 Provides the bounding, clipping, output-link, activation, and
 initialization helpers shared by every policy architecture: ``MLP`` /
 ``LSTMPolicy``,
-``TransformerPolicy``, ``LinearPlusMLP``, the
-disaster-specific ``DisasterPolicyNet`` (``models/disaster/network.py``)
-and the interpretability re-implementations in ``interp.py``.
+``TransformerPolicy``, ``LinearPlusMLP`` and the
+disaster-specific ``DisasterPolicyNet`` (``models/disaster/network.py``).
 
 Bound and normalization parameters (``output_lower``, ``output_upper``,
 ``input_shift``, ``input_scale``) live as **tuples of floats** on

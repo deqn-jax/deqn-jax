@@ -91,7 +91,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 
 </details>
 
-**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **612 tests pass** (plus 4 skips without local Dynare fixtures; count as of 2026-07-06), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `active-subspace`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **632 tests pass** (plus 21 skips without local Dynare fixtures; count as of 2026-07-06), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
 
 ## What's implemented
 
@@ -229,9 +229,8 @@ train step per episode — conceptually equivalent, implementation-optimised.*
 ```
 src/deqn_jax/
   config/                 Pydantic model configs + YAML + CLI overrides (package)
-  cli.py                  Entry point: train, list, info, evaluate, irf, ...
+  cli/                    Entry point; one module per subcommand
   types.py                ModelSpec, TrainState, Metrics (NamedTuples)
-  metrics.py              TensorBoard / W&B / null logger
 
   models/
     <name>/               Per-model: variables, equations, dynamics, SS

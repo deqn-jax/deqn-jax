@@ -13,8 +13,8 @@ import pytest
 import yaml
 
 from deqn_jax.config import ReplayBufferConfig
-from deqn_jax.irf import load_policy_from_checkpoint
 from deqn_jax.models import load_model
+from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 from deqn_jax.training.trainer import create_train_state
 
 

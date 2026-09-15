@@ -326,7 +326,7 @@ def warm_start_from_dynare(
 
     # Parse Dynare CSVs and build the [n_policies × n_states] Jacobian.
     # Lives in dynare_io so the eval-vs-Dynare comparators can reuse it.
-    from deqn_jax.dynare_io import load_dynare_jacobian
+    from deqn_jax.evaluate.dynare_io import load_dynare_jacobian
 
     J = load_dynare_jacobian(model, dynare_dir)
 

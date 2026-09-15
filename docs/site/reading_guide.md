@@ -19,11 +19,9 @@ see [Architecture](architecture.md).
 ```
 src/deqn_jax/
   config/           Pydantic v2 configs + YAML/CLI loader (TrainConfig, ...)
-  cli.py            argparse → train/list/info/check/evaluate/irf/optimizers
+  cli/              one module per subcommand (train, models, irf, evaluate, init_config)
   types.py          ModelSpec, TrainState, ReweightState, Metrics (NamedTuples)
-  metrics.py        TensorBoard / W&B / Null logger
   evaluate/         Checkpoint → policy evaluation + residual analysis
-  irf.py            Checkpoint → impulse-response simulation
   benchmark.py      Performance harness (per-step timing)
   plots/            Diagnostic plotting helpers (no inbound deps in package)
 
@@ -115,7 +113,7 @@ single weight update.
 
 ### 2.1 Entry point
 
-`cli.py:main()` parses args, loads config, dispatches on subcommand. For
+`cli/__init__.py:main()` parses args, loads config, dispatches on subcommand. For
 `train`:
 
 ```
@@ -335,7 +333,7 @@ Common gotchas:
 | New network              | [Adding a network](networks/adding.md)                               |
 | New optimizer            | [Adding an optimizer](optimizers/adding.md)                          |
 | New loss term            | `training/composite_loss.py`, prefix the key with `aux_` (§3.2)      |
-| New CLI subcommand       | `cli.py:main()`, add an argparse subparser                           |
+| New CLI subcommand       | a module under `cli/` with `add_parser(subparsers)`, registered in `cli/__init__.py`                           |
 | New config field         | `config/train.py:TrainConfig` + a Pydantic validator on `_ConfigBase` (`config/_base.py`) |
 | New checkpoint format    | Don't. Use `eqx.tree_serialise_leaves` / `_deserialise_leaves`.      |
 
