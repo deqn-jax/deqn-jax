@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from difflib import get_close_matches
 from typing import Any, Dict, Optional, Set
 
@@ -11,6 +12,35 @@ from deqn_jax.config.train import TrainConfig
 # ---------------------------------------------------------------------------
 # Helpers (kept from original)
 # ---------------------------------------------------------------------------
+
+
+# Fields that existed in earlier releases and were removed. Saved run
+# configs (``config.yaml`` in every run directory, including the DGX
+# certification record) still carry them; they are dropped with a warning so
+# those checkpoints keep loading. ``--set`` overrides do not get this
+# tolerance: a removed key typed today is a mistake, not history.
+REMOVED_FIELDS: Dict[str, Set[str]] = {
+    "network": {"multi_head", "skip_connections"},
+    "optimizer": {
+        "lr_reduce_factor",
+        "lr_reduce_patience",
+        "lr_reduce_cooldown",
+        "lr_reduce_min_delta",
+    },
+}
+
+
+def _drop_removed_fields(block: str, sub: Dict[str, Any]) -> Dict[str, Any]:
+    """Return ``sub`` without the keys removed from ``block``; warn once per call."""
+    gone = sorted(k for k in sub if k in REMOVED_FIELDS.get(block, set()))
+    if not gone:
+        return sub
+    warnings.warn(
+        f"config.{block}: ignoring removed field(s) {gone} "
+        "(kept in older saved run configs; they no longer have any effect)",
+        stacklevel=3,
+    )
+    return {k: v for k, v in sub.items() if k not in gone}
 
 
 def _check_unknown_keys(
