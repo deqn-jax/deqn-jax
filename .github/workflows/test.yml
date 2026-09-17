@@ -27,11 +27,8 @@ jobs:
       - name: Sync dependencies (CPU-only JAX)
         run: uv sync --all-extras --no-extra cuda
 
-      - name: Lint (ruff, zero-error)
-        run: uv run ruff check src/ tests/ scripts/
-
-      - name: Run unit tests
-        run: uv run pytest tests/ -q
+      - name: Quality gate (make check — lint, format check, tests)
+        run: make check
 
       - name: CLI smoke — check
         run: uv run deqn-jax check
