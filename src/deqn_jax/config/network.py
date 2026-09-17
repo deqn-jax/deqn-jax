@@ -100,7 +100,7 @@ class NetworkConfig(_ConfigBase):
 
     kf_names: Tuple[str, ...] = Field(
         default=("F_p", "K_p", "F_w", "K_w"),
-        description="`disaster_policy_net`: policy names whose MLP delta is masked to zero (gauge fix). Default targets the four CMR Calvo Phillips-curve auxiliaries.",
+        description="`disaster_policy_net`: policy names whose MLP delta is masked to zero (a restriction that holds them linear; not a gauge fix — graph @aleph/deqn #34). Default targets the four CMR Calvo Phillips-curve auxiliaries.",
     )
 
     reparam_q_as_m: bool = Field(

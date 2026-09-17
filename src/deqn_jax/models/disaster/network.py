@@ -11,10 +11,13 @@ module.
 Shape priors and selection devices, each independently toggleable
 (forward-pass order in ``DisasterPolicyNet._forward_single``):
 
-1. **K/F gauge mask** (``kf_names``, ON by default). Zeros the MLP delta at
+1. **K/F restriction** (``kf_names``, ON by default). Zeros the MLP delta at
    the named policy positions so those outputs stay exactly equal to the BK
-   linear policy. Targets the gauge near-degeneracy in the Calvo recursive
-   aggregates ``F_p, K_p, F_w, K_w``.
+   linear policy: the four Calvo recursive aggregates ``F_p, K_p, F_w, K_w``
+   are linear forever. This is a restriction that selects a basin, not a gauge
+   fix: the Calvo recursions are affine with a current-period source, so a
+   common rescaling of K/F is not a symmetry of the equilibrium system
+   (measured 2026-09-10; graph @aleph/deqn, node #34). Its cost is unmeasured.
 
 2. **ELB feature augmentation** (``use_zlb_feature`` + ``zlb_feature_kind``).
    Prepends ``R_lag - R_lb`` (raw) or ``max(R_lag - R_lb, 0)`` (kink) to
@@ -42,7 +45,7 @@ Shape priors and selection devices, each independently toggleable
 6. **Per-policy output links** (``output_links``): ``linear`` (additive) or
    ``log`` (multiplicative around SS); reparam slots must be linear.
 
-Defaults: only the K/F gauge mask is on; everything else is off.
+Defaults: only the K/F restriction is on; everything else is off.
 """
 
 from __future__ import annotations
@@ -95,7 +98,7 @@ class DisasterPolicyNet(eqx.Module):
     policy_lower: Optional[tuple] = eqx.field(static=True)
     policy_upper: Optional[tuple] = eqx.field(static=True)
 
-    # K/F gauge mask
+    # K/F restriction (mask)
     kf_indices: tuple = eqx.field(static=True)
 
     # ELB feature augmentation
@@ -252,7 +255,7 @@ class DisasterPolicyNet(eqx.Module):
         self.policy_lower = _to_tuple(policy_lower)
         self.policy_upper = _to_tuple(policy_upper)
 
-        # K/F gauge mask: empty tuple disables masking entirely.
+        # K/F restriction: empty tuple disables the mask entirely.
         kf_idx_tuple = tuple(int(i) for i in kf_indices)
         for i in kf_idx_tuple:
             if not (0 <= i < n_policies):
@@ -487,7 +490,7 @@ class DisasterPolicyNet(eqx.Module):
 
     def _delta_of_state(self, state: Array) -> Array:
         """MLP delta as a function of the raw state (feature building +
-        MLP + K/F gauge mask). Split out so the BK pin can take its value
+        MLP + K/F restriction). Split out so the BK pin can take its value
         and JVP at the steady state."""
         if self.use_zlb_feature:
             raw_prox = state[self.r_lag_idx] - self.r_lb
@@ -501,7 +504,7 @@ class DisasterPolicyNet(eqx.Module):
 
         delta = self.mlp(mlp_input)
 
-        # K/F gauge mask: zero delta at named output positions.
+        # K/F restriction: zero delta at named output positions.
         if self.kf_indices:
             mask = (
                 jnp.ones(delta.shape[0], dtype=delta.dtype)
@@ -731,7 +734,7 @@ def create_disaster_policy_net(
     policy_names = list(model.policy_names)
     state_names = list(model.state_names) if model.state_names is not None else []
 
-    # Resolve K/F gauge-mask indices from policy_names.
+    # Resolve K/F restriction indices from policy_names.
     kf_indices: tuple = ()
     if kf_names:
         missing = [n for n in kf_names if n not in policy_names]

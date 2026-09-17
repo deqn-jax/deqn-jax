@@ -758,3 +758,5 @@ LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_containe
 JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py \
     --runs-dir runs/disaster_cert --json-out runs/disaster_cert/probe.json
 ```
+
+**Naming correction (2026-09-17).** The "K/F gauge mask" named in the curvature measurement above is a *restriction*, not a gauge fix: the Calvo recursions are affine with a current-period source term, so a common rescaling of the four auxiliaries is not a symmetry of the equilibrium system — verified numerically at the steady state (definition residuals unchanged, recursion residuals move by −0.035 at ×1.1). The measurement stands; the rationale is withdrawn. Its cost is unmeasured and is the first item of the disaster-network lane (graph @aleph/deqn, #34, #39).
