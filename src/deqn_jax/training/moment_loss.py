@@ -1,8 +1,8 @@
 """Moment-matching auxiliary loss: penalize ergodic-moment deviation from a target.
 
 Why this exists: residual minimization on its own can land in a *wrong-
-attractor* manifold even when the structural gauge freedom is removed
-. The K/F-anchor fix closes the
+attractor* manifold even when the four Calvo auxiliaries are held linear by
+the K/F restriction. That restriction closes the
 mean gap to ~18%, but the std gap stays high (~80%) because the network
 can satisfy residuals while keeping its policies near-constant — a
 state-blind solution. Direct fix: penalize ``(net_std − target_std)²``

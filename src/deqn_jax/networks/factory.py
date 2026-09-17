@@ -158,7 +158,7 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
         )
     elif net_type == "disaster_policy_net":
         # Disaster-specific residual ansatz: linear_plus_mlp + the three
-        # disaster shape priors (K/F gauge mask, ELB feature, q-as-M reparam).
+        # disaster shape priors (K/F restriction, ELB feature, q-as-M reparam).
         # Each prior is independently toggleable via NetworkConfig fields.
         from deqn_jax.models.disaster.network import create_disaster_policy_net
 

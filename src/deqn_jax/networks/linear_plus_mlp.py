@@ -35,7 +35,7 @@ region. Hard clipping to policy bounds happens at the very end to
 prevent catastrophic policy outputs during early training.
 
 This module is **model-agnostic**. Per-model shape priors (e.g. K/F
-gauge masking, ELB feature augmentation, output-space reparameterizations
+the K/F restriction, ELB feature augmentation, output-space reparameterizations
 to encode equation-specific curvature) live in the model's own
 ``network.py`` module, not here. See ``models/disaster/network.py`` for
 the disaster-specific shape priors layered on top of this core.
@@ -241,7 +241,7 @@ def create_linear_plus_mlp(
             Log-output policies require ``ss_policy[i] > 0``.
 
     This factory has NO model-specific knobs. For disaster-specific shape
-    priors (K/F gauge mask, ELB feature, q-as-M reparameterization), use
+    priors (K/F restriction, ELB feature, q-as-M reparameterization), use
     ``create_disaster_policy_net`` from ``deqn_jax.models.disaster.network``.
     """
     from deqn_jax.training.linearize import linearize_model
