@@ -19,14 +19,14 @@ the consent node, re-projected by the full arc.
 | Agent role | `#9 «🤖 Coding agent»` — adhikarin, stewards `#6 Training contour` and `#7 Certification contour`; inbox `iskron_orient(realm="@aleph/deqn", focus="#9")` | derived |
 | Owner role | `#8 «👤 Maintainer-researcher»` — svatantra 主; `posed_to` address for anything outside the mandate, by seq, never the `me` sentinel | derived |
 | Stack | Python ≥3.10; JAX ≥0.4.20 + Equinox ≥0.11 + Optax ≥0.2; Pydantic v2 configs; uv. No TensorFlow, no PyTorch, no Keras. | derived |
-| Gate | `make check` — ruff check + ruff format check + the full pytest run, one call, the same call CI makes; `make check-fast` skips the `slow` tests locally | `<не согласовано — #48>` |
+| Gate | `make check` — ruff check + ruff format check + the full pytest run, one call, the same call CI makes; `make check-fast` skips the `slow` tests locally | agreed: owner (2026-09-17) |
 | Consumers | potential collaborators and course students reading the public repo and the docs site; the research program consuming the certificates. Breakage surfaces as wrong research conclusions, caught by the certificate stack or by a reader, not by a crash. | agreed: owner (2026-09-03, production statement) |
 | Cost of breakage | public research code: wrong conclusions and lost collaborator trust — worse than a crash. Solver claims are gated by certificates, never by green tests alone. | agreed: owner (2026-09-03) |
 | Reality | table in the section *Reality* | agreed: owner (2026-09-03); rows added by use since |
-| Cross-project memory | personal graph: none — the owner declined cross-project memory on 2026-09-03; a fact about the person that no project owns goes to the private notes repo. Global preferences file: no. | agreed: owner (2026-09-03); re-asked on #48 |
+| Cross-project memory | personal graph: none for now — declined 2026-09-03, confirmed 2026-09-17; a fact about the person that no project owns goes to the private notes repo. Global preferences file: no. | agreed: owner (2026-09-17) |
 | Feedback reflection | yes | agreed: owner (2026-09-03) |
 | Workflow-suite interop | full (superpowers 6.3.0) | agreed: owner (2026-09-03) |
-| Consent (Согласование) | `#48` — open slots: gate, personal graph | derived |
+| Consent (Согласование) | none open — #48 answered 2026-09-17 | derived |
 
 ## Persistence rules
 State lives in the **repo** or in the **graph** — nowhere else. The harness's
