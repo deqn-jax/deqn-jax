@@ -23,7 +23,7 @@ the consent node, re-projected by the full arc.
 | Consumers | potential collaborators and course students reading the public repo and the docs site; the research program consuming the certificates. Breakage surfaces as wrong research conclusions, caught by the certificate stack or by a reader, not by a crash. | agreed: owner (2026-09-03, production statement) |
 | Cost of breakage | public research code: wrong conclusions and lost collaborator trust — worse than a crash. Solver claims are gated by certificates, never by green tests alone. | agreed: owner (2026-09-03) |
 | Reality | table in the section *Reality* | agreed: owner (2026-09-03); rows added by use since |
-| Cross-project memory | personal graph: none for now — declined 2026-09-03, confirmed 2026-09-17; a fact about the person that no project owns goes to the private notes repo. Global preferences file: no. | agreed: owner (2026-09-17) |
+| Cross-project memory | personal graph `@aleph/mind` (r277) — adopted 2026-09-19, reversing the 2026-09-03/17 decline; facts about the person that no project owns go there (skill minding). The private notes repo (`deqn-research-notes`) keeps what it already holds and stays the archive of the 2026-09-03 memory evacuation. Global preferences file: `~/.claude/CLAUDE.md` (adopted the same day). | agreed: owner (2026-09-19) |
 | Feedback reflection | yes | agreed: owner (2026-09-03) |
 | Workflow-suite interop | full (superpowers 6.3.0) | agreed: owner (2026-09-03) |
 | Consent (Согласование) | none open — #48 answered 2026-09-17 | derived |
