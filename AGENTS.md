@@ -23,7 +23,7 @@ the consent node, re-projected by the full arc.
 | Consumers | potential collaborators and course students reading the public repo and the docs site; the research program consuming the certificates. Breakage surfaces as wrong research conclusions, caught by the certificate stack or by a reader, not by a crash. | agreed: owner (2026-09-03, production statement) |
 | Cost of breakage | public research code: wrong conclusions and lost collaborator trust — worse than a crash. Solver claims are gated by certificates, never by green tests alone. | agreed: owner (2026-09-03) |
 | Reality | table in the section *Reality* | agreed: owner (2026-09-03); rows added by use since |
-| Cross-project memory | personal graph `@aleph/mind` (r277) — adopted 2026-09-19, reversing the 2026-09-03/17 decline; facts about the person that no project owns go there (skill minding). The private notes repo (`deqn-research-notes`) keeps what it already holds and stays the archive of the 2026-09-03 memory evacuation. Global preferences file: `~/.claude/CLAUDE.md` (adopted the same day). | agreed: owner (2026-09-19) |
+| Cross-project memory | personal graph `@aleph/mind` (r277) — adopted 2026-09-19, reversing the 2026-09-03/17 decline; facts about the person that no project owns go there (skill minding). No global instructions file configures the agent here: behaviour is set only by the committed files of this tree (this file, the hooks file) and the project graph; never the memory directory. The private notes repo (`deqn-research-notes`) keeps what it already holds and stays the archive of the 2026-09-03 memory evacuation. | agreed: owner (2026-09-19); global-file clause per contract 11 (2026-09-20) |
 | Feedback reflection | yes | agreed: owner (2026-09-03) |
 | Workflow-suite interop | full (superpowers 6.3.0) | agreed: owner (2026-09-03) |
 | Consent (Согласование) | none open — #48 answered 2026-09-17 | derived |
@@ -56,12 +56,12 @@ reproducibility that makes a second machine or a second agent possible.)
   Stop and read the graph or the repo before acting.
 - **External design/spec files are drafts for intake**, not the record: the graph
   holds decisions; such a file is their view.
-- **Parking spots are named, and there are three.** An undisciplined surface is
-  free, a disciplined one costs — and under pressure laziness finds the parking:
+- **Hiding places are named, and there are three.** An undisciplined surface is
+  free, a disciplined one costs — and under pressure laziness finds the hiding place:
   prose in this file; a sinn-phenomenon for something that acts; a lone `context`
   arrow that silences a detector. Finish line of a record: **a node is not recorded
   until what pulls it is named** — which action breaks if the node vanishes? None
-  — that is parking, not a record. And the fork is read BEFORE writing, not from
+  — that is a hiding place, not a record. And the fork is read BEFORE writing, not from
   the warning after (it chronicles, it does not stop): a door enters the graph not
   as a thing and not as the meaning "door", but as **the place where a doer acts**
   — `upadhi` to the action that goes through it.
@@ -77,8 +77,15 @@ reproducibility that makes a second machine or a second agent possible.)
   A dated duty (renewal, deadline) is a node carrying the date in `attrs`: a
   README mention loses it. Rules of this project never go into another project's
   or the user's graph — not even as a mention on a machine's card.
-  Standing preferences ("how to work with me") are instructions, not facts:
-  project-scoped ones live in this file; never in the graph or a memory directory.
+  Standing preferences ("how to work with me") split by whose they are: personal
+  ones — how to talk to the person (language, tone, form) — go to `@aleph/mind`;
+  ones that shape the process or the result of development go to this file or the
+  project graph, because different people work with this repo. The agent's
+  behaviour is configured **only** by committed files of this working tree (this
+  file, `.claude/settings.json`) and the project graph — never by files outside
+  the worktree: a global instructions file, harness memory or user-level hooks are
+  machine-local and break the flow on other machines and for other people.
+  Installing the toolchain itself (bridge, plugin) is delivery, not configuration.
 - The local memory directory is **evacuated and frozen**: `MEMORY.md` holds a
   one-line prohibition stub pointing here, and the memory-guard `PreToolUse` hook
   in `.claude/settings.json` blocks any write there (exit 2) at the moment the
@@ -173,13 +180,14 @@ numbers or "shipped/merged" in nodes (they rot on rebase).
     not in your recollection; the repo shows it; reality shows it as far as
     reachable — where unreachable, the user's word stands instead, and you asked
     for it. Otherwise prepare the release and present it to the owner. Release is
-    not the only end: park, displace or crystallize what the question taught.
+    not the only end: leave as is, displace or crystallize what the question taught.
   - **Sweep the shipped contour.** A push that realizes designed nodes switches
     their modes (anagata→vartamana, kalpita→pratyakshita) across the *whole*
     designed contour — not only the touched nodes — and ends the design vimarshas
     the shipment resolved, by the rule above.
   - **Work the inbox.** `posed_to` questions the work answered end by the rule
-    above; stale ones are parked or grouped.
+    above; the rest are not judged by age — a change at the anchor wakes them, not
+    a date; group the homogeneous ones.
   - **Reconcile code and graph.** End of every substantive task: the tidy-up beat
     of `iskron:reconcile` — area nodes against the code (ontics, names, honest
     modes; a task does not pose as an action), code against the graph (a comment
@@ -227,12 +235,12 @@ numbers or "shipped/merged" in nodes (they rot on rebase).
   as it is.)
 - **Hook merging.** Where the harness has a hooks file, entries of different suites
   coexist — add beside, never overwrite others'.
-- These reminders are automated in Claude Code (`.claude/settings.json`): the
-  session-start hook, the hook after `git push` / `gh pr create|merge`, the
-  memory-guard hook, the anti-freeze `Stop` hook, the writing-moment hook before
-  graph writes, and — since the interop stamp below says `full` — the spec-write
-  reminder. Codex reads this file natively and carries no hooks: for Codex the
-  rituals bind through this prose only.
+- These reminders are automated in Claude Code (`.claude/settings.json`), one line
+  each: the session-start hook, the push hook (self-check, vocabulary pass, cold
+  review), the merge hook (the four acts above, then the feedback reflection), the
+  memory-guard hook, and — since the interop stamp below says `full` — the
+  spec-write reminder. Codex reads this file natively; its hooks live outside the
+  worktree and are not wired: for Codex the rituals bind through this prose only.
 - **Keep this file honest.** It is generated by `iskron:iskronify` and stamped at the
   bottom with the contract it came from. Propose a rerun when the installed skill
   announces a newer contract — or when the sources this file is derived from moved
@@ -602,6 +610,6 @@ Makefile         # the gate
   explicit user instruction. Pushing `master` is the maintainer's call unless
   explicitly delegated.
 
-*(iskronify: контракт `10`, штамп `2026-09-17` — propose a rerun when the description
+*(iskronify: контракт `11`, штамп `2026-09-20` — propose a rerun when the description
 of the installed iskronify names a higher contract or when the sources this file is
 derived from moved after this date.)*
