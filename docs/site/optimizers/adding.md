@@ -1,10 +1,10 @@
 # Adding an optimizer
 
 1. Create `src/deqn_jax/optimizers/your_opt.py`.
-2. Either return an `optax.GradientTransformation` or implement a
-   custom class with `.init(params)` and `.update(...)` methods.
-3. Register with `@register_optimizer("name", kind=OptimizerKind.STANDARD)`.
-4. Import in `src/deqn_jax/optimizers/__init__.py` so registration runs.
+2. Return an `optax.GradientTransformation`, or implement a custom class with
+   `.init(params)` and `.update(...)` methods.
+3. Register it with `@register_optimizer("name", kind=OptimizerKind.STANDARD)`.
+4. Import it in `src/deqn_jax/optimizers/__init__.py` so the registration runs.
 
 ```python
 import optax
@@ -20,8 +20,8 @@ def your_opt_factory(config):
 
 ## OptimizerKind
 
-Choose the right kind for your optimizer's signature. Add a new kind
-only if you genuinely need a new train-step variant.
+Pick the kind that matches your optimizer's update signature. Add a new kind
+only if you need a new train-step variant.
 
 | Kind     | Train-step signature                                            |
 |----------|------------------------------------------------------------------|
@@ -31,4 +31,6 @@ only if you genuinely need a new train-step variant.
 | LBFGS    | `opt.update(grads, opt_state, params, value=v, value_fn=f)`     |
 | GN       | residual Jacobian → custom step                                 |
 
-See `optimizers/registry.py` for the `make_train_step` dispatch.
+PCGRAD is selected by `gradient_surgery: pcgrad` on a STANDARD optimizer, not
+by a registered kind. The dispatch is `make_train_step` in
+`src/deqn_jax/training/state_init.py`.
