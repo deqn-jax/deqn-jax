@@ -47,7 +47,10 @@ class Constraint(NamedTuple):
     """A constraint ``fn(...) = 0`` or ``fn(...) >= 0`` with its multiplier.
 
     ``fn`` has the objective's signature; ``multiplier`` is the policy
-    column carrying the constraint's Lagrange multiplier.
+    column carrying the constraint's Lagrange multiplier. For ``g >= 0``
+    the multiplier enters as ``+mu * g`` with ``mu >= 0`` (the objective
+    is maximized); the Fischer-Burmeister residual itself enforces
+    ``mu >= 0``.
     """
 
     name: str
@@ -91,7 +94,7 @@ def residuals_from_lagrangian(
 
     Args:
         objective: ``F(state, x_next, policy, prices, constants) -> scalar``,
-            one sample. ``x_next[i]`` is next-period state column
+            one sample, to be maximized (negate a cost). ``x_next[i]`` is next-period state column
             ``endogenous[i]``.
         step_fn: the model's law of motion (batched), used at zero shock to
             rebuild ``x_{t+2}`` from ``next_state`` and ``next_policy``.
@@ -137,6 +140,11 @@ def residuals_from_lagrangian(
     multipliers = {c.multiplier for c in equalities + inequalities}
     if multipliers & set(static_controls):
         raise ValueError("a multiplier column is also listed as a static control")
+    names = (
+        euler_names + static_names + tuple(c.name for c in equalities + inequalities)
+    )
+    if len(set(names)) != len(names):
+        raise ValueError(f"equation names repeat: {names}")
     if euler_form not in EULER_FORMS:
         raise ValueError(f"euler_form must be one of {EULER_FORMS}, got {euler_form!r}")
     # Imported here: the models package imports this module while it loads.
@@ -170,8 +178,8 @@ def residuals_from_lagrangian(
                 return None
             return jax.vmap(lambda si, pi: prices_fn(si, pi, constants))(s, p)
 
-        def grad(fn, argnum, s, xn, p):
-            return jax.vmap(jax.grad(fn, argnums=argnum))(s, xn, p, prices(s, p))
+        def grad(fn, argnum, *args):  # args = (state, x_next, policy, prices)
+            return jax.vmap(jax.grad(fn, argnums=argnum))(*args)
 
         if stop_next_policy_gradient:
             next_policy = jax.lax.stop_gradient(next_policy)
@@ -179,10 +187,12 @@ def residuals_from_lagrangian(
         next_next_state = step_fn(next_state, next_policy, zero_shock, constants)
         x_tp1 = jnp.take(next_state, endo_idx, axis=1)
         x_tp2 = jnp.take(next_next_state, endo_idx, axis=1)
+        now = (state, x_tp1, policy, prices(state, policy))
+        nxt = (next_state, x_tp2, next_policy, prices(next_state, next_policy))
 
         # dL_t/dx'_j at t; dL_{t+1}/dx_j at t+1 (taken on the state vector).
-        dL_now = grad(lagrangian, 1, state, x_tp1, policy)
-        dL_next = grad(lagrangian, 0, next_state, x_tp2, next_policy)
+        dL_now = grad(lagrangian, 1, *now)
+        dL_next = grad(lagrangian, 0, *nxt)
         dL_next = jnp.take(dL_next, endo_idx, axis=1)
         if callable(discount):
             beta = jax.vmap(lambda s: beta_of(s, constants))(state)[:, None]
@@ -191,23 +201,18 @@ def residuals_from_lagrangian(
 
         raw = -(dL_now + beta * dL_next)
         if euler_form == "ratio":
-            d_cost = (
-                grad(cost_part, 1, state, x_tp1, policy) if inequalities else dL_now
-            )
+            d_cost = grad(cost_part, 1, *now) if inequalities else dL_now
             raw = raw / -d_cost
         out: Dict[str, Array] = {name: raw[:, i] for i, name in enumerate(euler_names)}
 
         if static_controls:
-            dL_dp = grad(lagrangian, 2, state, x_tp1, policy)
+            dL_dp = grad(lagrangian, 2, *now)
             for c, name in zip(static_controls, static_names):
                 out[name] = -dL_dp[:, c]
 
-        pr = prices(state, policy)
         for is_ineq, constraints in ((False, equalities), (True, inequalities)):
             for k in constraints:
-                val = jax.vmap(lambda *a, k=k: k.fn(*a, constants))(
-                    state, x_tp1, policy, pr
-                )
+                val = jax.vmap(lambda *a, k=k: k.fn(*a, constants))(*now)
                 if is_ineq:
                     val = fischer_burmeister(policy[:, k.multiplier], val)
                 out[k.name] = val

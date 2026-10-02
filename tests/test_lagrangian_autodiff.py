@@ -265,6 +265,7 @@ def test_next_policy_gradient_switch():
         (dict(euler_names=("a", "b")), "names"),
         (dict(euler_form="relative"), "euler_form"),
         (dict(static_controls=(1,)), "multiplier column"),
+        (dict(euler_names=("budget",)), "equation names repeat"),
     ],
 )
 def test_validation(kw, match):
