@@ -1,0 +1,54 @@
+# CDICE business-as-usual, multi-model-mean climate (Folini, Friedl, Kübler &
+# Scheidegger 2024). Mirrors the reference run settings
+# (DEQN_for_IAMs/config/{run/gdice_baseline_1yts, net/gdice_baseline,
+# optimizer/gdice_baseline}.yaml in
+# github.com/ClimateChangeEcon/Climate_in_Climate_Economics):
+#
+#   reference                         here
+#   N_sim_batch 200                   sim_batch 200
+#   N_episode_length 500              episode_length 500
+#   N_minibatch_size 128              batch_size 128
+#   N_epochs_per_episode 1            n_epochs_per_rollout 1 (full sweep)
+#   initialize_each_episode true      initialize_each_episode true
+#   (every path restarts at 2015; the start has zero spread, so the 200 paths
+#   coincide, as in the reference)
+#   Dense 1024-1024 relu, glorot      hidden [1024, 1024], relu, xavier_uniform
+#   uniform weights, zero biases      (biases: Equinox default uniform init)
+#   Adam lr 1e-5, clipvalue 1.0       Adam lr 1e-5, no clipping (see below)
+#   float32                           fp32
+#
+# Deviations: the reference clips each gradient element at 1.0 on a loss that
+# SUMS squared residuals over the minibatch; here the loss is the minibatch
+# MEAN (128x smaller gradients), Adam is invariant to that scale, and no
+# element clipping is applied. The reference ran about 100 episodes
+# (ckpt-103 in its stored run); see `episodes`.
+
+model: cdice_bau
+
+episodes: 150
+batch_size: 128
+sim_batch: 200
+episode_length: 500
+mc_samples: 1
+seed: 42
+
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: null
+
+network:
+  type: mlp
+  hidden_sizes: [1024, 1024]
+  activation: relu
+  init: xavier_uniform
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-5
+  lr_schedule: constant
+
+warm_start: false
+fp64: false
+log_every: 5
+checkpoint_every: 50
+save_best_checkpoint: false
