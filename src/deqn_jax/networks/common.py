@@ -21,6 +21,7 @@ forward respectively. JIT hoists the tuple→array conversion inside
 the forward as a constant — zero runtime cost.
 """
 
+import math
 from typing import Callable, Optional, Tuple
 
 import equinox as eqx
@@ -116,6 +117,8 @@ def _apply_bounds(
         - ``has_upper_mask[i] = True``  → sigmoid: ``lo + (hi - lo) * sigmoid(x)``
         - ``has_upper_mask[i] = False`` → softplus: ``lo + softplus(x)``
         - ``lower`` is ``None`` → no bounding (raw passthrough)
+        - ``lower[i] = -inf``   → that output is unbounded (raw passthrough);
+          its upper bound must be ``inf``
 
     ``output_lower`` / ``output_upper`` may be Array or tuple. The
     sigmoid branch uses a "safe" upper to keep the *forward* and the
@@ -125,6 +128,15 @@ def _apply_bounds(
     """
     if output_lower is None:
         return x
+
+    # Mixed bounded / unbounded outputs (e.g. positive quantities next to
+    # signed shadow prices). Decided at trace time from the static bounds, so
+    # a model with only finite lower bounds runs the unchanged path below.
+    free = tuple(float(v) == -math.inf for v in output_lower)
+    if any(free):
+        lo_bounded = tuple(0.0 if f else float(v) for v, f in zip(output_lower, free))
+        bounded = _apply_bounds(x, lo_bounded, output_upper, has_upper_mask)
+        return jnp.where(jnp.array(free), x, bounded)
 
     lo = jax.lax.stop_gradient(_to_array(output_lower))
 
