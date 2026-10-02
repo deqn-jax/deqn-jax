@@ -30,7 +30,7 @@ class OptimizerConfig(_ConfigBase):
 
     name: str = Field(
         default="adam",
-        description="Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`.",
+        description="Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`.",
     )
     learning_rate: float = Field(
         default=1e-3,
@@ -67,6 +67,10 @@ class OptimizerConfig(_ConfigBase):
     lr_warmup: int = Field(
         default=0, description="Linear warmup episodes before `lr_schedule` kicks in."
     )
+    weight_decay: float = Field(
+        default=0.0,
+        description="Decoupled weight decay for `adamw` (ignored by every other optimizer). At 0.0, `adamw` is `adam`.",
+    )
     lr_min_factor: float = Field(
         default=0.0,
         description="Minimum LR as a fraction of peak (cosine floor).",
@@ -75,6 +79,9 @@ class OptimizerConfig(_ConfigBase):
     VALID_NAMES: ClassVar[frozenset] = frozenset(
         {
             "adam",
+            "sgd",
+            "adamw",
+            "lion",
             "muon",
             "ngd",
             "shampoo",
@@ -96,6 +103,7 @@ class OptimizerConfig(_ConfigBase):
         "decay",
         "cg_tol",
         "lr_min_factor",
+        "weight_decay",
         mode="before",
     )
     @classmethod
@@ -136,6 +144,8 @@ class OptimizerConfig(_ConfigBase):
             )
         if self.learning_rate <= 0:
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
+        if self.weight_decay < 0:
+            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
         if self.grad_clip is not None and self.grad_clip <= 0:
             raise ValueError(f"grad_clip must be > 0, got {self.grad_clip}")
         if not (0 < self.beta1 < 1):

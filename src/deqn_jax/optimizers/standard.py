@@ -1,7 +1,7 @@
 """Standard grad-step factory.
 
 Used for any optimizer registered with ``OptimizerKind.STANDARD``
-(adam, sgd, adamw, lion, muon, ngd, shampoo, kfac, ...). Builds a
+(adam, sgd, adamw, lion, muon, ngd, shampoo). Builds a
 JIT'd ``grad_step(state, batch, lr_scale, shock_scale)`` that applies
 one optax-style update on an explicit minibatch.
 

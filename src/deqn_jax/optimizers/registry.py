@@ -13,7 +13,7 @@ import optax
 class OptimizerKind(str, Enum):
     """Determines which train_step variant runs."""
 
-    STANDARD = "standard"  # adam, sgd, adamw, lion, muon, ngd, shampoo, kfac
+    STANDARD = "standard"  # adam, sgd, adamw, lion, muon, ngd, shampoo
     MAO = "mao"  # per-equation Jacobian
     LBFGS = "lbfgs"  # extra args for line search
     GN = "gn"  # Gauss-Newton / LM (needs residual_fn)
@@ -126,6 +126,27 @@ def _adam(config):
         b2=config.beta2,
         eps=config.epsilon,
     )
+
+
+@register_optimizer("sgd")
+def _sgd(config):
+    return optax.sgd(config.learning_rate)
+
+
+@register_optimizer("adamw")
+def _adamw(config):
+    return optax.adamw(
+        config.learning_rate,
+        b1=config.beta1,
+        b2=config.beta2,
+        eps=config.epsilon,
+        weight_decay=config.weight_decay,
+    )
+
+
+@register_optimizer("lion")
+def _lion(config):
+    return optax.lion(config.learning_rate, b1=config.beta1, b2=config.beta2)
 
 
 @register_optimizer("muon")
