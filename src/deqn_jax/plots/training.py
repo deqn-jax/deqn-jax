@@ -3,7 +3,8 @@
 A ``history`` dict is what ``train_from_config`` returns as its second
 output, or a per-run block from ``deqn_jax.plots.compare.parse_log``.
 Expected keys:
-    - ``loss``: list[float] or np.ndarray, one per logged cycle.
+    - ``loss``: list[float] or np.ndarray, one per cycle (``train_from_config``
+      records every cycle; ``parse_log`` returns the logged ones).
     - ``grad_norm``: list[float] (optional).
     - ``episodes``: list[int] for x-axis (optional; falls back to index).
 

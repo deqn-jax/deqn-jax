@@ -5,8 +5,9 @@ or ``run_girf`` (or a parsed CSV with the same schema) and produces a
 shock × variable grid of trajectories.
 
 Grid semantics: each row is one shock's IRF, each column is one model
-variable. All panels show percent deviation from ``t=0`` (the pre-shock
-baseline). For GIRF, the reported series is already ``shocked −
+variable. Panels show percent deviation from ``t=0`` (the pre-shock
+baseline), or absolute deviation when the ``t=0`` value is below 1e-3 in
+magnitude. For GIRF, the reported series is already ``shocked −
 no-shock``, so deviations are small by construction at long horizons
 when the shock dies out.
 """
