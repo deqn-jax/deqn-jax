@@ -7,10 +7,11 @@ A medium-scale New Keynesian model with:
 - Financial frictions (costly state verification banking)
 
 Analytical eliminations (14 unknowns -> 11): three quantities and their
-three equations are solved in closed form inside ``definitions()`` rather
-than by the network — s (cost minimisation), L (balance sheet),
-omega_bar (bank participation). What remains is the 11-policy / 11-residual
-system the solver actually trains on.
+three equations are solved inside ``definitions()`` rather than by the
+network: s (cost minimisation) and L (balance sheet) in closed form,
+omega_bar (bank participation) by a fixed-iteration projected Newton.
+What remains is the 11-policy / 11-residual system the solver actually
+trains on.
 """
 
 from deqn_jax.models.disaster.composite_aux import (

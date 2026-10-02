@@ -50,8 +50,8 @@ CONSTANTS = {
     "tau_0": 0.5,
     "tau_1": 0.5,
     # Fischer-Burmeister regularization; 0 is the pure FB function, a small
-    # eps (~1e-8) keeps the sqrt smooth at the origin without distorting
-    # the zero of the function away from the true complementary state.
+    # eps (~1e-8) keeps the sqrt smooth at the origin and moves the zero to
+    # mu * i = eps / 2 instead of the exact complementary state.
     "fb_eps": 1.0e-8,
 }
 

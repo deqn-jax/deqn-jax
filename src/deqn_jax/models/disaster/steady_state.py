@@ -20,8 +20,9 @@ from deqn_jax.models.disaster.variables import (
 def _build_ss_state(x: Array, constants: Dict) -> Array:
     """Construct the SS state vector from the 11 policy variables.
 
-    s (marginal cost), L (leverage) and omega_bar (default threshold) are
-    computed analytically; K_p, K_w are direct policy outputs. Shared by the
+    s (marginal cost) and L (leverage) are computed analytically and
+    omega_bar (default threshold) by ``solve_omega_bar``; K_p, K_w are
+    direct policy outputs. Shared by the
     deterministic and the risky SS solvers — both evaluate the same
     zero-shock accounting identities at a candidate policy vector.
     """
@@ -111,7 +112,8 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     """Numerically solve for the deterministic steady state.
 
     At SS: state = next_state, policy = next_policy, shocks = 0.
-    Unknowns: 11 policy variables (s, L, omega_bar computed analytically).
+    Unknowns: 11 policy variables (s, L, omega_bar computed inside
+    ``_build_ss_state``).
     11 equations.
     """
     # Initial guess from hardcoded values

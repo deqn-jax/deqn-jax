@@ -672,9 +672,9 @@ def scalar_diagnostics(
     Returns a dict of scalars to log, namespaced per equation as
     ``eq1_diag/<name>``, ``eq2a_diag/``, ``eq2_diag/``, ``eq3_diag/``,
     ``eq4a_diag/``, ``eq4_diag/``, ``eq5_diag/``, ``eq7_diag/``,
-    ``eq8_diag/`` and ``eq9_diag/``. Each decomposition is guarded on the
-    keys it reads (from ``defs`` or the model's names), so it is skipped
-    for ablations that drop the relevant definitions.
+    ``eq8_diag/`` and ``eq9_diag/``. Each decomposition is guarded on some
+    of the keys it reads (from ``defs`` or the model's names), so it is
+    skipped for ablations that drop those definitions.
     """
     out: Dict[str, float] = {}
 

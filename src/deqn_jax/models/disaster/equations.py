@@ -313,8 +313,9 @@ def equations(
 
     residuals = {}
 
-    # All residuals are unit-free percentage deviations: LHS/RHS - 1 = 0
-    # This makes all equations O(1) and improves gradient balance.
+    # Residuals are unit-free: LHS/RHS - 1 = 0 for most equations, log
+    # differences for eq2a/eq4a, a difference for eq8. This keeps the
+    # equations O(1) and improves gradient balance.
 
     # Eq 1: Price Phillips (F_p recursion) — divide by F_p
     eq1_expect = (defs_n["pi_tilda"] / p_n.pi) ** (1 / (1 - c["lambda_f"])) * p_n.F_p
@@ -410,7 +411,7 @@ def equations(
         st.mu_ups * eq7_term1 + c["beta"] * st.mu_ups * eq7_expect / (p.lambda_z + 1e-8)
     ) - 1.0
 
-    # Eq 8: Entrepreneur contract — LHS/RHS - 1
+    # Eq 8: Entrepreneur contract, as LHS - RHS
     omega_bar_next = defs_n["omega_bar"]
     Gamma_next = Gamma(omega_bar_next, c["sigma_omega"])
     Gamma_prime_next = Gamma_prime(omega_bar_next, c["sigma_omega"])
