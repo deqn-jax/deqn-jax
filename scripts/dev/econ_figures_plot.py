@@ -137,8 +137,9 @@ def states(d, t):
 def labor_rule(d, t):
     fig, ax = plt.subplots(figsize=WIDE)
     names = ("low", "median", "high")
-    for zl, rule, name, a in zip(d["Z_levels"], d["rule_by_z"], names, (0.45, 0.7, 1)):
-        ax.plot(d["k_grid"], rule, color=t["accent"], alpha=a)
+    styles = ((0, (1, 1.5)), (0, (5, 2)), "-")
+    for zl, rule, name, ls in zip(d["Z_levels"], d["rule_by_z"], names, styles):
+        ax.plot(d["k_grid"], rule, color=t["accent"], ls=ls)
         ax.text(
             d["k_grid"][-1],
             rule[-1],
@@ -228,7 +229,7 @@ def closed_form(cf, t):
     fig, ax = plt.subplots(figsize=(6.8, 3.0))
     ax.semilogy(cf["episodes"], cf["max"], color=t["accent"], label="largest")
     ax.semilogy(
-        cf["episodes"], cf["median"], color=t["accent"], alpha=0.5, label="median"
+        cf["episodes"], cf["median"], color=t["accent"], ls=(0, (5, 2)), label="median"
     )
     ax.set_xlabel("training rounds")
     ax.set_ylabel(r"$|s(K,Z) - \alpha\beta| \,/\, \alpha\beta$")

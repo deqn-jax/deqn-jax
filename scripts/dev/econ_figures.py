@@ -130,7 +130,8 @@ def cap_results(checkpoint):
     numbers = {
         "L_max": c["L_max"],
         "L_ss": labor_ss,
-        "share_at_cap": float(at_cap.mean()),
+        "share_at_cap": float(at_cap.mean()),  # hours within 0.001 of the cap
+        "labor_max_on_path": float(L.max()),
         "n_periods": int(len(rel)),
         "euler_log10_median": q(0.5),
         "euler_log10_p99": q(0.99),

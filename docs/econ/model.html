@@ -119,7 +119,7 @@ EQUATION_NAMES = ("euler", "labor_foc")</code></pre>
     labor_foc = fischer_burmeister(slack, wedge)
 
     return {"euler": euler, "labor_foc": labor_foc}</code></pre>
-    <p class="note"><span class="tag">The constraint</span>The slack \(\bar L - L_t\) and the wedge \(\mu_t = w_t u'(C_t) / (\psi L_t^\theta) - 1\) must both be non-negative with a zero product. <code>fischer_burmeister(a, b)</code> returns \(\sqrt{a^2 + b^2} - a - b\), which is zero exactly when \(a \ge 0\), \(b \ge 0\) and \(ab = 0\). Below the cap the wedge is zero and the usual labor condition holds; at the cap the slack is zero and the wedge is positive. The plain condition \(\psi L^\theta = w\,u'(C)\) would have no zero at the cap.</p>
+    <p class="note"><span class="tag">The constraint</span>The slack \(\bar L - L_t\) and the wedge \(\mu_t = w_t u'(C_t) / (\psi L_t^\theta) - 1\) must both be non-negative with a zero product. <code>fischer_burmeister(a, b)</code> returns \(\sqrt{a^2 + b^2} - a - b\), which is zero exactly when \(a \ge 0\), \(b \ge 0\) and \(ab = 0\). Below the cap the wedge is zero and the usual labor condition holds; at the cap the slack is zero and the wedge is positive. The plain condition \(\psi L^\theta = w\,u'(C)\) would have no zero at the cap. The implementation adds \(10^{-13}\) under the square root so that the function has a derivative at the origin.</p>
   </div>
 </div>
 
@@ -211,7 +211,7 @@ from deqn_jax.types import ModelSpec</code></pre>
 <pre><code>cp -r src/deqn_jax/models/bm_labor_constrained src/deqn_jax/models/my_model</code></pre>
   </li>
   <li>
-    <p>Change the economics. New states or decisions go into <code>SPEC</code>, parameters into <code>CONSTANTS</code>, bounds into <code>POLICY_LOWER</code> and <code>POLICY_UPPER</code>, and one error per decision into <code>equations</code>. If the definitions, the law of motion or the steady state change as well, copy those files from <code>bm_labor</code> into your folder and import them from there.</p>
+    <p>Change the economics. New states or decisions go into <code>SPEC</code>, parameters into <code>CONSTANTS</code>, bounds into <code>POLICY_LOWER</code> and <code>POLICY_UPPER</code>, and one error per decision into <code>equations</code>. If the definitions, the law of motion or the steady state change as well, copy those files from <code>bm_labor</code> into your folder, import them from there, and change the imports inside the copies to point to your folder too. <code>bm_labor/dynamics.py</code>, for example, builds the law of motion from <code>bm_labor</code>&rsquo;s own <code>SPEC</code> and <code>definitions</code>; a copy that still imports those would accumulate capital with the old production function.</p>
   </li>
   <li>
     <p>Register the model by adding two lines to <code>src/deqn_jax/models/__init__.py</code>, an import next to the others and an entry in the <code>_MODELS</code> dictionary:</p>
@@ -229,7 +229,7 @@ from deqn_jax.types import ModelSpec</code></pre>
     <p>Read the results. The first command simulates 10,000 periods under the trained rule and prints the distribution of each equation&rsquo;s error on a \(\log_{10}\) scale; the second computes impulse responses to each shock.</p>
 <pre><code>uv run deqn-jax evaluate runs/my_model/checkpoint_020000.eqx
 uv run deqn-jax irf runs/my_model/checkpoint_020000.eqx --girf -o irf_out</code></pre>
-    <p>The evaluator reports the errors in the units in which <code>equations</code> returns them. The unit-free Euler error of the first page divides the Euler error by marginal utility; <code>scripts/dev/econ_figures.py</code> shows how.</p>
+    <p>The evaluator reports each equation&rsquo;s error for one draw of next period&rsquo;s shock, in the units in which <code>equations</code> returns it. For an Euler equation that error includes the forecast error of the draw, so it is much larger than the error of the conditional expectation: on the running example the evaluator&rsquo;s median Euler residual is about \(10^{-2}\), while the error of the first page is \(10^{-5.2}\). The first page takes the expectation by Gauss–Hermite quadrature and divides the expected residual \(e\) by \(u'(C) - e = \beta\,\mathbb{E}[\dots]\); <code>expected_residuals</code> and <code>cap_results</code> in <code>scripts/dev/econ_figures.py</code> show how.</p>
   </li>
 </ol>
 

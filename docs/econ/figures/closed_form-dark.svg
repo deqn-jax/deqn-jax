@@ -1509,7 +1509,7 @@ L 383.258462 156.783167
 L 392.103217 147.606333 
 L 400.947972 134.62077 
 L 409.792727 144.652053 
-" clip-path="url(#p1b32529162)" style="fill: none; stroke: #4f95e6; stroke-opacity: 0.5; stroke-width: 2; stroke-linecap: square"/>
+" clip-path="url(#p1b32529162)" style="fill: none; stroke-dasharray: 10,4; stroke-dashoffset: 0; stroke: #4f95e6; stroke-width: 2"/>
    </g>
    <g id="patch_3">
     <path d="M 47.6 173.52 
@@ -1588,7 +1588,7 @@ z
      <path d="M 363.921406 32.545703 
 L 373.421406 32.545703 
 L 382.921406 32.545703 
-" style="fill: none; stroke: #4f95e6; stroke-opacity: 0.5; stroke-width: 2; stroke-linecap: square"/>
+" style="fill: none; stroke-dasharray: 10,4; stroke-dashoffset: 0; stroke: #4f95e6; stroke-width: 2"/>
     </g>
     <g id="text_15">
      <!-- median -->

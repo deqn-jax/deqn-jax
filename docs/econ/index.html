@@ -39,7 +39,7 @@
   <figcaption>Hours worked in the running example, a stochastic growth model with a labor choice and a cap of 1 on hours, as a function of productivity with capital held at its simulated mean. The solid line is the global solution. The dashed line is the first-order perturbation of the same economy without the cap, computed by the Blanchard–Kahn method. The faint dots are 10,000 simulated periods under the global solution.</figcaption>
 </figure>
 
-<p>The running example on this page is the Brock–Mirman growth model with endogenous labor supply and an upper limit on hours worked. In good times households want to work more than the limit allows, so the limit binds in some states and not in others. A first-order perturbation is linear in the state and cannot represent such a constraint. A global solution can. In the simulation above the cap binds in 16% of periods; the linear rule of the uncapped economy exceeds it in 13% of the same periods.</p>
+<p>The running example on this page is the Brock–Mirman growth model with endogenous labor supply and an upper limit on hours worked. In good times households want to work more than the limit allows, so the limit binds in some states and not in others. A first-order perturbation is linear in the state and cannot represent such a constraint. A global solution can. In the simulation above hours are at the cap (within 0.001 of it) in 16% of periods, and they never exceed it by more than 0.0002; the linear rule of the uncapped economy exceeds it in 13% of the same periods.</p>
 
 <p>The method is Deep Equilibrium Nets, introduced by Azinovic, Gaegauf and Scheidegger (2022) building on Scheidegger and Bilionis (2019). <span class="nobr">deqn-jax</span> is a reimplementation and extension in JAX; the credit for the method belongs to those authors.</p>
 
@@ -120,7 +120,7 @@
   <figcaption>Simulated states of the running example under the global solution (dots), and a tensor grid with ten points per axis on the box from which the simulations start (circles).</figcaption>
 </figure>
 
-<p>A projection method places its points on a tensor grid. With \(n\) points per state variable and \(d\) state variables the grid has \(n^d\) points: 100 for this model, ten billion for a model with ten state variables. Here the points are the states the simulated economy visits, so they sit where the economy spends its time, and their number is a choice that does not grow with \(d\). This is why models with many state variables remain feasible. The expectation over next period&rsquo;s shocks still has to be computed at every point, and its cost grows with the number of shocks. The rule is accurate where the economy goes. Far outside the simulated cloud the rule is an extrapolation and should not be read as a solution.</p>
+<p>A projection method usually places its points on a tensor grid. With \(n\) points per state variable and \(d\) state variables the grid has \(n^d\) points: 100 for this model, ten billion for a model with ten state variables. Simulation-based projection methods (Judd, Maliar and Maliar 2011) and this method instead use the states the simulated economy visits; these sit where the economy spends its time, and their number is a choice that does not grow with \(d\). This is why models with many state variables remain feasible. The expectation over next period&rsquo;s shocks still has to be computed at every point, and its cost grows with the number of shocks. The rule is accurate where the economy goes. Far outside the simulated cloud the rule is an extrapolation and should not be read as a solution.</p>
 
 <h2 id="methods">Relation to familiar methods</h2>
 
@@ -133,9 +133,9 @@
   </thead>
   <tbody>
     <tr><th scope="row">Perturbation</th><td>a Taylor expansion of the rule around the deterministic steady state</td><td>near the steady state</td><td>a first-order rule is linear, so the constraint binds always or never; piecewise extensions such as OccBin exist</td><td>cheap</td></tr>
-    <tr><th scope="row">Projection</th><td>the rule as a weighted sum of polynomials, with coefficients fitted on a grid</td><td>on the grid box</td><td>smooth polynomials oscillate around the kink; splines or finer grids help</td><td>the grid has \(n^d\) points; sparse grids reduce the count</td></tr>
-    <tr><th scope="row">Time iteration</th><td>the rule at grid points, updated by solving the first-order conditions point by point given next period&rsquo;s rule</td><td>on the grid</td><td>the constraint is checked exactly at each grid point</td><td>the grid has \(n^d\) points</td></tr>
-    <tr class="this"><th scope="row">This method</th><td>the rule as a neural network, with coefficients fitted to make the equation errors small</td><td>on the states the economy visits</td><td>written as one complementarity equation; the smooth basis rounds the kink over a narrow range of states</td><td>the number of points is a free choice</td></tr>
+    <tr><th scope="row">Projection</th><td>the rule as a weighted sum of polynomials, with coefficients fitted on a grid (usually a tensor grid) or on simulated points</td><td>where the points are</td><td>smooth polynomials oscillate around the kink; splines or finer grids help</td><td>a tensor grid has \(n^d\) points; sparse grids or simulated points reduce the count</td></tr>
+    <tr><th scope="row">Time iteration</th><td>the rule at grid points, updated by solving the first-order conditions point by point given next period&rsquo;s rule</td><td>on the grid</td><td>the constraint is checked exactly at each grid point</td><td>a tensor grid has \(n^d\) points; sparse grids reduce the count</td></tr>
+    <tr class="this"><th scope="row">This method</th><td>the rule as a neural network, with coefficients fitted to make the equation errors small</td><td>on the states the economy visits</td><td>written as one complementarity equation; the smooth basis rounds the kink over a narrow range of states</td><td>simulated points; their number is a free choice</td></tr>
   </tbody>
 </table>
 </div>
@@ -202,7 +202,7 @@ uv run deqn-jax train --config configs/bm_labor_cap.yaml</code></pre>
 
 <p>Two limits apply to every result produced this way.</p>
 
-<p>A small equation error is necessary for a solution but not sufficient. A model can have more than one rule that satisfies its equilibrium conditions, and nothing in the method selects among them. The global analogue of the Blanchard–Kahn condition, which picks the stable solution of a linearized model, does not exist here. A low error says the computed rule is an equilibrium; it does not say it is the equilibrium you meant. Checks against a perturbation solution near the steady state, and against known special cases like the one above, help.</p>
+<p>A small equation error is necessary for a solution but not sufficient. A model can have more than one rule that satisfies its equilibrium conditions, and nothing in the method selects among them. The global analogue of the Blanchard–Kahn condition, which picks the stable solution of a linearized model, does not exist here. A low error says the computed rule satisfies the equilibrium conditions closely at the states examined; it does not say the rule is the equilibrium you meant. Checks against a perturbation solution near the steady state, and against known special cases like the one above, help.</p>
 
 <p>Accuracy is measured. The numbers above describe the states the simulation visited. They are not bounds that hold everywhere, and they say nothing about states outside the simulated cloud.</p>
 
@@ -230,6 +230,7 @@ uv run deqn-jax train --config configs/bm_labor_cap.yaml</code></pre>
   <li>Coleman, W. J. (1990). Solving the stochastic growth model by policy-function iteration. <i>Journal of Business &amp; Economic Statistics</i> 8(1), 27–29.</li>
   <li>Fischer, A. (1992). A special Newton-type optimization method. <i>Optimization</i> 24(3–4), 269–284.</li>
   <li>Guerrieri, L. and Iacoviello, M. (2015). OccBin: a toolkit for solving dynamic models with occasionally binding constraints easily. <i>Journal of Monetary Economics</i> 70, 22–38.</li>
+  <li>Judd, K. L., Maliar, L. and Maliar, S. (2011). Numerically stable and accurate stochastic simulation approaches for solving dynamic economic models. <i>Quantitative Economics</i> 2(2), 173–210.</li>
   <li>Judd, K. L. (1992). Projection methods for solving aggregate growth models. <i>Journal of Economic Theory</i> 58(2), 410–452.</li>
 </ul>
 
