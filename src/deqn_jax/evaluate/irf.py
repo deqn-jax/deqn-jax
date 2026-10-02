@@ -157,9 +157,8 @@ def run_irf(
     # ---- Periods 2..horizon: deterministic (zero shock every period) ----
     # Shares the rollout loop with the stochastic eval paths; the
     # deterministic variant consumes no PRNG and feeds a zero shock.
-    # Imported here, not at module scope: ``evaluate/cli.py`` imports
-    # ``load_policy_from_checkpoint`` from this module, so a top-level
-    # import of the evaluate package would be circular.
+    # Imported here rather than at module scope; nothing in the evaluate
+    # package imports this module at import time, so either placement works.
     from deqn_jax.evaluate.simulate import deterministic_rollout
 
     def step(state, zero_shock, _d):
@@ -202,8 +201,8 @@ def run_girf(
 ) -> Dict[str, List[float]]:
     """Generalized IRF: response = shocked path − no-shock path, same start state.
 
-    Fixes the bug where ``run_irf`` compared the shocked trajectory against the
-    initial SS alone. When the SS in use is the **risky** SS, the no-shock
+    ``run_irf`` alone compares the shocked trajectory against the initial SS.
+    When the SS in use is the **risky** SS, the no-shock
     trajectory drifts away from SS on its own because risky_SS is defined by
     ``E_d[F] = 0`` under the disaster mixture, not by
     ``step(SS, 0, d=0) = SS``. The plain-IRF output conflates that drift with
@@ -242,11 +241,6 @@ def run_girf(
             continue
         out[key] = [s - b for s, b in zip(series, base)]
     return out
-
-
-# ---------------------------------------------------------------------------
-# Loading checkpoint → policy network
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

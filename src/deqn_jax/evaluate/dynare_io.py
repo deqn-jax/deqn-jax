@@ -124,7 +124,7 @@ def load_dynare_moments(dynare_dir: str | Path) -> Dict[str, Dict[str, float]]:
 def load_dynare_jacobian(model, dynare_dir: str | Path) -> Array:
     """Build a ``[n_policies × n_states]`` Jacobian from Dynare's ghx + ghu.
 
-    Mirrors the construction inside ``warm_start_from_dynare``. Each row is the
+    Used by ``warm_start_from_dynare`` and ``compare_to_dynare_ghx``. Each row is the
     linearized response of one DEQN policy (mapped via ``_POLICY_ALIASES``) to
     one DEQN state (mapped via ``_STATE_COL_MAP``). The exception is the
     monetary-policy shock state ``m_p`` which is i.i.d.; its column is filled
