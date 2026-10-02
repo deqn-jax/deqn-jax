@@ -363,9 +363,10 @@ class EpisodeState(NamedTuple):
 class Metrics(NamedTuple):
     """Training metrics from a single step/episode.
 
-    All three fields hold scalar JAX Arrays at runtime (built inside
-    JIT'd grad steps); consumers cast to ``float`` explicitly when they
-    need a Python scalar (``float(metrics.loss)``).
+    ``loss`` and ``grad_norm`` hold scalar JAX Arrays at runtime (built
+    inside JIT'd grad steps) and ``residuals`` a dict of them; consumers
+    cast to ``float`` explicitly when they need a Python scalar
+    (``float(metrics.loss)``).
     """
 
     loss: Array
