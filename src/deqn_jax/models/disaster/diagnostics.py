@@ -1,6 +1,6 @@
 """Disaster-model diagnostic decompositions, exposed via ModelSpec.scalar_diagnostics_fn.
 
-These two helpers decompose the Phillips-curve recursion equations into
+These helpers decompose the residual equations (eq1 through eq9) into
 their constituent terms so we can watch the ratio bases, log-residuals,
 and soft-floor saturation fractions on TensorBoard / console during a
 disaster-model training run. They live here, not in trainer.py, because
@@ -137,7 +137,7 @@ def _eq4_diagnostics(
     policy_out: Array,
     defs: Dict[str, Array],
 ) -> Dict[str, float]:
-    """Compute eq4 (wage_phillips_K) decomposition at training states.
+    """Compute eq4b (K_w recursion) decomposition at training states.
 
     Runs a zero-shock forward step to get next-period definitions, then
     decomposes the eq4 residual into its constituent terms. Returns
@@ -315,7 +315,7 @@ def _eq2_diagnostics(
     policy_out: Array,
     defs: Dict[str, Array],
 ) -> Dict[str, float]:
-    """Compute eq2 (price_phillips_K) decomposition at training states.
+    """Compute eq2b (K_p recursion) decomposition at training states.
 
     Mirrors ``_eq4_diagnostics`` for the price-Phillips side.
     """
@@ -669,10 +669,12 @@ def scalar_diagnostics(
 ) -> Dict[str, float]:
     """Top-level disaster diagnostics dispatcher.
 
-    Returns a dict of scalars to log, namespaced as ``eq2_diag/<name>``
-    and ``eq4_diag/<name>``. Both decompositions are duck-type-guarded
-    against ``defs`` so they're skipped for ablations that drop the
-    relevant Phillips-curve definitions.
+    Returns a dict of scalars to log, namespaced per equation as
+    ``eq1_diag/<name>``, ``eq2a_diag/``, ``eq2_diag/``, ``eq3_diag/``,
+    ``eq4a_diag/``, ``eq4_diag/``, ``eq5_diag/``, ``eq7_diag/``,
+    ``eq8_diag/`` and ``eq9_diag/``. Each decomposition is guarded on some
+    of the keys it reads (from ``defs`` or the model's names), so it is
+    skipped for ablations that drop those definitions.
     """
     out: Dict[str, float] = {}
 

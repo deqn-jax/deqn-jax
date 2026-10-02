@@ -23,11 +23,13 @@ Example::
     from deqn_jax.api import (
         ModelSpec,
         register_model,
+        load_model,
         TrainConfig,
         NetworkConfig,
         OptimizerConfig,
         train_from_config,
         euler_equation_errors,
+        print_euler_errors,
     )
 
     MODEL = ModelSpec(name="my_model", ...)  # see docs/site/REFERENCE.md
@@ -39,8 +41,8 @@ Example::
         network=NetworkConfig(hidden_sizes=(64, 64)),
         optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
     )
-    state, history = train_from_config(cfg)
-    diag = euler_equation_errors(state.params, load_model("my_model"))
+    params, history = train_from_config(cfg)
+    diag = euler_equation_errors(params, load_model("my_model"))
     print_euler_errors(diag)
 """
 
@@ -97,8 +99,8 @@ from deqn_jax.optimizers.registry import list_optimizers
 # --- Autodiff helper (Path-A codegen backbone) ------------------------
 # Synthesizes equations_fn from a scalar period-return Pi via jax.grad.
 # Used by the in-tree *_autodiff models and intended for agent-codegen
-# Path A (planner / autodiff). Stable because three in-tree models
-# already depend on it.
+# Path A (planner / autodiff). Stable because two in-tree models
+# (brock_mirman_autodiff, bm_labor_autodiff) depend on it.
 from deqn_jax.training.autodiff import euler_from_period_return
 
 # --- Impulse response functions ---------------------------------------

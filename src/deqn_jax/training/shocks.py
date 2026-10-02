@@ -1,24 +1,14 @@
 """Shock-drawing helpers for rollout, evaluation, and IRF paths.
 
-Training-time and diagnostic simulation all share a single contract
-for sampling shocks that actually drive the state forward. Previously
-this logic was duplicated inconsistently across:
-
-- ``episode.simulate_step`` -- training rollouts
-- ``evaluate.euler_equation_errors`` -- ergodic residual diagnostics
-- ``irf.run_irf`` -- impulse response paths
-
-The duplication was exposed during a code review: the disaster model's
-``d_disaster`` Bernoulli indicator was threaded only through the loss
-expectation, never the rollout -- so training data never visited
-disaster states even when ``p_disaster > 0``. Similarly ``shock_mask``
-(masking individual shock dimensions to zero for curriculum / ablation)
-applied only to the loss draws, and ``shock_scale`` (curriculum ramp)
-did the same.
-
-This module provides one place where all three concerns are handled:
+Training rollouts (``episode.run_episode`` via ``simulation_step``) and
+evaluation simulation (``evaluate.simulate``) share these helpers for
+sampling the shocks that drive the state forward, so the disaster
+indicator, the curriculum ``shock_scale`` and the ``shock_mask`` reach
+the rollout as well as the loss.
 
 - ``draw_training_shocks``: Gaussian draws with curriculum scale + mask.
+- ``draw_discrete_shocks``: next-z categorical draws for a finite Markov
+  chain.
 - ``maybe_draw_disaster``: Bernoulli(p_disaster) draw when the model's
   step_fn takes a ``d_disaster`` kwarg and ``constants['p_disaster']``
   is positive; else ``None``.
@@ -63,8 +53,9 @@ def draw_training_shocks(
     when provided, is a length-``n_shocks`` vector of 0/1 entries that
     zeros specific shock dimensions (used for shock ablations).
 
-    Both are multiplicative, so ``shock_scale=0`` freezes all rollouts
-    to deterministic dynamics.
+    Both are multiplicative, so ``shock_scale=0`` zeroes these Gaussian
+    shocks. Disaster indicators and discrete-chain draws do not go through
+    this function and are unaffected.
     """
     shock = jax.random.normal(key, (batch_size, n_shocks))
     shock = shock * jnp.asarray(shock_scale)

@@ -86,7 +86,8 @@ def step(
 
 
 # ---------- State bounds ----------
-# Hard clip bounds for eval/irf simulation safety (NOT training).
+# Hard clip bounds for eval/irf simulation safety (clip_state, NOT training).
+# compute_state_barrier uses the same box for the training-loss barrier.
 #          pi    k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
 _SIM_LOWER = jnp.array(
     [0.8, 5.0, 0.1, 0.3, 0.1, 0.99, 0.5, 0.5, 0.7, 0.8, 0.3, 0.97, -3.0]
@@ -109,7 +110,7 @@ _SIM_UPPER = jnp.array(
 # Kept full-13 for trajectory reproducibility; doc §6.5 reflects this.
 #
 #              pi     k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
-# SS values: 1.014  27.35  1.59  1.00  0.79  1.02  1.92  1.97  1.00  1.00  0.62  1.00  0.00
+# SS values: 1.012  27.42  1.59  1.00  0.79  1.02  1.92  1.97  1.00  1.00  0.62  1.00  0.00
 _SOFT_LOWER = jnp.array(
     [-1.0, 1.0, -1.0, -1.5, -1.5, -1.0, -0.5, -0.5, -1.5, -1.5, -2.0, -1.5, -5.0]
 )

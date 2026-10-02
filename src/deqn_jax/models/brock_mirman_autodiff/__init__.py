@@ -3,7 +3,7 @@
 Same economics as ``brock_mirman``, but equations.py *does not hand-derive*
 the Euler FOC. Instead it defines the per-period return
 
-    Pi(K_t, K_{t+1}, z_t, constants) = u(C_t)
+    Pi(K_t, K_{t+1}, z_t, policy_t, constants) = u(C_t)
 
 and uses ``jax.grad`` to produce the residual
 
@@ -14,10 +14,10 @@ a Lagrangian, framework does the DEQN mechanics" vision. At steady state
 the synthesized residual matches the hand-derived one to floating-point
 noise (see ``tests/test_autodiff_equations.py``).
 
-The longer-term framing is a framework-level helper ``equations_from_Pi``
-that any ``ModelSpec`` could opt into by supplying a period-return function
-instead of (or alongside) ``equations_fn``. See ``docs/site/autodiff.md``
-for the design note.
+The synthesis is the framework helper
+``deqn_jax.training.autodiff.euler_from_period_return``, which any model can
+use to build its ``equations_fn`` from a period-return function. See
+``docs/site/autodiff.md`` for the design note.
 """
 
 from deqn_jax.models.brock_mirman_autodiff.dynamics import step

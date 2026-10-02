@@ -118,7 +118,7 @@ def register_model(
         # Now usable everywhere:
         from deqn_jax.api import load_model, train_from_config, TrainConfig
         cfg = TrainConfig(model="my_model", ...)
-        state, history = train_from_config(cfg)
+        params, history = train_from_config(cfg)
     """
     if not isinstance(spec, ModelSpec):
         raise TypeError(

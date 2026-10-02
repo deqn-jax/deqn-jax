@@ -29,7 +29,7 @@ class LSTMPolicy(eqx.Module):
     Output: [batch, n_policies] or [n_policies]
 
     Architecture:
-        input [D] -> Linear -> hidden_size
+        input [D] -> normalize -> Linear -> tanh -> hidden_sizes[0]
         -> LSTMCell layer 1 -> ... -> LSTMCell layer L
         -> final hidden state -> Linear -> n_policies -> bounds
     """

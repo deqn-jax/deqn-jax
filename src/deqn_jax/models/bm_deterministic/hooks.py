@@ -4,7 +4,7 @@ Provides ``make_cycle_hook(figures_dir)`` — a factory that returns a
 function matching ``ModelSpec.cycle_hook``'s signature. The returned
 hook plots the trained savings-rate policy against the analytic
 s* = alpha * beta and writes the result to
-``{figures_dir}/policy_ep{episode}.png`` every time the trainer fires
+``{figures_dir}/policy_ep{episode:05d}.png`` every time the trainer fires
 it (controlled by ``config.log_every``).
 
 Pattern: the model owns "what diagnostics are useful for this economic

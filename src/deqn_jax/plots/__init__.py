@@ -3,8 +3,7 @@
 Each ``plot_*`` function is a pure function of its data plus optional
 styling arguments. All return a ``matplotlib.axes.Axes`` (or a ``Figure``
 for multi-panel plots) so callers can compose them into their own
-layouts. ``matplotlib`` is an optional dependency — install via
-``uv pip install -e ".[plotting]"``.
+layouts. ``matplotlib`` is a core dependency of the package.
 
 Design principles
 -----------------

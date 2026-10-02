@@ -52,11 +52,11 @@ class TrainConfig(_ConfigBase):
     )
     episode_length: int = Field(
         default=100,
-        description="Trajectory length per rollout (T). With T=1 you must set `initialize_each_episode=True` (see validator).",
+        description="Trajectory length per rollout (T). With T=1 you must set `initialize_each_episode=True` (checked when training starts).",
     )
     mc_samples: int = Field(
         default=5,
-        description="Monte Carlo shock samples per state for the residual expectation. Ignored when `expectation_type` is `quadrature`/`gh`/`gauss_hermite`, `monomial` or `discrete`.",
+        description="Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and any model with a discrete shock chain. `expectation_type='discrete'` on a model without a chain runs MC with this sample count.",
     )
     seed: int = Field(
         default=42,
@@ -95,7 +95,7 @@ class TrainConfig(_ConfigBase):
 
     loss_choice: str = Field(
         default="mse",
-        description="Residual aggregation: `mse` (square the shock-mean residual), `huber` (Huber of the shock-mean; caps gradient at ±huber_delta when rare pathological states dominate), or `aio` (all-in-one, Maliar-Maliar-Winant 2021: product of two independent shock-group means -- unbiased for (E[r])², removing the Var(r̄)/N bias of `mse` under MC; requires expectation_type='mc' and mc_samples>=2; per-eq losses can be transiently negative, so prefer loss_reweight='none').",
+        description="Residual aggregation: `mse` (square the shock-mean residual), `huber` (Huber of the shock-mean; caps gradient at ±huber_delta when rare pathological states dominate), or `aio` (all-in-one, Maliar-Maliar-Winant 2021: product of two independent shock-group means -- unbiased for (E[r])², removing the Var(r̄)/N bias of `mse` under MC (on two-stage models the Jensen bias of a nonlinear `combine_fn` remains); requires expectation_type='mc' and mc_samples>=2; per-eq losses can be transiently negative, so prefer loss_reweight='none').",
     )
     huber_delta: float = Field(
         default=1.0,
@@ -104,15 +104,15 @@ class TrainConfig(_ConfigBase):
 
     warm_start: bool = Field(
         default=False,
-        description="If True, run L-BFGS pre-fit of the network to the steady-state policy before gradient-based training. Speeds early convergence; can mask Euler-equation bugs.",
+        description="If True, pre-fit the network to a target policy before gradient-based training: by default an L-BFGS fit to the constant steady-state policy (see `warm_start_linearize` and `warm_start_dynare` for the other targets). Skipped for networks anchored at the linear policy (`linear_plus_mlp`, `disaster_policy_net`). Speeds early convergence; can mask Euler-equation bugs.",
     )
     warm_start_linearize: bool = Field(
         default=False,
-        description="If True, linearize the model around SS and use the Blanchard-Kahn P matrix to seed the network's Jacobian at SS. Advanced.",
+        description="With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Not used by sequence networks.",
     )
     warm_start_dynare: Optional[str] = Field(
         default=None,
-        description="Path to a Dynare output file to seed warm-start linearization. Rare.",
+        description="With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Not used by sequence networks. Rare.",
     )
     loss_weights: Optional[List[float]] = Field(
         default=None,
@@ -124,7 +124,7 @@ class TrainConfig(_ConfigBase):
     )
     reweight_alpha: float = Field(
         default=0.9,
-        description="EMA decay for `lr_annealing` / `relobralo`. Higher = slower adaptation.",
+        description="For `lr_annealing`: EMA decay of the per-equation losses (higher = slower adaptation). For `relobralo`: weight on the balancing term built from the ratio to the previous step's losses, against the ratio to the first step's losses.",
     )
 
     log_every: int = Field(
@@ -170,7 +170,7 @@ class TrainConfig(_ConfigBase):
     )
     switch_optimizer: Optional[str] = Field(
         default=None,
-        description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; new optimizer is initialized from resumed params.",
+        description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Only the name, `switch_lr` and `optimizer.grad_clip` carry over (other optimizer fields take their defaults), and the LR schedule is not applied after the switch.",
     )
     switch_episode: Optional[int] = Field(
         default=None,
@@ -199,7 +199,7 @@ class TrainConfig(_ConfigBase):
     )
     ss_reset_frac: float = Field(
         default=0.0,
-        description="Fraction of batch re-initialized to SS-neighborhood each rollout (prevents trajectory drift). Orthogonal to `initialize_each_episode`.",
+        description="Fraction of batch re-initialized to SS-neighborhood each rollout (prevents trajectory drift). Not applied when `initialize_each_episode` redraws the whole batch.",
     )
 
     initialize_each_episode: bool = Field(
@@ -208,7 +208,8 @@ class TrainConfig(_ConfigBase):
             "If True, replace episode_state with a fresh `init_state_fn` draw "
             "at the start of every rollout cycle (non-ergodic training, matches "
             "DEQN-MAO's flag of the same name). False = continue trajectory "
-            "across cycles (ergodic). Required True when `episode_length=1`."
+            "across cycles (ergodic). Required True when `episode_length=1`. "
+            "Has no effect on a model without `init_state_fn`."
         ),
     )
 
@@ -220,10 +221,12 @@ class TrainConfig(_ConfigBase):
             "(deterministic tensor-product grid, uses `n_quadrature_points`) "
             "or `monomial` (degree-3, 2*n_shocks nodes, practical when "
             "n_shocks > 6) "
-            "or `discrete` (exact enumeration over a finite-state Markov chain; "
-            "requires `model.transition_matrix` and `model.z_state_idx`). "
-            "Trajectory rollout uses Gaussian draws for `mc`/`quadrature`/"
-            "`monomial` and categorical draws from `Π[z_t]` for `discrete`."
+            "or `discrete`. A model that sets `transition_matrix` and "
+            "`z_state_idx` always gets exact enumeration over its finite-state "
+            "Markov chain, in the residual expectation and categorical draws "
+            "from `Π[z_t]` in the rollout, whatever this field says; "
+            "`discrete` names that case and on a model without a chain runs "
+            "MC. Other models roll out with Gaussian draws."
         ),
     )
     n_quadrature_points: int = Field(
@@ -233,7 +236,7 @@ class TrainConfig(_ConfigBase):
 
     barrier_weight: float = Field(
         default=0.0,
-        description="Legacy state-barrier penalty weight. 0 disables. Prefer `definition_bounds` on the ModelSpec for new models.",
+        description="Legacy state-barrier penalty weight. 0 disables. Applies only to models that define `state_barrier_fn`, and only under `loss_type='mse'` (rejected with `composite`). Prefer `definition_bounds` on the ModelSpec for new models.",
     )
     shock_mask: Optional[List[float]] = Field(
         default=None,
@@ -261,6 +264,7 @@ class TrainConfig(_ConfigBase):
     use_risky_steady_state: bool = Field(
         default=True,
         description=(
+            "Read by the disaster model's `setup_fn`. "
             "If True and `p_disaster > 0`, anchor composite loss and "
             "linearization at the risky SS (E_d[F]=0) instead of deterministic SS. "
             "Set False to force deterministic SS anchor under disaster risk "
@@ -272,7 +276,8 @@ class TrainConfig(_ConfigBase):
         default=True,
         description=(
             "If True and `checkpoint_dir` is set, persist `checkpoint_best.eqx` "
-            "on every loss improvement (after `curriculum_episodes` grace period). "
+            "on every loss improvement after a grace period of "
+            "max(`curriculum_episodes`, `log_every`) episodes. "
             "Guards against rare huge-gradient events corrupting the latest snapshot."
         ),
     )
@@ -298,8 +303,10 @@ class TrainConfig(_ConfigBase):
         description=(
             "Minibatch shuffle policy. False = IID shuffle across all "
             "(episode_length × sim_batch) samples. True = each minibatch is a "
-            "contiguous temporal slice of a single trajectory (RL-style); batch "
-            "order shuffled, intra-batch order preserved. MLP-only."
+            "contiguous slice of the trajectory-major data (RL-style), which "
+            "can span several trajectories when `episode_length` is not a multiple of "
+            "`batch_size`; batch order shuffled, intra-batch order preserved. "
+            "MLP-only."
         ),
     )
 

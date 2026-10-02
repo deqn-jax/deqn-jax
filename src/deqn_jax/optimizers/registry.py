@@ -13,7 +13,7 @@ import optax
 class OptimizerKind(str, Enum):
     """Determines which train_step variant runs."""
 
-    STANDARD = "standard"  # adam, sgd, adamw, lion, muon, ngd, shampoo, kfac
+    STANDARD = "standard"  # plain optax-style update; `deqn-jax optimizers` lists them
     MAO = "mao"  # per-equation Jacobian
     LBFGS = "lbfgs"  # extra args for line search
     GN = "gn"  # Gauss-Newton / LM (needs residual_fn)
@@ -37,11 +37,14 @@ def register_optimizer(
 
 
 def _build_lr_schedule(config, total_steps: int):
-    """Build an LR schedule callable from config fields.
+    """Build an LR schedule from config fields.
 
-    Returns either a float (constant) or a stateless optax schedule
-    (cosine) keyed on step index. Both are invoked via ``fn(ep_num, loss)``
-    in the training loop; ``loss`` is ignored.
+    Returns the float learning rate for ``constant`` and a stateless optax
+    schedule for ``cosine``. ``train_from_config`` builds a schedule only
+    when ``lr_schedule`` is not ``constant``; the training loop then calls
+    it once per episode with the episode number
+    (``training.loop_control._episode_lr_scale``), so ``total_steps`` and
+    ``lr_warmup`` count episodes.
     """
     lr = float(config.learning_rate)
     schedule = getattr(config, "lr_schedule", "constant")
@@ -82,11 +85,11 @@ def create_optimizer(
     optimizer is created once with LR fixed to 1.0 and the per-episode
     scheduled LR is passed into the train step as the dynamic ``lr_scale``
     scalar (updates are multiplied by it). See ``_build_lr_schedule`` for
-    computing schedule values and ``train_from_config`` for where
-    ``lr_scale`` is fed per episode.
+    computing schedule values and ``training.loop_control._episode_lr_scale``
+    for where ``lr_scale`` is computed per episode.
 
     Args:
-        config: OptimizerConfig with at least a ``name`` field.
+        config (OptimizerConfig): config with at least a ``name`` field.
         total_steps: Unused (kept for API compat). Schedule is handled
             by the training loop.
 

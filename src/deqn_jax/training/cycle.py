@@ -136,8 +136,9 @@ def make_cycle_step(
     The rollout is kind-agnostic; only the per-batch grad step differs.
 
     ``sorted_within_batch`` (default False): when True and history_len==1,
-    minibatches are contiguous slices of single trajectories (RL-style)
-    rather than IID-shuffled samples. Batch order is shuffled; intra-batch
+    minibatches are contiguous slices of the trajectory-major data (RL-style;
+    a slice can span several trajectories when episode_length is not a multiple of
+    batch_size) rather than IID-shuffled samples. Batch order is shuffled; intra-batch
     order is preserved. See TrainConfig docstring.
 
     ``replay_cfg`` (default None): when provided AND ``replay_cfg.enabled``,
@@ -207,8 +208,9 @@ def make_cycle_step(
         # - time-major [T*B, D]: reshape trajectory [T, B, D] directly.
         #   IID shuffling of all samples, used when sorted_within_batch=False.
         # - trajectory-major [B*T, D]: transpose to [B, T, D] first.
-        #   Contiguous slices of length `batch_size` are single-trajectory
-        #   temporal segments; used when sorted_within_batch=True.
+        #   Contiguous slices of length `batch_size` are temporal segments
+        #   (one trajectory when episode_length is a multiple of batch_size);
+        #   used when sorted_within_batch=True.
         if history_len > 1:
             # Sequence path: windows already carry temporal coherence.
             # sorted_within_batch is a no-op here.

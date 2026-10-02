@@ -2,8 +2,8 @@
 
 Standard accuracy metrics (Azinovic et al. 2022, Den Haan & Marcet 1994): Euler
 equation errors, market clearing, simulated moments, stability, and Dynare
-cross-checks. Split into a package for readability; this module re-exports the
-public surface so ``from deqn_jax.evaluate import ...`` keeps working.
+cross-checks. This module re-exports the public surface of the ``evaluate``
+package, so ``from deqn_jax.evaluate import ...`` works.
 """
 
 from deqn_jax.evaluate.cli import run_evaluate_cli

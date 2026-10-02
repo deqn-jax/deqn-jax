@@ -1,6 +1,8 @@
-"""Warm start: L-BFGS initialization from steady state.
+"""Warm start: fit the policy network to a target policy before training.
 
-Fits the policy network to match steady state policy before training.
+``warm_start_network`` fits with L-BFGS to the constant steady-state policy or,
+with ``linearize=True``, to the Blanchard-Kahn linear policy.
+``warm_start_from_dynare`` fits with Adam to Dynare's first-order policy.
 This gives a much better starting point than random initialization.
 
 L-BFGS is ideal here because:
@@ -204,7 +206,8 @@ def warm_start_network(
 
     Args:
         policy_net: Equinox policy network to initialize
-        model: Model specification (must have steady_state_fn)
+        model: Model specification; without a steady_state_fn the network
+            is returned unchanged
         n_points: Number of fitting points
         max_iter: Maximum L-BFGS iterations
         tol: Convergence tolerance

@@ -10,7 +10,7 @@ from deqn_jax.config._base import _ConfigBase
 from deqn_jax.config.train import TrainConfig
 
 # ---------------------------------------------------------------------------
-# Helpers (kept from original)
+# Helpers
 # ---------------------------------------------------------------------------
 
 

@@ -17,7 +17,7 @@ def step(
 ) -> Array:
     """Transition to next state.
 
-    Capital: k' = (1 - c_share) * coh, clipped to [k_min, inf)
+    Capital: k' = (1 - c_share) * coh, clipped to [k_min, k_max]
     Productivity: a' = rho * a + sigma * sqrt(1 - rho^2) * eps
     """
     s = SPEC.unpack_state(state)

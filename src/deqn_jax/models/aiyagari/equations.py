@@ -45,8 +45,7 @@ def equations(
         u'(c) = beta * (1 + r) * E[u'(c')]
 
     Note: this is the per-realization residual. The expectation over
-    shocks is handled externally (by averaging over shock samples in
-    the training loop or GRPO reward computation).
+    shocks is handled by the loss, which averages over shock samples.
 
     At the borrowing constraint, the Euler inequality u'(c) >= beta*(1+r)*E[u'(c')]
     holds. The bounded policy (c_share in [0.01, 0.99]) enforces feasibility.

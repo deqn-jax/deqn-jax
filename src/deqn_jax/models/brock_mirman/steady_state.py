@@ -13,8 +13,7 @@ For the canonical constants here (alpha=0.36, beta=0.99, delta=0.1):
 
 The formula is extremely sensitive to (beta, delta), which is the ENTIRE
 source of the old "sim 4.0 / closed-form 0.18 / partial-delta 14"
-discrepancy recorded in project memory. It was a calibration mixup, not a
-solver bug:
+discrepancy. It was a calibration mixup, not a solver bug:
 
     * delta=1 (full depreciation) collapses the formula to the log-utility
       closed form k_ss = (alpha*beta)**(1/(1-alpha)) = 0.1995 here -- a

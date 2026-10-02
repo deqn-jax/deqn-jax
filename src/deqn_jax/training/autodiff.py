@@ -28,7 +28,7 @@ effort / payoff. Returns one Euler residual per agent, named via
 **Intratemporal FOCs (optional)** — one equation per index listed in
 ``intratemporal_policy_idx``. For index ``j`` the residual is
 
-    foc_j = dPi/d(policy[j]) at (K_t, K_{t+1}, z_t, policy_t)
+    foc_j = -dPi/d(policy[j]) at (K_t, K_{t+1}, z_t, policy_t)
 
 i.e. zero at the intratemporal optimum (labor FOC, effort FOC, etc.).
 These are completely local — no expectation, no K_{t+2} reconstruction.
@@ -207,7 +207,6 @@ def euler_from_period_return(
 
         # ENVELOPE CONTRACT: freeze next_policy via stop_gradient before
         # using it in K_{t+2} reconstruction or per-agent dPi2 gradients.
-        # See the original single-agent docstring above for derivation.
         next_policy_frozen = jax.lax.stop_gradient(next_policy)
 
         # K_{t+2} — single deterministic step shared across all agents;

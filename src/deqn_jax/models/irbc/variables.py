@@ -40,7 +40,7 @@ CONSTANTS = {
     "kappa": 0.5,  # quadratic capital-adjustment-cost coefficient
     "rho_z": 0.95,  # TFP autocorrelation
     "sigma_eps": 0.01,  # std of both country-specific and aggregate innovations
-    "A_tfp": 0.055836,  # TFP scale, calibrated so MPK_ss = 1/beta
+    "A_tfp": 0.055836,  # TFP scale: 1 - delta + mpk = 1/beta at k=1
     # Heterogeneous risk aversion. Notebook uses a linear spread [0.25, 1.0]
     # across N=2 countries; exposed here as separate keys for Pydantic
     # compatibility (constants are Dict[str, float]).
@@ -50,8 +50,8 @@ CONSTANTS = {
     "tau_0": 0.5,
     "tau_1": 0.5,
     # Fischer-Burmeister regularization; 0 is the pure FB function, a small
-    # eps (~1e-8) keeps the sqrt smooth at the origin without distorting
-    # the zero of the function away from the true complementary state.
+    # eps (~1e-8) keeps the sqrt smooth at the origin and moves the zero to
+    # mu * i = eps / 2 instead of the exact complementary state.
     "fb_eps": 1.0e-8,
 }
 

@@ -1,12 +1,9 @@
 """Shared eval-rollout helpers: discrete-chain detection, shock draw, rollout loop.
 
 Every evaluation-side simulation (Euler residuals, simulated moments,
-stability, the deterministic IRF path) is the
-same loop: draw a shock, step, record, clip, repeat. It used to be written
-out six times, each copy carrying a different subset of the branches
-(disaster Bernoulli, discrete Markov chain, two-stage quadrature). The loop
-lives here once; callers supply the per-step function (still JIT-compiled on
-their side) and a ``record`` callback.
+stability, the deterministic IRF path) is the same loop: draw a shock, step,
+record, clip, repeat. The loop lives here once; callers supply the per-step
+function (still JIT-compiled on their side) and a ``record`` callback.
 
 The shock draw itself routes through ``deqn_jax.training.shocks`` so the
 verifier samples from the same primitives the trainer does.

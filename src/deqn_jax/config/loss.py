@@ -29,23 +29,23 @@ class CompositeLossConfig(_ConfigBase):
 
     anchor_weight: float = Field(
         default=0.1,
-        description="Weight on the anchor loss (||π_net(x) - π_lin(x)||² at sampled anchor points near SS).",
+        description="Weight on the anchor loss (mean squared difference π_net(x) - π_lin(x) over the anchor points sampled near SS and the policies).",
     )
     jac_weight: float = Field(
         default=0.01,
-        description="Weight on the Jacobian-match loss (||J_net(SS) - P||² at the steady state).",
+        description="Weight on the Jacobian-match loss (mean squared entry of J_net(SS) - P at the steady state).",
     )
     jac_anchor_weight: float = Field(
         default=0.0,
-        description="Weight on the per-anchor Jacobian match (||J_net(x_i) - P||² averaged over anchors). 0 = off. ~d× more expensive than `jac_weight`.",
+        description="Weight on the per-anchor Jacobian match (mean squared entry of J_net(x_i) - P, averaged over anchors). 0 = off. ~d× more expensive than `jac_weight`.",
     )
     barrier_weight: float = Field(
         default=0.01,
-        description="Weight on economic feasibility barriers (net worth, leverage, consumption positivity).",
+        description="Weight on economic feasibility barriers (net worth, leverage, consumption positivity). Read by the model's `composite_aux_fn`; only the disaster model defines one.",
     )
     newton_weight: float = Field(
         default=0.01,
-        description="Weight on Newton-step auxiliary losses (condition number, residual) for kink-approximation stabilization.",
+        description="Weight on Newton-step auxiliary losses (condition number, residual) for kink-approximation stabilization. Read by the model's `composite_aux_fn`; only the disaster model defines one.",
     )
     n_anchor_points: int = Field(
         default=64,
@@ -93,7 +93,7 @@ class CompositeLossConfig(_ConfigBase):
     )
     leverage_mult: float = Field(
         default=5.0,
-        description="Leverage barrier fires when `L > leverage_mult * L_ss`. Higher = more permissive.",
+        description="Leverage barrier fires when `L > leverage_mult * L_ss`. Higher = more permissive. Read by the disaster model's `composite_aux_fn`.",
     )
     aux_decay_floor: float = Field(
         default=0.2,
@@ -189,9 +189,9 @@ class MomentMatchingConfig(_ConfigBase):
 
     Composes with any base loss (residual MSE, composite, etc). Uses
     per-minibatch policy-output moments as the estimator; the gradient
-    flows through ``policy(s)`` only, with states ``stop_gradient``-ed
-    (they came from a separate rollout). See
-    ``training/moment_loss.py`` for the design rationale.
+    flows through ``policy(s)`` only, because the states are inputs that
+    came from a separate rollout. See ``training/moment_loss.py`` for the
+    design rationale.
     """
 
     enabled: bool = Field(
