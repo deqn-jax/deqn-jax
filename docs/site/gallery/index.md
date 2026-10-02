@@ -1,34 +1,35 @@
 # Gallery
 
-**Worked equilibrium models you can read end-to-end.** Each notebook introduces
-*one* economics step and *one* method capability, trains the model from its
-`configs/<model>.yaml` with a single `train_from_config` call, and closes with an
-**accuracy certificate** -- not a loss curve. The certificate is the claim:
-dimensionless residual quantiles on the model's *own* ergodic states, plus, where
-it matters, a closed-loop stability diagnostic and an independent cross-check.
-See [What counts as solved](#what-counts-as-solved) before you read the numbers.
+Worked equilibrium models, each readable end to end. A notebook introduces one
+economics step and one method capability, trains the model from its
+`configs/<model>.yaml` with a single `train_from_config` call, and ends with an
+accuracy certificate rather than a loss curve. The certificate reports
+dimensionless residual quantiles on the model's own ergodic states. Where it
+matters, it adds a closed-loop stability diagnostic and an independent
+cross-check. See [What counts as solved](#what-counts-as-solved) before reading
+the numbers.
 
-The gallery is a learning path in two arcs. Read top to bottom the first time.
+The notebooks form two arcs. Read them in order the first time.
 
-!!! warning "Alpha -- and these certificates are claims to re-verify"
-    deqn-jax is alpha. The certificate numbers below are quoted from prior
-    training runs and are pending a fresh executed render; treat them as the
-    target each notebook sets for itself, not a settled benchmark. And keep the
-    [two honest limits](../index.md) in view: a low residual is *necessary but
-    not sufficient* (a global solver can land on the wrong equilibrium branch,
-    and nothing enforces equilibrium *selection* -- there is no global analogue
-    of the *local* Blanchard-Kahn saddle-path condition), and there are no
-    analytic error bounds. "Certified" here means a spectral-radius +
-    residual-quantile + linearization-floor certificate, nothing stronger.
+!!! warning "Certificate numbers are quoted from earlier runs"
+    The numbers below come from prior training runs and are pending a fresh
+    executed render. Treat them as the target each notebook sets for itself,
+    not as a settled benchmark. The [two limits](../index.md) on the home page
+    apply: a low residual is necessary but not sufficient, since a global solver
+    can land on the wrong equilibrium branch and nothing enforces equilibrium
+    selection (there is no global analogue of the local Blanchard-Kahn
+    saddle-path condition). There are also no analytic error bounds.
+    "Certified" here means a spectral-radius, residual-quantile and
+    linearization-floor certificate, nothing stronger.
 
 ---
 
 ## Arc 1 -- Closed-form pedagogy
 
-Start where the answer is known. These four models have an analytic oracle (a
-closed-form policy or an analytical benchmark), so a trained DEQN can be checked
-*point-for-point* against the truth -- the cleanest possible demonstration that
-the machinery works before we point it at a model with no answer key.
+These four models have an analytic oracle (a closed-form policy or an
+analytical benchmark), so the trained DEQN can be checked point for point
+against the true solution. This tests the machinery before it is used on a
+model with no known answer.
 
 | # | notebook | economics step | method capability it shows | certificate |
 |---|----------|----------------|----------------------------|-------------|
@@ -41,55 +42,53 @@ the machinery works before we point it at a model with no answer key.
 
 ## Arc 2 -- The Fischer-Burmeister trilogy
 
-Real models have kinks: investment that can't go negative, households that can't
-borrow, choices that hit a cap. These are KKT complementarity conditions, and
-perturbation methods linearize the kink away. The DEQN answer is to make the
-complementarity itself a trainable residual via the **Fischer-Burmeister**
-function. Three notebooks build the capability from its simplest form to a
+Many models have kinks: investment that cannot go negative, households that
+cannot borrow, choices that hit a cap. These are KKT complementarity
+conditions, and perturbation methods linearize the kink away. DEQN instead
+writes the complementarity condition as a trainable residual using the
+Fischer-Burmeister function. The three notebooks go from the simplest case to a
 multi-country planner problem.
 
 | # | notebook | economics step | method capability it shows | certificate |
 |---|----------|----------------|----------------------------|-------------|
-| 5 | [Labor under a cap](bm_labor_constrained.ipynb) | an upper labor cap (one occasionally-binding constraint) | **Fischer-Burmeister complementarity** as an analytic wedge; slack/wedge diagnostics | Euler median $10^{-2.9}$, FB median $10^{-3.7}$ |
-| 6 | [Life-cycle OLG, borrowing-constrained](olg_lifecycle.ipynb) | 6-generation life-cycle with borrowing limits | **two-stage loss**: an FB residual *wrapping* an expectation, where $\mathbb{E}[\mathrm{fb}] \neq \mathrm{fb}(\mathbb{E})$ | ergodic $\lvert\mathrm{errREE}\rvert \approx 8\times10^{-4}$ |
-| 7 | [Two-country IRBC, irreversible investment](irbc.ipynb) | 2-country International RBC, irreversibility | **KKT multipliers as network outputs**; Gauss-Hermite quadrature expectations; **Blanchard-Kahn-anchored stability** | Euler median $10^{-4.3}$, ARC median $10^{-2.9}$, $\rho(\mathrm{SS})=0.98$ |
+| 5 | [Labor under a cap](bm_labor_constrained.ipynb) | an upper labor cap (one occasionally-binding constraint) | Fischer-Burmeister complementarity as an analytic wedge; slack/wedge diagnostics | Euler median $10^{-2.9}$, FB median $10^{-3.7}$ |
+| 6 | [Life-cycle OLG, borrowing-constrained](olg_lifecycle.ipynb) | 6-generation life-cycle with borrowing limits | two-stage loss: an FB residual wrapping an expectation, where $\mathbb{E}[\mathrm{fb}] \neq \mathrm{fb}(\mathbb{E})$ | ergodic $\lvert\mathrm{errREE}\rvert \approx 8\times10^{-4}$ |
+| 7 | [Two-country IRBC, irreversible investment](irbc.ipynb) | 2-country International RBC, irreversibility | KKT multipliers as network outputs; Gauss-Hermite quadrature expectations; Blanchard-Kahn-anchored stability | Euler median $10^{-4.3}$, ARC median $10^{-2.9}$, $\rho(\mathrm{SS})=0.98$ |
 
 ---
 
 ## What counts as solved
 
-Training loss is **not** the claim. This repo has documented cases of the
-training loss being misleading in *both* directions. A gallery model is
-presented as solved only when all three of these hold:
+Training loss is not the claim. This repository has documented cases where the
+training loss misled in both directions. A gallery model is presented as solved
+only when all three of these hold:
 
-1. **Its closed-loop dynamics are stable.** Long *unclipped* simulations stay in
-   economic territory, and the spectral radius of the closed loop at the steady
-   state is below 1. This is equilibrium *selection*, not just equilibrium
-   *residuals* -- and it is exactly the check a low loss cannot give you.
-2. **Dimensionless residual quantiles are small on the ergodic set**, measured
-   with a trustworthy expectation (Gauss-Hermite quadrature, or the unbiased
-   AiO estimator -- `docs/dev/aio_loss_estimator.md`) and reported as
-   median / p90 / p99, **never a bare mean**.
-3. **Something independent agrees** -- a closed form (Arc 1, notebook 4), a
-   structural identity (notebook 7's risk-sharing ratio), or the model's own
+1. Its closed-loop dynamics are stable. Long unclipped simulations stay in
+   economically meaningful territory, and the spectral radius of the closed
+   loop at the steady state is below 1. This concerns equilibrium selection,
+   not only equilibrium residuals, and a low loss cannot establish it.
+2. Dimensionless residual quantiles are small on the ergodic set. They are
+   measured with a reliable expectation (Gauss-Hermite quadrature, or the
+   unbiased AiO estimator in `docs/dev/aio_loss_estimator.md`) and reported as
+   median / p90 / p99, never as a bare mean.
+3. An independent check agrees: a closed form (Arc 1, notebook 4), a structural
+   identity (the risk-sharing ratio in notebook 7), or the model's own
    linearization used as a floor to beat (the Blanchard-Kahn-anchored models).
 
 ## Running a notebook yourself
 
-Every notebook trains its model from scratch -- minutes on a laptop. All
-training is config-driven; there is no hand-tuned magic beyond each model's
-`configs/` file.
+Each notebook trains its model from scratch, which takes minutes on a laptop.
+Training is config-driven; the only tuning is in each model's `configs/` file.
 
 ```bash
 uv run jupyter nbconvert --to notebook --execute examples/<name>.ipynb \
     --output <name>.ipynb --ExecutePreprocessor.timeout=3600
 ```
 
-Most notebooks are generated from `_build_<name>_notebook.py` builders: edit the
+Most notebooks are generated by `_build_<name>_notebook.py` builders. Edit the
 builder, regenerate, then re-execute.
 
-**In progress** (not yet certified, not yet in the gallery): `aiyagari`
-(continuum of agents), a 56-agent OLG benchmark, Krusell-Smith, and the DICE
-climate family.
+In progress, not yet certified and not in the gallery: `aiyagari` (continuum of agents), a
+56-agent OLG benchmark, Krusell-Smith, and the DICE climate family.
 
-Want to build your own? See [Models & the ModelSpec contract](../models/index.md).
+To build your own model, see [Models & the ModelSpec contract](../models/index.md).
