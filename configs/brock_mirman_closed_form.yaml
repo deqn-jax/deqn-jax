@@ -1,0 +1,31 @@
+# Stochastic Brock-Mirman with full depreciation (delta = 1). With log
+# utility and Cobb-Douglas production the exact decision rule is the
+# constant savings rate alpha*beta in every state (Brock & Mirman 1972), so
+# the distance of the trained rule from alpha*beta measures the solver's
+# error directly. Used by the economist pages (docs/econ/) and
+# scripts/dev/econ_figures.py.
+
+model: brock_mirman
+constants:
+  delta: 1.0
+episodes: 10000
+batch_size: 64
+episode_length: 100
+expectation_type: gauss_hermite
+n_quadrature_points: 8
+seed: 0
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  lr_schedule: cosine
+  lr_min_factor: 0.01
+
+checkpoint_dir: runs/econ/brock_mirman_closed_form
+checkpoint_every: 250
+log_every: 1000

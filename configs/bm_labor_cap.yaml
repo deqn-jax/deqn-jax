@@ -1,0 +1,34 @@
+# Brock-Mirman with endogenous labor and a binding labor cap: the running
+# example of the economist pages (docs/econ/). Same model as
+# bm_labor_constrained.yaml, with the cap lowered from 1.02 to 1.00 so it
+# binds in high-productivity states. At the registered calibration the cap
+# (1.02) sits above the network's labor ceiling (1.01) and never binds.
+# Figures: scripts/dev/econ_figures.py.
+
+model: bm_labor_constrained
+constants:
+  L_max: 1.0
+episodes: 20000
+batch_size: 64
+episode_length: 100
+# Expectation by quadrature: with mc_samples: 5 the squared mean of five draws
+# carries a variance term the rule can lower, and the same recipe stopped at a
+# median Euler error near 10^-2.1 (laptop run, 2026-10-02).
+expectation_type: gauss_hermite
+n_quadrature_points: 8
+seed: 0
+
+network:
+  type: mlp
+  hidden_sizes: [64, 64]
+  activation: tanh
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  lr_schedule: cosine
+  lr_min_factor: 0.01
+
+checkpoint_dir: runs/econ/bm_labor_cap
+checkpoint_every: 5000
+log_every: 1000
