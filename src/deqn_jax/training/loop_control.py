@@ -3,9 +3,9 @@
 The small, Python-side (non-JIT) controllers that ``_run_training_loop``
 orchestrates each episode -- mid-training optimizer switch, LR / curriculum
 scaling, target-network update, NaN rollback, and early stop -- plus the three
-mutable runtime-state dataclasses they read/write. Extracted from trainer.py so
-the orchestrator body reads as the algorithm in order. Pure move (no logic
-changes); trainer.py re-imports these under the same names.
+mutable runtime-state dataclasses they read/write. Kept out of trainer.py so
+the orchestrator body reads as the algorithm in order; trainer.py re-imports
+these under the same names.
 """
 
 import math
@@ -149,8 +149,12 @@ def _episode_lr_scale(
 ) -> Tuple[Array, float]:
     """Return ``(lr_scale jnp scalar, current_lr float for logging)``.
 
-    stateless schedules accept but ignore it. NaN-rollback LR reduction
-    is folded in via ``nan.lr_scale``.
+    With a schedule, ``lr_scale`` is the scheduled LR itself (the optimizer
+    was built with LR 1.0): the schedule is called as
+    ``fn(ep_num, last_loss)``, falling back to ``fn(ep_num)`` for optax
+    schedules that take one argument. Without one, ``lr_scale`` is a pure
+    multiplier on the optimizer's own LR. NaN-rollback LR reduction is
+    folded in via ``nan.lr_scale`` either way.
     """
     if lr_schedule_fn is not None:
         last_loss = history["loss"][-1] if history["loss"] else None

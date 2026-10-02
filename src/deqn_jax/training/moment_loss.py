@@ -17,20 +17,20 @@ Interaction with other auxiliaries:
   - Layered cleanly with composite loss: the wrapper takes any base
     loss callable and adds the aux penalty on top.
 
-Estimator: per-minibatch policy-output moments. The 64-state batch is
-a small sample, so the per-step estimate is noisy, but Adam-family
+Estimator: per-minibatch policy-output moments. The minibatch is a
+small sample, so the per-step estimate is noisy, but Adam-family
 optimizers average it out over training. Crucially, the gradient
-flows through ``policy(s)`` only — the states themselves are
-``stop_gradient``'d (they came from a separate rollout). This means
+flows through ``policy(s)`` only: the states are inputs that came from a
+separate rollout, so no gradient reaches them. This means
 we're matching "policy-output distribution conditional on the visited
 states" rather than the true ergodic moments. As the policy improves
 and the visited-state distribution approaches the true ergodic, the
 two coincide; in early training the bias toward the target moments
 shapes which states the policy steers toward.
 
-API: ``make_moment_matching_wrapper(base_loss_fn, target_moments,
+API: ``make_moment_matching_wrapper(base_loss_fn, target_idx_to_moments,
 weight, ...)`` returns a callable with the same signature as
-``training.loss.compute_loss``.
+``base_loss_fn`` (``training.loss.compute_loss`` when it is None).
 """
 
 from __future__ import annotations

@@ -3,9 +3,12 @@
 Key design: each cycle is a Python-level loop composing two separately-JIT'd
 pieces — one rollout call plus a minibatch sweep of grad_step calls (see
 training/cycle.py). Five grad-step variants dispatched at construction time
-(before JIT), each owned by its optimizer family under ``optimizers/``:
+(before JIT), each owned by its optimizer family under ``optimizers/``. The
+optimizer's ``OptimizerKind`` picks the variant (``deqn-jax optimizers``
+lists each registered name with its kind); PCGRAD is selected by
+``gradient_surgery='pcgrad'`` on a STANDARD optimizer:
 
-- STANDARD (adam/sgd/adamw/lion/muon/ngd/shampoo): jax.grad -> opt.update
+- STANDARD: jax.grad -> opt.update
 - PCGRAD: per-equation grads with conflict projection -> opt.update
 - MAO: jax.jacrev(per_eq_loss_vector) -> per-equation Jacobian -> mao.update
 - LBFGS: optax.lbfgs (GradientTransformationExtraArgs) -- needs value +
@@ -133,8 +136,9 @@ def _run_training_loop(
     Orchestrates the per-episode phase helpers (mid-training switch,
     LR/curriculum scaling, train_step, target-net update, NaN rollback,
     early stop, logging, periodic + best-checkpoint writes). Each
-    concern lives in its own helper above; this body is the algorithm
-    in order.
+    concern lives in its own helper (``training/loop_control.py``,
+    ``training/checkpointing.py``, ``training/reporting.py``); this body
+    is the algorithm in order.
     """
     if config.switch_optimizer and config.switch_episode is None:
         raise ValueError("--switch-optimizer requires --switch-episode")
@@ -160,8 +164,8 @@ def _run_training_loop(
     )
     save_best = _SaveBestTracker(
         # Don't save as "best" during curriculum ramp (shocks are reduced
-        # → loss is artificially low). Falls back to log_every when no
-        # curriculum is configured.
+        # → loss is artificially low). The grace is never shorter than
+        # log_every.
         grace=max(config.curriculum_episodes, config.log_every),
         best_episode=start_episode,
     )
@@ -279,7 +283,8 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         config: TrainConfig instance
 
     Returns:
-        Tuple of (trained_params, history_dict)
+        Tuple of (trained_params, history_dict), or None when a resumed
+        checkpoint is already at or past ``config.episodes``.
     """
     _validate_train_config(config)
     model, n_equations = _resolve_model_for_training(config)

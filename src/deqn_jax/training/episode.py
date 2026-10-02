@@ -29,7 +29,7 @@ def run_episode(
     """Run a full episode and collect trajectory.
 
     Uses lax.scan for efficient JIT compilation. ``shock_scale`` and
-    ``shock_mask`` are threaded through to every ``simulate_step`` call
+    ``shock_mask`` are threaded through to every ``simulation_step`` call
     so that the training-time shock conventions apply uniformly across
     the episode (not just at the loss evaluation).
 
@@ -86,8 +86,9 @@ def sample_initial_states(
 ) -> Array:
     """Sample initial states for episode.
 
-    If model has init_state_fn, uses that. Otherwise samples
-    uniformly around steady state (or uses defaults).
+    If model has init_state_fn, uses that. Otherwise adds N(0, 0.1²) noise
+    to the steady state, or draws U[0.1, 2.0] per dimension when the model
+    has no steady_state_fn either.
 
     Args:
         model: Model specification
