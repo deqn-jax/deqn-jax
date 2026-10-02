@@ -85,7 +85,25 @@ h2 {
 }
 h3 { font-size: 1.15rem; margin: 2rem 0 0.5rem; font-weight: 600; }
 .lede { font-size: 1.3rem; line-height: 1.5; color: var(--ink); margin: 0 0 1.5rem; }
-.byline { color: var(--muted); font-size: 0.95rem; }
+.byline { color: var(--ink); font-size: 1rem; margin: 0 0 0.25rem; }
+.credit { color: var(--muted); font-size: 0.95rem; margin: 0 0 1.25rem; }
+p.caption, table caption {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  text-align: left;
+}
+p.caption { margin: -0.75rem 0 2rem; }
+table caption { caption-side: top; padding-bottom: 0.5rem; }
+details {
+  margin: 3rem 0 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 1rem;
+  font-size: 0.95rem;
+}
+summary { cursor: pointer; color: var(--muted); }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details[open] summary { margin-bottom: 0.75rem; }
 
 p { margin: 0 0 1rem; }
 .nobr { white-space: nowrap; }
@@ -194,3 +212,5 @@ ol.steps li { margin-bottom: 1rem; }
 
 .katex { font-size: 1.05em; }
 .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2rem 0; }
+
+figure > svg.diagram { max-width: 32rem; margin: 0 auto; }
