@@ -1,15 +1,16 @@
 """Optimizers for DEQN-JAX.
 
 Includes:
-- Standard optimizers via Optax (Adam, SGD, AdamW, Lion, Muon)
+- Standard optimizers via Optax
 - Natural Gradient Descent (diagonal Fisher)
 - Multi-Adaptive Optimizer (per-equation moments)
 - Kronecker-factored Shampoo
 - L-BFGS via optax
 - Gauss-Newton / implicit Gauss-Newton / Levenberg-Marquardt for residual minimization
 
-All standard/NGD/Shampoo/Muon optimizers are registered in the
-registry and created via ``create_optimizer(config)``.
+Every optimizer is registered by name in ``registry.py`` and created via
+``create_optimizer(config)``. ``deqn-jax optimizers`` (or
+``list_optimizers()``) lists the registered names with their kinds.
 """
 
 # Import all optimizer modules to trigger @register_optimizer
