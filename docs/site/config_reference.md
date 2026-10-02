@@ -80,13 +80,13 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 |---|---|---|---|
 | `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`. |
 | `learning_rate` | `float` | `0.001` | Peak learning rate (or constant LR when `lr_schedule='constant'`). |
-| `grad_clip` | `Union[float, None]` | `None` | Global-norm clipping threshold. None disables. Chained before the update for STANDARD optimizers; MAO clips the norm of its update instead. Rejected for `lbfgs`, `gn`, `ign` and `lm`, whose update paths do not apply it. |
+| `grad_clip` | `Union[float, None]` | `None` | Global-norm clipping threshold. None disables. Chained before the update for STANDARD optimizers; MAO clips the norm of its update (Adam-normalized and already scaled by `learning_rate`) instead. Rejected for `lbfgs`, `gn`, `ign` and `lm`, whose update paths do not apply it. |
 | `beta1` | `float` | `0.9` | Adam / MAO first-moment decay. |
 | `beta2` | `float` | `0.999` | Adam / MAO second-moment decay. |
 | `epsilon` | `float` | `1e-08` | Adam / MAO numerical floor. |
 | `damping` | `float` | `0.0001` | Preconditioner damping for NGD / GN / IGN / LM. |
 | `decay` | `float` | `0.999` | NGD preconditioner EMA decay. |
-| `precond_update_freq` | `int` | `10` | Shampoo preconditioner update frequency. |
+| `precond_update_freq` | `int` | `10` | Shampoo: steps between updates of the L/R statistics (gradients in between do not enter them). |
 | `memory_size` | `int` | `10` | L-BFGS history size. |
 | `ns_steps` | `int` | `5` | Muon Newton-Schulz iteration count. |
 | `cg_iters` | `int` | `20` | Implicit Gauss-Newton conjugate-gradient iteration cap. |
