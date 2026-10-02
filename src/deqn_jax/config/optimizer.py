@@ -37,7 +37,8 @@ class OptimizerConfig(_ConfigBase):
         description="Peak learning rate (or constant LR when `lr_schedule='constant'`).",
     )
     grad_clip: Optional[float] = Field(
-        default=None, description="Global gradient-norm clipping. None disables."
+        default=None,
+        description="Global-norm clipping threshold. None disables. Chained before the update for STANDARD optimizers; MAO clips the norm of its update instead. Rejected for `lbfgs`, `gn`, `ign` and `lm`, whose update paths do not apply it.",
     )
     beta1: float = Field(default=0.9, description="Adam / MAO first-moment decay.")
     beta2: float = Field(default=0.999, description="Adam / MAO second-moment decay.")
@@ -65,7 +66,8 @@ class OptimizerConfig(_ConfigBase):
         description="LR schedule: `constant` or `cosine`.",
     )
     lr_warmup: int = Field(
-        default=0, description="Linear warmup episodes before `lr_schedule` kicks in."
+        default=0,
+        description="With `lr_schedule='cosine'`: episodes of linear warmup from 0 to `learning_rate`, counted inside the schedule's `episodes` horizon. Ignored by `constant`.",
     )
     lr_min_factor: float = Field(
         default=0.0,
