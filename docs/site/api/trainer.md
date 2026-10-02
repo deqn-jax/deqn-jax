@@ -1,27 +1,25 @@
 # Trainer
 
-The trainer is the orchestration layer. Three entry points, ordered by
-abstraction:
+The trainer orchestrates a run. It has three entry points, from high level to
+low level:
 
-1. **`train_from_config(config)`** — high-level. Pass a populated
-   `TrainConfig`, get back `(state, history)`. Honors checkpointing,
-   logging, early stopping, optimizer switching, warm start, replay
-   buffer. This is what the CLI calls under the hood. **Use this from
-   agent code.**
-2. **`train(model_name, episodes, ...)`** — backward-compat wrapper that
-   builds a `TrainConfig` from positional args and delegates.
-3. **`create_train_state(...)` + `make_train_step(...)`** — low-level.
-   Use when you need to drive the training loop yourself (custom outer
-   loop, distributed setup, hand-coded LR schedule, …). The single
-   `@jax.jit` boundary is around `train_step`.
+1. `train_from_config(config)`: pass a populated `TrainConfig`, get back
+   `(state, history)`. Handles checkpointing, logging, early stopping,
+   optimizer switching, warm start and the replay buffer. The CLI calls this,
+   and it is the entry point to use from other programs.
+2. `train(model_name, episodes, ...)`: a backward-compatible wrapper that
+   builds a `TrainConfig` from its arguments and delegates.
+3. `create_train_state(...)` + `make_train_step(...)`: use these to drive
+   the training loop yourself (custom outer loop, distributed setup,
+   hand-coded LR schedule, …). The step `make_train_step` returns is one
+   JIT-compiled rollout followed by a sweep of JIT-compiled minibatch grad
+   steps; the cycle itself is plain Python.
 
-The "rollout + minibatch sweep" cycle is shared across all five
-optimizer families (STANDARD, PCGRAD, MAO, LBFGS, GN); only the
-per-batch grad step differs (dispatched at construction time, before
-JIT).
+The rollout + minibatch-sweep cycle is shared by all five step variants
+(STANDARD, PCGRAD, MAO, LBFGS, GN). Only the per-batch grad step differs, and
+it is chosen at construction time, before JIT.
 
-For the full surface and example call patterns, see
-[Training entry points](../REFERENCE.md#training-entry-points) in
-REFERENCE.md.
+For the full surface and example calls, see
+[Training entry points](../REFERENCE.md#training-entry-points) in REFERENCE.md.
 
 ::: deqn_jax.training.trainer

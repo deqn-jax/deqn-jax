@@ -2,24 +2,23 @@
 
 Two registration paths share one `_MODELS` dict:
 
-- **In-tree** — add an import + entry to `_MODELS`
-  in [`src/deqn_jax/models/__init__.py`](https://github.com/deqn-jax/deqn-jax/blob/master/src/deqn_jax/models/__init__.py),
-  and a `DESCRIPTION` string in your package's `variables.py` (which is
-  where `_DESCRIPTIONS` reads the `deqn-jax list` blurb from).
-  Right thing for models that ship with the library.
-- **Programmatic** — call `register_model(spec, description=...)` at
-  runtime. Right thing for agent-codegen'd models in user projects,
-  notebook prototypes, or external plugins. See
-  [Adding a model](../REFERENCE.md#adding-a-model) for the contract.
+- In-tree: add an import and an entry to `_MODELS` in
+  [`src/deqn_jax/models/__init__.py`](https://github.com/deqn-jax/deqn-jax/blob/master/src/deqn_jax/models/__init__.py),
+  and a `DESCRIPTION` string in your package's `variables.py` (`_DESCRIPTIONS`
+  reads the `deqn-jax list` text from there). Use this for models that ship
+  with the library.
+- Programmatic: call `register_model(spec, description=...)` at runtime. Use
+  this for generated models in user projects, notebook prototypes, or
+  external plugins. See [Adding a model](../REFERENCE.md#adding-a-model) for
+  the contract.
 
-Both paths feed `load_model(name)` and `list_models()` identically.
+`load_model(name)` and `list_models()` treat both paths the same.
 
-`VariableSpec` (in `variable_spec.py`) is a small helper that gives
-named attribute access to state and policy arrays (`s.k`, `p.sav_rate`)
-across both batched `[batch, n]` and unbatched `[n]` shapes — cleaner
-than `state[:, 0]` everywhere, and traces through `jax.vmap` unchanged.
-`make_init_state_fn` is a declarative builder for initial-state
-samplers; supports `uniform`, `normal`, `lognormal`, `truncated_normal`,
+`VariableSpec` (in `variable_spec.py`) gives named attribute access to state
+and policy arrays (`s.k`, `p.sav_rate`) for both batched `[batch, n]` and
+unbatched `[n]` shapes. It replaces `state[:, 0]` indexing and traces through
+`jax.vmap` unchanged. `make_init_state_fn` builds initial-state samplers
+declaratively, with `uniform`, `normal`, `lognormal`, `truncated_normal` or
 `constant` per variable.
 
 ::: deqn_jax.models

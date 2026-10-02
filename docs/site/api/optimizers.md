@@ -1,31 +1,35 @@
 # Optimizers
 
-13 built-in optimizers, dispatched into 5 families at construction time
-(before JIT). Each family owns its own grad-step factory in
-`optimizers/<family>.py`; the generic step is `make_grad_step_standard`.
+Nine optimizers are registered. Each has an `OptimizerKind` (STANDARD, MAO,
+LBFGS or GN); together with the PCGrad variant of STANDARD that gives five
+train-step variants, chosen at construction time, before JIT. Each variant
+has its own grad-step factory in `optimizers/<variant>.py`; the generic one is
+`make_grad_step_standard`.
 
-| Family | Names | Step shape |
+| Variant | Names | Step shape |
 | --- | --- | --- |
-| **STANDARD** | `adam`, `muon`, `ngd`, `shampoo` | `jax.grad → opt.update(grads, state, params)` |
-| **PCGRAD** | (`gradient_surgery: pcgrad`) | Per-equation grads with conflict projection |
-| **MAO** | `mao` | Per-equation Jacobian via `jax.jacrev` → MAO update |
-| **LBFGS** | `lbfgs` | Optax LBFGS with line search (needs `value`, `grad`, `value_fn`) |
-| **GN** | `gn`, `ign`, `lm` | Gauss-Newton / Levenberg-Marquardt: `Δθ = −(JᵀJ)⁻¹ Jᵀr` |
+| STANDARD | `adam`, `muon`, `ngd`, `shampoo` | `jax.grad → opt.update(grads, state, params)` |
+| PCGRAD | (`gradient_surgery: pcgrad`) | Per-equation grads with conflict projection |
+| MAO | `mao` | Per-equation Jacobian via `jax.jacrev` → MAO update |
+| LBFGS | `lbfgs` | Optax LBFGS with line search (needs `value`, `grad`, `value_fn`) |
+| GN | `gn`, `ign`, `lm` | Gauss-Newton / Levenberg-Marquardt: `Δθ = −(JᵀJ)⁻¹ Jᵀr` |
 
-Registration uses the `@register_optimizer(name, kind)` decorator in
-each module; `optimizers/__init__.py` imports every module to trigger
-registration. `create_optimizer(config)` looks up the registry and
-chains `optax.clip_by_global_norm` for STANDARD optimizers
-automatically when `grad_clip` is set.
+Optimizers register with the `@register_optimizer(name, kind)` decorator, in
+`registry.py` or in their own module; `optimizers/__init__.py` imports every
+module so registration runs. `create_optimizer(config)` looks the name up and,
+for STANDARD optimizers with `grad_clip` set, chains
+`optax.clip_by_global_norm` in front.
 
-MAO uses `_MAOFactory` for deferred `n_tasks` resolution (the model's
-equation count is known only at `create_train_state` time).
+MAO uses `_MAOFactory` to defer resolving `n_tasks`, because the model's
+equation count is known only at `create_train_state` time.
 
-Composite loss is rejected with MAO/GN/IGN/LM/LBFGS and PCGrad
-(`TrainConfig._validate_ranges` enforces this); on those paths the
-optimizer's update doesn't see the auxiliary terms.
+Composite loss is rejected with `mao`, `gn`, `ign` and `lm`
+(`training.state_init._validate_train_config` enforces this): those update
+paths differentiate only the base residuals, so the auxiliary terms would be
+logged but would not reach the update. `lbfgs` and PCGrad work with composite
+loss; PCGrad then requires unit `loss_weights` (or none).
 
-For adding a new optimizer, see [Adding an optimizer](../optimizers/adding.md).
+To add an optimizer, see [Adding an optimizer](../optimizers/adding.md).
 
 ::: deqn_jax.optimizers.registry
 
