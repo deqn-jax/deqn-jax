@@ -21,12 +21,12 @@ forward respectively. JIT hoists the tuple→array conversion inside
 the forward as a constant — zero runtime cost.
 """
 
-import math
 from typing import Callable, Optional, Tuple
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 
@@ -130,11 +130,17 @@ def _apply_bounds(
         return x
 
     # Mixed bounded / unbounded outputs (e.g. positive quantities next to
-    # signed shadow prices). Decided at trace time from the static bounds, so
-    # a model with only finite lower bounds runs the unchanged path below.
-    free = tuple(float(v) == -math.inf for v in output_lower)
+    # signed shadow prices). Decided at trace time from concrete bounds (the
+    # networks store them as static tuples), so a model with only finite lower
+    # bounds runs the unchanged path below. Traced bounds cannot be inspected
+    # and keep that path too.
+    try:
+        lower_vals = np.asarray(output_lower, dtype=np.float64)
+    except jax.errors.TracerArrayConversionError:
+        lower_vals = None
+    free = () if lower_vals is None else tuple(bool(f) for f in np.isneginf(lower_vals))
     if any(free):
-        lo_bounded = tuple(0.0 if f else float(v) for v, f in zip(output_lower, free))
+        lo_bounded = tuple(0.0 if f else float(v) for v, f in zip(lower_vals, free))
         bounded = _apply_bounds(x, lo_bounded, output_upper, has_upper_mask)
         return jnp.where(jnp.array(free), x, bounded)
 

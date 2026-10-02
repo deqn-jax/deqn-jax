@@ -10,9 +10,11 @@ Kübler & Scheidegger 2024) and compares it with the stored reference solution
     (default 2015-2100), with the year where it occurs;
   - Euler-equation error statistics in the form of the reference's
     ``simulated_euler_discrepancies_describe_2015-2100.csv``, side by side.
-    Note the reference file is computed over its whole 500-year simulated
-    path (20 identical deterministic copies) despite its name; both that
-    window and 2015-2100 are reported;
+    Despite its name, the reference file covers its whole 500-year path,
+    repeated 20 times (identical deterministic copies). Statistics here are
+    computed on one copy of each path, for 2015-2100 and for all 500 years
+    (repetition shifts the interpolated extreme percentiles and the sample
+    std slightly, so the raw describe file is not used);
   - an independent check of both: the perfect-foresight path of the same
     equations, solved by Newton on the whole simulated horizon (all 7 x 500
     equilibrium conditions at once, the network's policy used only as the
@@ -197,10 +199,9 @@ def load_reference_euler(ref_dir: Path, n_path: int, n_window: int) -> dict:
         delimiter=",",
         names=True,
     )
-    full = {c: np.asarray(tab[c], dtype=np.float64) for c in tab.dtype.names}
-    first = {c: v[:n_path] for c, v in full.items()}  # one copy of the path
+    first = {c: np.asarray(tab[c][:n_path], dtype=np.float64) for c in tab.dtype.names}
     return {
-        "file_all_rows": {c: describe(v) for c, v in full.items()},
+        "path": {c: describe(v) for c, v in first.items()},
         "window": {c: describe(v[:n_window]) for c, v in first.items()},
     }
 
@@ -305,8 +306,7 @@ def euler_tables(resid: dict, ref_dir: Path, n_path: int, n_window: int) -> dict
         "window": {REF_EQUATIONS[k]: describe(v[:n_window]) for k, v in resid.items()},
         "path": {REF_EQUATIONS[k]: describe(v) for k, v in resid.items()},
     }
-    return {"deqn_jax": ours, "reference": {"window": ref_euler["window"],
-            "path": ref_euler["file_all_rows"]}}  # fmt: skip
+    return {"deqn_jax": ours, "reference": ref_euler}
 
 
 def main() -> None:
@@ -345,6 +345,11 @@ def main() -> None:
     ref = load_reference(ref_dir)
     n_path = len(ref["time"])  # the reference simulates 500 years
     n_window = args.last_year - FIRST_YEAR + 1
+    if not 1 <= n_window <= min(n_path, args.short_horizon):
+        raise ValueError(
+            f"--last-year {args.last_year} needs {n_window} years; the reference "
+            f"path has {n_path} and --short-horizon is {args.short_horizon}"
+        )
 
     states, policies, next_states, next_policies = simulate(net, model, n_path)
     ours = reference_units(states, policies, model)
@@ -398,7 +403,7 @@ def main() -> None:
         ("window", f"{FIRST_YEAR}-{args.last_year}"),
         (
             "path",
-            f"{FIRST_YEAR}-{FIRST_YEAR + n_path - 1} (the reference file's sample)",
+            f"{FIRST_YEAR}-{FIRST_YEAR + n_path - 1} (one copy of the reference file's path)",
         ),
     ):
         print(f"\n|Euler error|, {title}: deqn-jax / reference")

@@ -154,6 +154,15 @@ def test_apply_bounds_neg_inf_lower_is_unbounded_passthrough():
         assert float(J[1, 1]) == 1.0 and float(J[3, 3]) == 1.0
 
 
+def test_apply_bounds_accepts_traced_finite_bounds():
+    """Bounds passed as traced arrays keep the softplus path (no inspection)."""
+    from deqn_jax.networks.common import _apply_bounds
+
+    x = jnp.array([-2.0, 0.0, 3.0])
+    out = jax.jit(lambda a, lo: _apply_bounds(a, lo, None, None))(x, jnp.zeros(3))
+    assert bool(jnp.allclose(out, jax.nn.softplus(x)))
+
+
 def test_static_fields_are_not_pytree_reachable():
     """eqx.tree_at on a static field raises — proof the optimizer can't touch them.
 
