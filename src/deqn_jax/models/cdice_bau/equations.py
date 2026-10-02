@@ -6,7 +6,7 @@ taking the climate externality of production into account (DICE-2016
 c = lam^(-psi) (lam is the normalized marginal utility), the conditions are
 
     budget:   (1 - Omega(T_AT)) k^a - c + (1 - delta) k - G_t k'          = 0
-    foc_k:    G_t lam - b_t [ lam' ((1 - Omega') a k'^(a-1) + 1 - delta)
+    foc_k:    G_t lam - b_t [ lam' ((1 - Omega(T_AT')) a k'^(a-1) + 1 - delta)
                               - nu_at' sigma' A' L' a k'^(a-1) ]               = 0
     foc_tat:  eta_at - b_t [ -lam' dOmega(T_AT') k'^a
                              + eta_at' (1 - c1 c3 - c1f) + eta_oc' c4 ]        = 0
@@ -16,11 +16,12 @@ c = lam^(-psi) (lam is the normalized marginal utility), the conditions are
     foc_mlo:  nu_lo - b_t [ nu_uo' b32 + nu_lo' (1 - b32) ]                     = 0
     foc_toc:  eta_oc - b_t [ eta_at' c1 c3 + eta_oc' (1 - c4) ]                 = 0
 
-where G_t = exp(g_A + g_L), b_t = beta_hat_t, primes are next-period values
-and nu_at > 0 is the sign-flipped shadow value of atmospheric carbon. This is
-the system of Online Appendix D of Folini et al. (2024) with an annual step;
-residuals are in the same units as the reference implementation, so Euler
-error statistics compare directly.
+where G_t = exp(g_A + g_L), b_t = beta_hat_t, primes are next-period values,
+dOmega is the derivative of the damage share Omega, and nu_at > 0 is the
+sign-flipped shadow value of atmospheric carbon. This is the system the
+reference code solves (``gdice_baseline/Equations.py``; its derivation is in
+Online Appendix D of Folini et al. 2024) at an annual step. Residuals are in
+the reference's units, so Euler error statistics compare directly.
 """
 
 from typing import Dict
