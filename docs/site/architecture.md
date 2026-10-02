@@ -1,14 +1,19 @@
 # Architecture
 
-!!! info "For contributors — this is the software-engineering view"
-    This page is the *code* architecture (modules, imports, JIT boundary). If
-    you're an economist evaluating the **method**, you want the [home page](index.md)
-    instead — the recursive-equilibrium loop and where DEQN sits among projection /
-    time iteration / perturbation, not this import graph.
+!!! info "For contributors"
+    This page describes the code: modules, imports, JIT boundaries. Economists
+    evaluating the method should read the [home page](index.md), which covers
+    the recursive-equilibrium loop and how DEQN relates to projection, time
+    iteration and perturbation.
 
-Three diagrams: the **module dependency graph** (what imports what), the **training cycle sequence** (what happens when you call `train_from_config`), and the **`ModelSpec` contract** (what a model author writes vs. what the framework consumes). A fourth section traces **tensor shapes** through one cycle for the people who think in shapes.
+The page has three diagrams: the module dependency graph (what imports what),
+the training cycle sequence (what happens when you call `train_from_config`),
+and the `ModelSpec` contract (what a model author writes and what the
+framework consumes). A fourth section traces tensor shapes through one cycle.
 
-Diagrams are hand-drawn against the actual import graph (extracted via `pydeps src/deqn_jax --show-deps`) — collapse-at-depth-2 to keep them readable. Regenerate with:
+The diagrams are drawn by hand from the import graph that
+`pydeps src/deqn_jax --show-deps` extracts, collapsed at depth 2 for
+readability. To regenerate the import data:
 
 ```bash
 uv run pydeps src/deqn_jax --show-deps --no-output --noshow --max-bacon=4 > /tmp/deps.json
@@ -75,29 +80,51 @@ graph TD
     classDef util fill:#f5f5f5,stroke:#616161,color:#212121
 ```
 
-**Reading the graph:**
+Reading the graph:
 
-- **`training`** is the hub. Everything that does work goes through it.
-- **`models`, `networks`, `optimizers`** are author-facing — what you write or extend when porting a new model / new network / new optimizer.
-- **`evaluate`, `irf`, `plots`** are diagnostic-only — consume a trained policy + a `ModelSpec`, never touched at training time. (`plots` has no inbound deps within the package.)
-- **`types`, `config`, `metrics`** are leaf utilities. `types` defines `ModelSpec` / `TrainState` / `Metrics`; `config` is the four Pydantic classes; `metrics` is the TB / W&B / NullLogger stack.
-- **Two dashed back-edges into `training`** are worth flagging:
-  - `models -.-> training`: only via the autodiff helper (`training.autodiff.euler_from_period_return`), used by the `*_autodiff` variants. Conceptually `training` shouldn't be a model dependency, but the autodiff path puts the `jax.grad` plumbing there. Acceptable given how localized it is.
-  - `networks -.-> training`: a few sequence-network helpers consume `training.history` for window construction. Same trade-off.
+- `training` is the hub; everything that does work goes through it.
+- `models`, `networks` and `optimizers` are what you write or extend when
+  porting a new model, network or optimizer.
+- `evaluate`, `irf` and `plots` are diagnostics. They consume a trained policy
+  and a `ModelSpec`. The one use during training is `evaluate.dynare_io`,
+  which the Dynare warm start and the composite loss import to read Dynare
+  output. `plots` has no inbound dependencies within the package.
+- `types`, `config` and `metrics` are leaf utilities. `types` defines
+  `ModelSpec`, `TrainState` and `Metrics`; `config` holds the Pydantic config
+  classes (`TrainConfig` and its six nested blocks); `metrics` is the
+  TensorBoard / W&B / null logger stack.
+- Two dashed back-edges point into `training`:
+  - `models -.-> training`: the `*_autodiff` models import the autodiff
+    helper `training.autodiff.euler_from_period_return`, and the disaster
+    network imports `training.linearize.linearize_model`. `training` would
+    ideally not be a model dependency, but these imports are few and local.
+  - `networks -.-> training`: `linear_plus_mlp` imports
+    `training.linearize.linearize_model` to build its Blanchard-Kahn base.
+    Same trade-off.
 
-### Ground-truth verification
+### Checking the diagram against the code
 
-The diagram above is hand-drawn but validated edge-for-edge against the real import graph: **22 package-level edges in `pydeps` output, 22 in the mermaid, exact match**. Regenerate the diff with:
+`scripts/dev/check_module_graph.py` compares the drawn package-level edges
+with the real import graph from `pydeps`:
 
 ```bash
 uv run python scripts/dev/check_module_graph.py
 ```
 
-For the full module-level picture (each `*.py` as a node, clustered by package), here's the auto-generated companion via `pydeps`:
+The diagram is currently out of date. The script reports 28 real
+package-level edges against 16 drawn, among them the edges of the `api`
+module, which the diagram predates. The diagram also still shows a
+`benchmark` module that no longer exists.
+
+The full module-level picture, with each `*.py` as a node clustered by
+package, is generated by `pydeps`:
 
 ![Module dependency SVG, auto-generated from pydeps](figures/module_graph.svg)
 
-The SVG shows internal package structure too (e.g., the `models/<name>/` substructure, individual `training/*.py` modules, etc.) — useful when "which file in this package?" is the question. The mermaid above is the curated package-level view for getting one's bearings.
+The SVG also shows structure inside packages (the `models/<name>/`
+directories, the individual `training/*.py` modules), which helps when the
+question is which file in a package to open. The mermaid diagram above is the
+package-level overview.
 
 ## 2. Training cycle sequence
 
@@ -122,13 +149,13 @@ sequenceDiagram
     CTS-->>TFC: TrainState, opt, OptimizerKind
 
     TFC->>MTS: model, opt, kind, ...
-    MTS-->>TFC: cycle_step (jit-compiled)
+    MTS-->>TFC: cycle_step (drives JIT'd rollout_fn, grad_step)
 
     loop for ep in 0..episodes
         Note over TFC: shock_scale ramp from curriculum
         TFC->>CS: (state, lr_scale, shock_scale)
         CS->>RF: state, shock_scale
-        RF->>RF: re-init / ss_reset_frac<br/>run_episode (or _with_history)<br/>=> simulate_step per step
+        RF->>RF: re-init / ss_reset_frac<br/>run_episode (or _with_history)<br/>=> lax.scan over step_fn
         RF-->>CS: trajectory, final_state, final_history, new_key
         CS->>CS: state._replace(<br/>  episode_state=trajectory[-1],<br/>  history_state=final_history,<br/>  key=new_key)
 
@@ -142,18 +169,24 @@ sequenceDiagram
 
         CS->>CS: aggregate metrics over sweep
         CS-->>TFC: state, Metrics
-        Note over TFC: optional checkpoint, log_every<br/>cycle_hook(model, state, ep)
+        Note over TFC: optional checkpoint, log_every<br/>cycle_hook(state, model, ep)
     end
 
     TFC-->>U: trained policy_net, history dict
 ```
 
-**Key things to note:**
+Notes:
 
-- **One `cycle_step` = one rollout + N minibatch grad steps.** Everything inside the `loop` is JIT-compiled; the outer Python loop just dispatches.
-- **Single JIT boundary.** `cycle_step` is the single `@jax.jit` function. Validators, checkpointing, logging happen outside JIT.
-- **`shock_scale` flows through everything** — into the rollout (so curriculum and `shock_mask` apply to state simulation) AND into the loss expectation. Pre-2026-04-24 it only applied to the loss; that bug is now closed.
-- **`history_state`** persists across cycles for sequence policies. For MLP it stays `None` and the path through `cycle_step` is unchanged.
+- One `cycle_step` is one rollout plus N minibatch grad steps.
+- There are two JIT boundaries per cycle. `rollout_fn` is one `@jax.jit`
+  function, called once; the variant's `grad_step` is another, called once
+  per minibatch. `cycle_step` is the Python function that drives them.
+  Validators, checkpointing and logging run outside JIT.
+- `shock_scale` reaches both the rollout (so the curriculum and `shock_mask`
+  apply to state simulation) and the loss expectation. Before 2026-04-24 it
+  applied only to the loss.
+- `history_state` persists across cycles for sequence policies. For an MLP it
+  stays `None` and the path through `cycle_step` is the same.
 
 ## 3. The `ModelSpec` contract
 
@@ -177,7 +210,7 @@ graph LR
     subgraph "Framework consumes"
         TR[trainer<br/>create_train_state,<br/>make_train_step]
         LOSS[training.loss<br/>compute_loss<br/>compute_residuals]
-        EP[training.episode<br/>run_episode,<br/>simulate_step]
+        EP[training.episode<br/>run_episode,<br/>run_episode_with_history]
         EVAL[evaluate<br/>euler_equation_errors]
         IRFM[irf<br/>run_irf]
     end
@@ -192,11 +225,16 @@ graph LR
     INIT -.->|optional: cycle_hook,<br/>state_bounds, definition_bounds,<br/>clip_state_fn| TR
 ```
 
-The `ModelSpec` is a **static contract**: nothing about it changes during training. The framework reads its fields at training-state construction and at JIT-trace time, then specializes the entire training loop around the model's shapes and equation count. From there the JIT'd cycle step has zero per-step Python dispatch.
+The `ModelSpec` is static: nothing in it changes during training. The
+framework reads its fields when it builds the training state and when JAX
+traces, and specializes the training loop to the model's shapes and equation
+count. The JIT'd functions then do no per-step Python dispatch.
 
-## 4. Tensor shapes through one cycle (for the torchview-minded)
+## 4. Tensor shapes through one cycle
 
-Tracing actual shapes from the start of `cycle_step` to the end, for a typical config (`brock_mirman` MLP, `batch_size=128`, `sim_batch=128`, `episode_length=1`, `mc_samples=5`, `n_states=2`, `n_policies=1`, `n_shocks=1`):
+Shapes from the start of `cycle_step` to the end, for a typical config
+(`brock_mirman` MLP, `batch_size=128`, `sim_batch=128`, `episode_length=1`,
+`mc_samples=5`, `n_states=2`, `n_policies=1`, `n_shocks=1`):
 
 | Step | Object | Shape | Notes |
 |---|---|---|---|
@@ -204,12 +242,12 @@ Tracing actual shapes from the start of `cycle_step` to the end, for a typical c
 | 0 | `state.params` | pytree of arrays | Equinox MLP, ~10k params |
 | 0 | `state.history_state` | `None` (MLP) or `[128, H, 2]` | Threaded for sequence policies |
 | 1 | `init_state_fn` redraw (if `initialize_each_episode`) | `[128, 2]` | Fresh uniform from rect |
-| 2 | `simulate_step` shock | `[128, 1]` | `shock_scale * N(0,1)`, optional `shock_mask` |
+| 2 | rollout shock | `[128, 1]` | `shock_scale * N(0,1)`, optional `shock_mask` |
 | 2 | `policy = policy_net(state)` | `[128, 1]` | One forward pass |
 | 2 | `next_state = step_fn(...)` | `[128, 2]` | One step forward |
 | 3 | `trajectory` (lax.scan stack) | `[episode_length=1, 128, 2]` | T-axis prepended |
 | 4 | minibatch from trajectory | `[batch_size=128, 2]` | Reshape + shuffle |
-| 5 | **per-shock residuals** (vmap) | `[mc_samples=5, batch_size=128]` per equation | Inside `compute_loss` |
+| 5 | per-shock residuals (vmap) | `[mc_samples=5, batch_size=128]` per equation | Inside `compute_loss` |
 | 5 | mean over shocks → per-state residual | `[128]` per equation | $\mathbb{E}_\varepsilon[r]$ for each batch element |
 | 5 | square + mean over batch | scalar per equation | MSE |
 | 5 | mean over equations | scalar | Loss |
@@ -218,15 +256,25 @@ Tracing actual shapes from the start of `cycle_step` to the end, for a typical c
 | 7 | `apply_updates(params, updates)` | new params, same shapes | |
 | 8 | `state.episode_state` (out) | `[128, 2]` | Seeded from `trajectory[-1]` for next cycle |
 
-For sequence policies (LSTM/Transformer with `history_len=H`), insert `[128, H, 2]` for any `train_batch` and policy-input slot, plus `state.history_state` is `[128, H, 2]` instead of `None`.
+For sequence policies (LSTM/Transformer with `history_len=H`), every
+`train_batch` and policy-input slot is `[128, H, 2]`, and
+`state.history_state` is `[128, H, 2]` instead of `None`.
 
-For multi-equation models (`bm_labor` with 2, `olg_analytic_6` with 5, `disaster` with 11), the per-equation residual stack is `[mc_samples, batch_size, n_equations]` and the mean-over-equations happens at the end before the squared loss.
+For multi-equation models (`bm_labor` with 2, `olg_analytic_6` with 5,
+`disaster` with 11), the per-equation residual stack is
+`[mc_samples, batch_size, n_equations]`, and the mean over equations comes
+last, before the squared loss.
 
-For Gauss-Hermite quadrature instead of MC, replace `mc_samples` with `n_quadrature_points^n_shocks` and the "mean over shocks" becomes a quadrature-weighted sum.
+With Gauss-Hermite quadrature instead of MC, `mc_samples` becomes
+`n_quadrature_points^n_shocks` and the mean over shocks becomes a
+quadrature-weighted sum.
 
 ## Cross-references
 
-- [What is DEQN?](what_is_deqn.md) — the method itself, in plain economist terms.
-- [Implementing a model](models/implementing.md) — the author's-side walkthrough of writing the five files in section 3.
-- [Running experiments](running_experiments.md) — the user's-side walkthrough of the loop in section 2.
-- [Config reference](config_reference.md) — every knob that controls section 2's behavior.
+- [What is DEQN?](what_is_deqn.md): the method, for economists.
+- [Implementing a model](models/implementing.md): writing the five files of
+  section 3.
+- [Running experiments](running_experiments.md): running the loop of
+  section 2.
+- [Config reference](config_reference.md): every setting that controls the
+  loop in section 2.
