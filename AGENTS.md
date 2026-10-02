@@ -547,8 +547,8 @@ Makefile         # the gate
 - Two JIT boundaries per cycle (rollout + grad-step sweep); everything
   runtime-variable resolves at construction time, before tracing (graph #42).
 - Five train-step variants (STANDARD/PCGRAD/MAO/LBFGS/GN) dispatched by
-  `OptimizerKind` (resolve the kind through `optimizers.registry.get_optimizer_kind`,
-  never a name list); when adding a loss feature, extend
+  `OptimizerKind` (the kind comes back from `optimizers.registry.create_optimizer`,
+  which reads it from the registry; never a name list); when adding a loss feature, extend
   `state_init._validate_train_config` so combos that would silently drop it from the
   gradient are rejected, not ignored.
 - Loss-dict keys prefixed `aux_` are excluded from reweighting and gradient surgery
