@@ -27,6 +27,7 @@ from deqn_jax.models.brock_mirman_autodiff import MODEL as _brock_mirman_autodif
 from deqn_jax.models.disaster import MODEL as _disaster
 from deqn_jax.models.irbc import MODEL as _irbc
 from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
+from deqn_jax.models.olg_analytic_6_autodiff import MODEL as _olg_analytic_6_autodiff
 from deqn_jax.models.olg_lifecycle import MODEL as _olg_lifecycle
 from deqn_jax.models.olg_lifecycle_56 import MODEL as _olg_lifecycle_56
 from deqn_jax.models.rss_trade_ez_ref import MODEL as _rss_trade_ez_ref
@@ -40,6 +41,7 @@ _MODELS = {
     "bm_labor_autodiff": _bm_labor_autodiff,
     "bm_labor_constrained": _bm_labor_constrained,
     "olg_analytic_6": _olg_analytic_6,
+    "olg_analytic_6_autodiff": _olg_analytic_6_autodiff,
     "olg_lifecycle": _olg_lifecycle,
     "olg_lifecycle_56": _olg_lifecycle_56,
     "irbc": _irbc,

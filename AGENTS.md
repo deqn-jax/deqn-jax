@@ -506,7 +506,7 @@ src/deqn_jax/
   types.py       # ModelSpec, TrainState, Metrics — NamedTuple pytrees
   cli/           # one module per subcommand: train, models (list / info / optimizers / check), irf, evaluate, init_config
   config/        # Pydantic v2: TrainConfig + nested blocks (optimizer, network, composite_loss, coverage, replay_buffer, moment_matching); io.py derives --set dispatch from model_fields and tolerates removed fields in saved run configs
-  models/        # 12 registered models (`deqn-jax list`); each: variables, equations, dynamics, steady_state
+  models/        # 13 registered models (`deqn-jax list`); each: variables, equations, dynamics, steady_state
   networks/      # factory.py + common / mlp / lstm / transformer / linear_plus_mlp / rss_net; models/disaster/network.py (π_BK + δ, bk_pin)
   optimizers/    # registry + standard / pcgrad / mao / lbfgs / gauss_newton (+ ngd, shampoo); _step_common shared by the five step variants
   training/      # trainer, state_init (dispatch + validators), cycle, loss, composite_loss, coverage, episode, shocks, linearize, warm_start, checkpointing (+ the checkpoint loader), metrics

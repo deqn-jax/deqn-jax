@@ -4,55 +4,34 @@ The researcher writes one scalar function
 
     Pi(K_t, K_{t+1}, z_t, policy_t, constants) = per-period return
 
-(or a multi-agent variant ``Pi(..., agent_index=i)`` where each agent
-has its own savings dimension; see below). The helper autodiffs Pi to
-produce equilibrium residuals:
+(or a multi-agent variant ``Pi(..., agent_index=i)`` where each agent has
+its own capital column). This is the special case of
+``deqn_jax.training.lagrangian.residuals_from_lagrangian`` with a scalar
+endogenous state per agent, no prices, no constraints and the raw Euler
+form; the helper adapts ``Pi`` to that interface and delegates.
 
-**Single-agent capital Euler** — one equation named ``equation_name``
-(default ``"euler"``). Formed via the envelope theorem:
+**Euler** (one per capital column), from the envelope theorem:
 
     euler = -(dPi/dK_{t+1} at (K_t, K_{t+1}, z_t, policy_t)
-            + beta * dPi/dK_t at (K_{t+1}, K_{t+2}, z_{t+1}, policy_{t+1})).
+            + beta * dPi/dK_t at (K_{t+1}, K_{t+2}, z_{t+1}, policy_{t+1})),
 
-K_{t+2} is reconstructed via the model's own ``step_fn`` at zero shock.
-Expectation over shocks is handled as always by the loss module
-(per-shock residual averaging over MC or quadrature nodes).
+with K_{t+2} rebuilt by the model's ``step_fn`` at zero shock and
+``policy_{t+1}`` frozen (``stop_gradient``). The loss module averages the
+per-shock residuals, which is the expectation.
 
-**Multi-agent Euler (OLG)** — one equation per savings-choosing agent.
-Each agent ``i`` has its own intertemporal capital state column
-``capital_indices[i]``; ``Pi`` is called with an additional
-``agent_index=i`` keyword to select its agent-specific consumption /
-effort / payoff. Returns one Euler residual per agent, named via
-``equation_names``.
+**Intratemporal FOCs** (optional): ``-dPi/d(policy[j])`` for each listed
+index, holding ``K_{t+1}`` fixed. In multi-agent mode the derivative is
+taken of agent 0's return.
 
-**Intratemporal FOCs (optional)** — one equation per index listed in
-``intratemporal_policy_idx``. For index ``j`` the residual is
-
-    foc_j = dPi/d(policy[j]) at (K_t, K_{t+1}, z_t, policy_t)
-
-i.e. zero at the intratemporal optimum (labor FOC, effort FOC, etc.).
-These are completely local — no expectation, no K_{t+2} reconstruction.
-For multi-agent, intratemporal FOCs are computed against the
-``agent_index=0`` form of Pi by default.
-
-Current scope:
-
-- Single intertemporal state OR multiple agent-specific intertemporal states.
-- Any number of exogenous state dimensions (``exog_idx``).
-- Any number of intratemporal policy dimensions (``intratemporal_policy_idx``).
-- Shock expectation handled by the loss module.
-
-Not yet supported:
-
-- Lagrangian with explicit multipliers (KKT for borrowing constraints,
-  Fischer-Burmeister).
+For constraints with multipliers, prices taken as given, or the ratio
+Euler form, use ``residuals_from_lagrangian`` directly.
 """
 
-from typing import Callable, Dict, Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
-import jax
 import jax.numpy as jnp
-from jax import Array
+
+from deqn_jax.training.lagrangian import residuals_from_lagrangian
 
 
 def euler_from_period_return(
@@ -157,85 +136,68 @@ def euler_from_period_return(
             f"intratemporal_j{j}" for j in intratemporal_policy_idx
         )
 
-    # Build per-agent gradient functions. Each agent's Pi closure pins its
-    # agent_index; jax.grad operates on the closed-over scalar function.
-    n_agents = len(capital_indices)
+    exog = jnp.asarray(exog_idx)
 
-    def _make_per_agent_grads(agent_idx: int):
-        if is_multi_agent:
+    def agent_objective(agents):
+        """Sum of the listed agents' returns, each on its own capital column."""
 
-            def pi_i(K, K_next, z, policy, c):
-                return period_return_fn(K, K_next, z, policy, c, agent_index=agent_idx)
-        else:
-            pi_i = period_return_fn
-        dK_next = jax.vmap(jax.grad(pi_i, argnums=1), in_axes=(0, 0, 0, 0, None))
-        dK = jax.vmap(jax.grad(pi_i, argnums=0), in_axes=(0, 0, 0, 0, None))
-        return dK_next, dK
+        def objective(state, x_next, policy, prices, constants):
+            del prices
+            z = jnp.take(state, exog)
+            if not is_multi_agent:
+                cap = capital_indices[0]
+                return period_return_fn(state[cap], x_next[0], z, policy, constants)
+            return sum(
+                period_return_fn(
+                    state[capital_indices[i]],
+                    x_next[i],
+                    z,
+                    policy,
+                    constants,
+                    agent_index=i,
+                )
+                for i in agents
+            )
 
-    per_agent_dK_next = []
-    per_agent_dK = []
-    for i in range(n_agents):
-        dn, d0 = _make_per_agent_grads(i)
-        per_agent_dK_next.append(dn)
-        per_agent_dK.append(d0)
+        return objective
 
-    # Intratemporal FOC gradient. For multi-agent, take it against the
-    # agent-0 form of Pi by default; researchers wanting per-agent
-    # intratemporal FOCs should hand-write or extend this helper later.
-    if is_multi_agent:
+    common = dict(n_shocks=n_shocks, euler_form="raw", stop_next_policy_gradient=True)
+    if not is_multi_agent:
+        return residuals_from_lagrangian(
+            agent_objective((0,)),
+            step_fn,
+            endogenous=capital_indices,
+            euler_names=equation_names,
+            static_controls=intratemporal_policy_idx,
+            static_names=intratemporal_equation_names,
+            **common,
+        )
 
-        def pi_for_intratemporal(K, K_next, z, policy, c):
-            return period_return_fn(K, K_next, z, policy, c, agent_index=0)
-    else:
-        pi_for_intratemporal = period_return_fn
-    _dPi_dpolicy_v = jax.vmap(
-        jax.grad(pi_for_intratemporal, argnums=3), in_axes=(0, 0, 0, 0, None)
+    # Multi-agent: Eulers from the summed returns; intratemporal FOCs from
+    # agent 0's return alone, as this helper has always defined them.
+    eulers = residuals_from_lagrangian(
+        agent_objective(range(len(capital_indices))),
+        step_fn,
+        endogenous=capital_indices,
+        euler_names=equation_names,
+        **common,
+    )
+    if not intratemporal_policy_idx:
+        return eulers
+    statics = residuals_from_lagrangian(
+        agent_objective((0,)),
+        step_fn,
+        endogenous=capital_indices[:1],
+        euler_names=("_agent0_euler",),
+        static_controls=intratemporal_policy_idx,
+        static_names=intratemporal_equation_names,
+        **common,
     )
 
-    def _extract_exog(s: Array) -> Array:
-        return jnp.take(s, jnp.asarray(exog_idx), axis=1)
-
-    def equations_fn(
-        state: Array,
-        policy: Array,
-        next_state: Array,
-        next_policy: Array,
-        constants: Dict,
-    ) -> Dict[str, Array]:
-        z_t = _extract_exog(state)
-        z_tp1 = _extract_exog(next_state)
-
-        # ENVELOPE CONTRACT: freeze next_policy via stop_gradient before
-        # using it in K_{t+2} reconstruction or per-agent dPi2 gradients.
-        # See the original single-agent docstring above for derivation.
-        next_policy_frozen = jax.lax.stop_gradient(next_policy)
-
-        # K_{t+2} — single deterministic step shared across all agents;
-        # each agent indexes into the resulting next_next_state at its own
-        # capital column.
-        zero_shock = jnp.zeros((state.shape[0], n_shocks))
-        next_next_state = step_fn(next_state, next_policy_frozen, zero_shock, constants)
-
-        out: Dict[str, Array] = {}
-        for i, (cap_idx, eq_name) in enumerate(zip(capital_indices, equation_names)):
-            K_t = state[:, cap_idx]
-            K_tp1 = next_state[:, cap_idx]
-            K_tp2 = next_next_state[:, cap_idx]
-            dPi1 = per_agent_dK_next[i](K_t, K_tp1, z_t, policy, constants)
-            dPi2 = per_agent_dK[i](K_tp1, K_tp2, z_tp1, next_policy_frozen, constants)
-            out[eq_name] = -(dPi1 + constants["beta"] * dPi2)
-
-        # Intratemporal FOCs: -dPi/d(policy[j]) at t, per listed index.
-        if intratemporal_policy_idx:
-            # Use agent-0's K_t / K_tp1 (consistent with single-agent legacy).
-            K_t_for_intra = state[:, capital_indices[0]]
-            K_tp1_for_intra = next_state[:, capital_indices[0]]
-            dPi_dp = _dPi_dpolicy_v(
-                K_t_for_intra, K_tp1_for_intra, z_t, policy, constants
-            )  # [batch, n_policies]
-            for j, name in zip(intratemporal_policy_idx, intratemporal_equation_names):
-                out[name] = -dPi_dp[:, j]
-
+    def equations_fn(state, policy, next_state, next_policy, constants):
+        out = eulers(state, policy, next_state, next_policy, constants)
+        intra = statics(state, policy, next_state, next_policy, constants)
+        out.update({n: intra[n] for n in intratemporal_equation_names})
         return out
 
     return equations_fn
