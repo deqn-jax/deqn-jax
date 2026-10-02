@@ -262,8 +262,9 @@ For sequence policies (LSTM/Transformer with `history_len=H`), every
 
 For multi-equation models (`bm_labor` with 2, `olg_analytic_6` with 5,
 `disaster` with 11), the per-equation residual stack is
-`[mc_samples, batch_size, n_equations]`, and the mean over equations comes
-last, before the squared loss.
+`[mc_samples, batch_size, n_equations]`. Each equation's shock-mean residual
+is squared and averaged over the batch first; the mean over equations comes
+last, over those per-equation losses.
 
 With Gauss-Hermite quadrature instead of MC, `mc_samples` becomes
 `n_quadrature_points^n_shocks` and the mean over shocks becomes a

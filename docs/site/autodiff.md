@@ -56,7 +56,7 @@ The result is an ordinary `equations_fn`. For a Brock-Mirman-class model the sub
 
 The helper covers three generalizations beyond the single-agent case:
 
-1. Multi-policy models. With labor or other intratemporal choices there is a second class of FOC, `∂Π/∂L = 0`. Pass `intratemporal_policy_idx` (and optionally `intratemporal_equation_names`); each listed policy index gets a pointwise residual `∂Π/∂policy[j]` with no expectation. `bm_labor_autodiff` uses this for its labor FOC.
+1. Multi-policy models. With labor or other intratemporal choices there is a second class of FOC, `∂Π/∂L = 0`. Pass `intratemporal_policy_idx` (and optionally `intratemporal_equation_names`); each listed policy index gets a pointwise residual `−∂Π/∂policy[j]` with no expectation. `bm_labor_autodiff` uses this for its labor FOC.
 2. Multi-agent Euler. OLG-style models have one Euler equation per savings-choosing agent. Pass `capital_indices` and `equation_names` (one per agent); Π then takes an extra `agent_index` keyword, and the helper returns one Euler residual per agent. This mode is tested on a toy two-cohort OLG; no registered model uses it yet.
 3. Any number of exogenous state dimensions, through `exog_idx`.
 

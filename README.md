@@ -92,7 +92,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 
 </details>
 
-**Status:** alpha (`v0.2.0`); the API may change. The test suite collects 668 tests, `uv build` produces a wheel and an sdist, and the eight CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`) work. The framework is model-agnostic. The validated stack is small: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Second-order optimizers, sequence policies, composite loss and the rest are research tools, not recommended defaults.
+Status: alpha (`v0.2.0`); the API may change. The test suite collects 668 tests, `uv build` produces a wheel and an sdist, and the eight CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`) work. The framework is model-agnostic. The validated stack is small: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Second-order optimizers, sequence policies, composite loss and the rest are research tools, not recommended defaults.
 
 ## What's implemented
 

@@ -22,8 +22,8 @@ flowchart TD
 
 ## The Markov choice (start here)
 
-A Markov policy maps today's state to today's controls: `&pi;(s)` &rarr;
-savings, consumption, labor, prices. This is the recursive-equilibrium setup of
+A Markov policy maps today's state to today's controls, `&pi;(s)`: savings,
+consumption, labor, prices. This is the recursive-equilibrium setup of
 most DSGE, RBC and projection-method models.
 
 - `mlp` is the validated default: a flexible global approximator of &pi;(s),
@@ -123,7 +123,7 @@ uv run deqn-jax list   # registered models, to see which carry history
     Markov net, so both paths share the downstream loss and expectation code.
 
 ??? abstract "All network types (reference)"
-    The decision-rule basis is one of the four choices in the
+    The decision-rule basis is one of the choices in the
     [Method Zoo](../method-zoo/index.md#cabinet-network):
 
     | Network | `network.type` | Status |
@@ -133,9 +133,10 @@ uv run deqn-jax list   # registered models, to see which carry history
     | LSTM | `lstm` | experimental; history window, recurrence |
     | Transformer | `transformer` | experimental; history window, attention |
     | DisasterPolicyNet | `disaster_policy_net` | experimental; LinearPlusMLP + CMR-specific priors |
+    | RSS market-clearing net | `rss_market_clearing_net` | model-specific; the `rss_trade_ez_ref` policy, kept for checkpoint parity with the reference solution |
 
-    The progression is `mlp` &rarr; `linear_plus_mlp` (adds a BK floor)
-    &rarr; `disaster_policy_net` (adds model-specific priors). Sequence nets
+    `linear_plus_mlp` adds a BK floor to `mlp`, and `disaster_policy_net` adds
+    model-specific priors to `linear_plus_mlp`. Sequence nets
     are a separate choice, made for path dependence rather than accuracy.
 
 ---

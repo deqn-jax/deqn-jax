@@ -127,7 +127,7 @@ flowchart LR
 
 ??? abstract "Scope"
 
-    **In scope:**
+    In scope:
 
     - Discrete-time recursive general-equilibrium models with finite-dimensional state.
     - Any number of representative or finite-count agents (OLG with $A$ generations and multi-country RBC are both shipped).
@@ -135,7 +135,7 @@ flowchart LR
     - Occasionally-binding constraints via Fischer–Burmeister complementarity residuals (`bm_labor_constrained`, `irbc`, `olg_lifecycle`).
     - Warm-starting and anchoring from a linearized solution in disaster-risk and kink settings.
 
-    **Out of scope:**
+    Out of scope:
 
     - Continuous-time HJB + KFE models (Aiyagari / Krusell–Smith with a distributional state evolving under a Kolmogorov-forward PDE). PINN-HJB or finite-difference PDE solvers fit these better. A sibling PINN-HJB-KFE project in this research group covers them: DEQN solves algebraic equilibrium conditions at sampled states, while PINN-HJB solves PDEs on a discretized continuous state.
     - Mean-field games and any model whose state includes a measure evolving under a continuity equation.

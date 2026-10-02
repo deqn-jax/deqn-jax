@@ -36,7 +36,7 @@ Declare the model (`ModelSpec`), configure the run (`TrainConfig`), solve
   mutable solve state (params, optimizer state, RNG) so the train step is a
   pure function. `Metrics` is what each step reports.
 - [Trainer](trainer.md): `train_from_config(cfg)` runs the solve and returns
-  `(state, history)`. `create_train_state` and `make_train_step` expose the
+  `(policy_net, history)`. `create_train_state` and `make_train_step` expose the
   per-episode step for a custom outer loop.
 - [Loss](loss.md): the conditional expectation over next-period shocks
   (antithetic Monte Carlo or Gauss–Hermite) of the Euler, FOC and
@@ -57,9 +57,9 @@ Declare the model (`ModelSpec`), configure the run (`TrainConfig`), solve
         network=NetworkConfig(type="mlp", hidden_sizes=(64, 64)),
         optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
     )
-    state, history = train_from_config(cfg)            # the global solve
+    policy_net, history = train_from_config(cfg)       # the global solve
 
-    diag = euler_equation_errors(state.params, load_model("brock_mirman"))
+    diag = euler_equation_errors(policy_net, load_model("brock_mirman"))
     print_euler_errors(diag)                           # the errREE you'd quote
     ```
     `adam` + `mlp` + MSE residual + antithetic MC is the validated stack. The

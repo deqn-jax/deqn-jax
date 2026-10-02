@@ -11,7 +11,7 @@ from deqn_jax.api import ModelSpec, register_model, TrainConfig, train_from_conf
 
 MODEL = ModelSpec(name="my_model", ...)   # states, equations, dynamics, SS, calibration
 register_model(MODEL, description="my custom model")
-state, history = train_from_config(TrainConfig(model="my_model", episodes=2000))
+policy_net, history = train_from_config(TrainConfig(model="my_model", episodes=2000))
 ```
 
 ## Two ways in

@@ -105,11 +105,11 @@ uv run deqn-jax optimizers   # the 9 registered optimizers
     selected by the optimizer's registered kind; the fifth (PCGRAD) is selected
     by the `gradient_surgery` flag.
 
-    - **STANDARD:** `jax.grad` of the scalar loss, then `opt.update`. (`adam`, `muon`, `ngd`, `shampoo`)
-    - **PCGRAD:** per-equation gradients with conflict projection, then a STANDARD update. (`gradient_surgery: pcgrad`)
-    - **MAO:** per-equation Jacobian via `jax.jacrev`, then per-equation moment updates. (`mao`)
-    - **LBFGS:** `optax.lbfgs` with line search; needs value, grad, and a value function. (`lbfgs`)
-    - **GN:** residual Jacobian `J`, update `= -(J&#7488;J)^{-1} J&#7488;r`. (`gn`, `ign`, `lm`)
+    - STANDARD: `jax.grad` of the scalar loss, then `opt.update`. (`adam`, `muon`, `ngd`, `shampoo`)
+    - PCGRAD: per-equation gradients with conflict projection, then a STANDARD update. (`gradient_surgery: pcgrad`)
+    - MAO: per-equation Jacobian via `jax.jacrev`, then per-equation moment updates. (`mao`)
+    - LBFGS: `optax.lbfgs` with line search; needs value, grad, and a value function. (`lbfgs`)
+    - GN: residual Jacobian `J`, update `= -(J&#7488;J)^{-1} J&#7488;r`. (`gn`, `ign`, `lm`)
 
     Details are in the [Optimizers API reference](../api/optimizers.md).
 

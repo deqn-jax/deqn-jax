@@ -4,7 +4,7 @@ The trainer orchestrates a run. It has three entry points, from high level to
 low level:
 
 1. `train_from_config(config)`: pass a populated `TrainConfig`, get back
-   `(state, history)`. Handles checkpointing, logging, early stopping,
+   `(policy_net, history)`, where `policy_net` is the trained network. Handles checkpointing, logging, early stopping,
    optimizer switching, warm start and the replay buffer. The CLI calls this,
    and it is the entry point to use from other programs.
 2. `train(model_name, episodes, ...)`: a backward-compatible wrapper that

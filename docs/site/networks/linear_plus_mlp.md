@@ -151,16 +151,16 @@ correction). Everything else uses the
 
     For a CMR-style NK-DSGE, use `network.type: disaster_policy_net`. For other
     models, use the generic `linear_plus_mlp`. See the
-    [Network cabinet](../method-zoo/index.md#cabinet-network) for the progression
-    `mlp → linear_plus_mlp → disaster_policy_net`.
+    [Network cabinet](../method-zoo/index.md#cabinet-network) for how `mlp`,
+    `linear_plus_mlp` and `disaster_policy_net` build on each other.
 
 ??? abstract "Composes with"
-    - **Composite loss** (`loss_type: composite`, experimental) adds anchor,
+    - Composite loss (`loss_type: composite`, experimental) adds anchor,
       Jacobian, barrier and Newton auxiliary terms. The anchor term softly holds
       $\pi$ near the linearization at points near SS. With a zero-init
       correction it is redundant near SS, but it helps during curriculum-driven
       exploration. See [Composite loss](../training/composite_loss.md).
-    - **Moment matching** (`moment_matching.enabled: true`, experimental) is a
+    - Moment matching (`moment_matching.enabled: true`, experimental) is a
       separate supervised loss against Dynare ergodic moments or IRFs, supplied
       as CSVs. It anchors the trained policy's long-run distribution to a
       reference solve. It works with this network but is not required by it.

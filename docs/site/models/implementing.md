@@ -228,7 +228,7 @@ def steady_state(constants):
 
 Signature: `steady_state(constants) -> (ss_state, ss_policy)`, both 1-D arrays of length `n_states` / `n_policies`.
 
-Without a closed form, solve numerically with `deqn_jax.training.steady_state.solve_steady_state`, a thin wrapper over `optax.lbfgs`, as `src/deqn_jax/models/disaster/steady_state.py` does.
+Without a closed form, solve numerically, for example with `deqn_jax.training.steady_state.solve_steady_state`, a thin wrapper over `optax.lbfgs`. `src/deqn_jax/models/disaster/steady_state.py` is a numerical example; it uses `scipy.optimize.root` (`method="hybr"`).
 
 ### Initial state sampler
 

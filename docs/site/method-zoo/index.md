@@ -138,9 +138,10 @@ packaged API.
     | LSTM | `lstm` | experimental | History-dependent policies: a window of past states. |
     | Transformer | `transformer` | experimental | Same history window, with attention instead of recurrence. |
     | DisasterPolicyNet | `disaster_policy_net` | experimental | LinearPlusMLP plus model-specific shape priors for CMR-style NK-DSGE (ZLB kink feature, Calvo reparameterizations, K/F gauge mask). Specific to the disaster model, not general-purpose. |
+    | RSS market-clearing net | `rss_market_clearing_net` | model-specific | The `rss_trade_ez_ref` policy network: a tanh ansatz plus a bounded MLP correction with the world-bond clearing projection, kept for checkpoint parity with the reference solution. Not general-purpose. |
 
-    The progression is `mlp` &rarr; `linear_plus_mlp` (adds a BK floor)
-    &rarr; `disaster_policy_net` (adds model-specific priors).
+    `linear_plus_mlp` adds a BK floor to `mlp`, and `disaster_policy_net` adds
+    model-specific priors to `linear_plus_mlp`.
 
     See [LinearPlusMLP](../networks/linear_plus_mlp.md) for the residual-ansatz math.
 

@@ -826,14 +826,16 @@ equations_fn = euler_from_period_return(
 ```
 
 It returns an `equations_fn(state, policy, next_state, next_policy, constants)`
-with the standard `ModelSpec.equations_fn` signature. Three in-tree models
-build their `equations_fn` this way: `brock_mirman_autodiff`,
-`bm_labor_autodiff` and `irbc`.
+with the standard `ModelSpec.equations_fn` signature. Two in-tree models
+build their `equations_fn` this way: `brock_mirman_autodiff` and
+`bm_labor_autodiff`. `irbc` writes its own equations but follows the same
+zero-shock `step_fn` pattern for `k_{t+2}`.
 
 Supported: one intertemporal state dimension, any number of exogenous state
-dimensions, any number of intratemporal FOCs. Not yet supported: multi-agent
-OLG-style Euler equations, KKT systems with Lagrange multipliers,
-Fischer-Burmeister.
+dimensions, any number of intratemporal FOCs, and multi-agent OLG-style Euler
+equations through `capital_indices` and `equation_names` (tested on a toy
+OLG; no registered model uses it yet). Not yet supported: KKT systems with
+Lagrange multipliers, Fischer-Burmeister.
 
 The helper and its signature are part of the stable surface.
 
@@ -885,7 +887,8 @@ applies no accuracy threshold.
 ### `stability_check(policy_net, model, ...) -> dict[str, bool]`
 
 A cheap structural check returning `"nan_free"`, `"bound_hit_pct"` (% of
-policy outputs within 1e-4 of a bound), `"max_ss_deviation_pct"` and
+policy outputs within 1% of the bound span, counted only over policies with
+two finite bounds), `"max_ss_deviation_pct"` and
 `"stable"` (NaN-free, bound hits under 20%, state deviation under 500%). Run
 it before the more expensive Euler test.
 
