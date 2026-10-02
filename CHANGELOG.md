@@ -10,6 +10,16 @@ in any minor version bump.
 
 ## [Unreleased]
 
+### Added
+
+- `cdice_bau`: the business-as-usual CDICE model of Folini, Friedl, Kübler and
+  Scheidegger, "The Climate in Climate Economics" (REStud 2024), multi-model-mean
+  climate, annual step; config `configs/cdice_bau.yaml` and
+  `scripts/cert/cdice_replication.py`, which compares a trained checkpoint with
+  the reference solution of the authors' replication package.
+- Policy outputs may be declared unbounded per output: a lower bound of `-inf`
+  in `policy_lower` passes that output through (others keep softplus/sigmoid).
+
 ### Removed
 
 - The mechanistic-interpretability tooling of the May study (`active_subspace`,

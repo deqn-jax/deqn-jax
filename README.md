@@ -103,6 +103,7 @@ Ten models are registered today (`uv run deqn-jax list`). The small Brock–Mirm
 | `bm_labor_constrained` — labor with an upper cap (Fischer–Burmeister) | example | Smallest occasionally-binding demo; the kink stays kinked. See the gallery for measured errREE. |
 | `irbc` — 2-country international RBC with irreversibility (Fischer–Burmeister) | example | Global solve of an occasionally-binding investment floor. See the gallery. |
 | `olg_lifecycle` — 6-generation life-cycle OLG with borrowing constraints (Fischer–Burmeister, two-stage loss) | example | Borrowing limits as complementarity residuals; `olg_analytic_6` gives a closed-form check. See the gallery. |
+| `cdice_bau` — CDICE business-as-usual climate-economy model (Folini, Friedl, Kübler & Scheidegger 2024), multi-model-mean climate | example | Non-stationary: time is a state, exogenous paths are deterministic functions of it. `scripts/cert/cdice_replication.py` compares a trained run with the authors' stored solution. |
 | `disaster` — NK-DSGE with financial frictions (+ capital destruction) | experimental | 13 states, 11 policies, numerical SS. Baseline CMR converges reliably; the disaster block is implemented but still under validation. |
 | Networks: `MLP`, `LSTM`, `Transformer` | stable | History-dependent (sequence) policies supported; MLP is the validated default. |
 | Network: `LinearPlusMLP` (residual over the Blanchard–Kahn solution) | stable | Recommended for medium-scale DSGE — `networks/linear_plus_mlp.py`. |

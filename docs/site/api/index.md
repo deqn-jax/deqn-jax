@@ -183,6 +183,7 @@ registered* and *what to import*.
     | `bm_labor_constrained` | example | smallest **occasionally-binding** demo (labor cap via Fischer–Burmeister) |
     | `irbc` | example | 2-country irreversibility (Fischer–Burmeister), Gauss–Hermite expectation |
     | `olg_lifecycle` (+ `olg_analytic_6` closed-form check) | example | 6-generation borrowing constraints, two-stage loss |
+    | `cdice_bau` | example | non-stationary climate-economy model (CDICE business as usual), time as a state, replication script against the published solution |
     | `disaster` | experimental | NK-DSGE / CMR, 13 states, 11 policies, numerical SS, under validation |
 
 ---
