@@ -37,7 +37,7 @@ def _transitions(model, key, k_range, policy_ranges, n=64):
     next_policy = draw(4 + len(policy_ranges))
     shock = jax.random.normal(keys[2], (n, model.n_shocks))
     next_state = model.step_fn(state, policy, shock, model.constants)
-    return state, policy, next_state, next_policy
+    return state, policy, next_state, next_policy, shock
 
 
 CASES = {
@@ -64,14 +64,15 @@ CASES = {
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_shipped_autodiff_models_unchanged(name):
     """The re-expressed helper gives the residuals of the frozen original,
-    and the same gradient with respect to the period-t policy."""
+    and the same training gradient: next_state is rebuilt from the period-t
+    policy inside the loss, so every path from policy to residual counts."""
     case = CASES[name]
     model = load_model(name)
     pkg = __import__(f"deqn_jax.models.{name}.equations", fromlist=["x"])
     frozen = frozen_euler_from_period_return(
         pkg.period_return, model.step_fn, **case["kwargs"]
     )
-    args = _transitions(
+    *args, shock = _transitions(
         model, jax.random.PRNGKey(3), case["k_range"], case["policy_ranges"]
     )
     new = model.equations_fn(*args, model.constants)
@@ -81,7 +82,8 @@ def test_shipped_autodiff_models_unchanged(name):
         np.testing.assert_array_equal(new[eq], old[eq])
 
     def loss(fn, p):
-        out = fn(args[0], p, args[2], args[3], model.constants)
+        next_state = model.step_fn(args[0], p, shock, model.constants)
+        out = fn(args[0], p, next_state, args[3], model.constants)
         return sum(jnp.sum(v**2) for v in out.values())
 
     g_new = jax.grad(lambda p: loss(model.equations_fn, p))(args[1])
