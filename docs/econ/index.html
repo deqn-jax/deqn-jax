@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deqn-jax</title>
+<meta name="description" content="A global solver for dynamic stochastic economic models: write the equilibrium conditions, get decision rules that hold where constraints bind.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 13 L8 6 L15 6' fill='none' stroke='%231f5fa6' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" integrity="sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous" onload="renderMathInElement(document.body,{delimiters:[{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="top" aria-label="Site">
+  <a class="name" href="./"><span class="nobr">deqn-jax</span></a>
+  <a href="./" aria-current="page">Method</a>
+  <a href="model.html">Write your own model</a>
+  <a href="docs/">Reference</a>
+  <a href="https://github.com/deqn-jax/deqn-jax">GitHub</a>
+</nav>
+
+<header class="page">
+  <h1>Global solutions of dynamic stochastic models</h1>
+  <p class="lede"><span class="nobr">deqn-jax</span> solves a dynamic stochastic model from its equilibrium conditions and returns decision rules that hold across the states the economy visits, including the states where a constraint binds.</p>
+</header>
+
+<main>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/hero-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/hero.svg" alt="Hours worked against productivity. The global solution rises with productivity and stays at the labor cap of 1 once the cap is reached. The first-order perturbation of the same economy without the cap is a straight line that crosses the cap and keeps rising." width="680" height="340">
+  </picture>
+  <figcaption>Hours worked in the running example, a stochastic growth model with a labor choice and a cap of {{L_max}} on hours, as a function of productivity with capital held at its simulated mean. The solid line is the global solution. The dashed line is the first-order perturbation of the same economy without the cap, computed by the Blanchard–Kahn method. The faint dots are {{n_periods}} simulated periods under the global solution.</figcaption>
+</figure>
+
+<p>The running example on this page is the Brock–Mirman growth model with endogenous labor supply and an upper limit on hours worked. In good times households want to work more than the limit allows, so the limit binds in some states and not in others. A first-order perturbation is linear in the state and cannot represent such a constraint. A global solution can. In the simulation above the cap binds in {{share_at_cap_pct}} of periods; the linear rule of the uncapped economy exceeds it in {{linear_share_pct}} of the same periods.</p>
+
+<p>The method is Deep Equilibrium Nets, introduced by Azinovic, Gaegauf and Scheidegger (2022) building on Scheidegger and Bilionis (2019). <span class="nobr">deqn-jax</span> is a reimplementation and extension in JAX; the credit for the method belongs to those authors.</p>
+
+<h2 id="idea">The idea in three pictures</h2>
+
+<h3>1. What you write</h3>
+
+<p>You state the model the way it appears in a paper: the state variables, the decisions, the equilibrium conditions and the calibration. For the running example the whole model fits on one card.</p>
+
+<div class="card" role="group" aria-label="The running example">
+<dl>
+  <dt>States</dt>
+  <dd>capital \(K_t\) and log productivity \(z_t\)</dd>
+  <dt>Decisions</dt>
+  <dd>the savings rate \(s_t\), the share of output saved, and hours worked \(L_t\)</dd>
+  <dt>Preferences</dt>
+  <dd>\(\mathbb{E}_0 \sum_t \beta^t \big[\ln C_t - \psi \tfrac{L_t^{1+\theta}}{1+\theta}\big]\)</dd>
+  <dt>Technology</dt>
+  <dd>\(Y_t = e^{z_t} K_t^{\alpha} L_t^{1-\alpha}\), \(C_t = (1-s_t)\,Y_t\), \(w_t = (1-\alpha)Y_t/L_t\), \(r_t = \alpha Y_t/K_t\)</dd>
+  <dt>Law of motion</dt>
+  <dd>\(K_{t+1} = (1-\delta)K_t + s_t Y_t\), \(z_{t+1} = \rho z_t + \sigma \varepsilon_{t+1}\), \(\varepsilon \sim N(0,1)\)</dd>
+  <dt>Euler equation</dt>
+  <dd>\(\dfrac{1}{C_t} = \beta\, \mathbb{E}_t\Big[\dfrac{1 + r_{t+1} - \delta}{C_{t+1}}\Big]\)</dd>
+  <dt>Labor with a cap</dt>
+  <dd>\(L_t \le \bar L\), \(\mu_t \equiv \dfrac{w_t}{C_t\,\psi L_t^{\theta}} - 1 \ge 0\), \((\bar L - L_t)\,\mu_t = 0\)</dd>
+  <dt>Calibration</dt>
+  <dd>\(\alpha = 0.36\), \(\beta = 0.99\), \(\delta = 0.1\), \(\psi = 1\), \(\theta = 1\), \(\rho = 0.9\), \(\sigma = 0.04\), \(\bar L = {{L_max}}\)</dd>
+</dl>
+</div>
+
+<p>The labor condition is a complementarity condition. Either hours are below the cap and the usual first-order condition holds (\(\mu_t = 0\)), or hours are at the cap and the household would like to work more (\(\mu_t > 0\)). <span class="nobr">deqn-jax</span> writes the three parts as one equation with the Fischer–Burmeister function, \(\sqrt{a^2+b^2} - a - b = 0\), which holds exactly when \(a \ge 0\), \(b \ge 0\) and \(ab = 0\). Both regimes are then zeros of the same equation. The <a href="model.html">second page</a> shows the code.</p>
+
+<h3>2. The loop</h3>
+
+<figure>
+<svg class="diagram" viewBox="0 0 560 300" role="img" aria-labelledby="loop-title loop-desc">
+  <title id="loop-title">The solution loop</title>
+  <desc id="loop-desc">Four steps in a cycle. Guess a decision rule. Simulate the economy with it. Measure the equation errors at the simulated states. Improve the rule. Then simulate again.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+  <rect class="box" x="10" y="20" width="220" height="74" rx="4"/>
+  <text x="120" y="52" text-anchor="middle">Guess a decision rule</text>
+  <text class="sub" x="120" y="74" text-anchor="middle">s(K, z) and L(K, z)</text>
+
+  <rect class="box" x="330" y="20" width="220" height="74" rx="4"/>
+  <text x="440" y="52" text-anchor="middle">Simulate the economy</text>
+  <text class="sub" x="440" y="74" text-anchor="middle">draw shocks, apply the rule</text>
+
+  <rect class="box" x="330" y="206" width="220" height="74" rx="4"/>
+  <text x="440" y="238" text-anchor="middle">Measure equation errors</text>
+  <text class="sub" x="440" y="260" text-anchor="middle">at the simulated states</text>
+
+  <rect class="box" x="10" y="206" width="220" height="74" rx="4"/>
+  <text x="120" y="238" text-anchor="middle">Improve the rule</text>
+  <text class="sub" x="120" y="260" text-anchor="middle">change coefficients to shrink errors</text>
+
+  <path class="edge" d="M232 57 H326" marker-end="url(#ah)"/>
+  <path class="edge" d="M440 96 V202" marker-end="url(#ah)"/>
+  <path class="edge" d="M328 243 H234" marker-end="url(#ah)"/>
+  <path class="edge" d="M120 204 V98" marker-end="url(#ah)"/>
+</svg>
+</figure>
+
+<p>The decision rule is a flexible function of the state with many coefficients. In a projection method that function would be a sum of Chebyshev polynomials; here it is a small neural network, which plays the same role of a basis whose coefficients are to be found. The coefficients are chosen to make the equilibrium conditions hold. At each simulated state the program evaluates the Euler equation and the labor condition, with the expectation over next period&rsquo;s shock computed by Gauss–Hermite quadrature with eight nodes. The sum of squared errors is the objective, and the coefficients move a small step in the direction that reduces it. Then the economy is simulated again under the improved rule, and the loop repeats until the errors stop falling.</p>
+
+<p>For the running example one round simulates 64 economies for 100 periods and takes 100 such steps. The solution on this page used {{rounds}} rounds.</p>
+
+<h3>3. Where the points come from</h3>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/states-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/states.svg" alt="Scatter of simulated capital and productivity pairs forming an elongated cloud in the middle of the plotting box, with a regular ten by ten grid of open circles spread evenly over the whole box." width="680" height="320">
+  </picture>
+  <figcaption>Simulated states of the running example under the global solution (dots), and a tensor grid with ten points per axis on the box from which the simulations start (circles).</figcaption>
+</figure>
+
+<p>A projection method places its points on a tensor grid. With \(n\) points per state variable and \(d\) state variables the grid has \(n^d\) points: 100 for this model, ten billion for a model with ten state variables. Here the points are the states the simulated economy visits, so they sit where the economy spends its time, and their number is a choice that does not grow with \(d\). This is why models with many state variables remain feasible. The expectation over next period&rsquo;s shocks still has to be computed at every point, and its cost grows with the number of shocks. The rule is accurate where the economy goes. Far outside the simulated cloud the rule is an extrapolation and should not be read as a solution.</p>
+
+<h2 id="methods">Relation to familiar methods</h2>
+
+<p>All four methods look for the same object, a decision rule that satisfies the equilibrium conditions. They differ in how they represent the rule, where they ask the conditions to hold, and what that implies for constraints that bind only sometimes.</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th scope="col">Method</th><th scope="col">What is approximated</th><th scope="col">Where it is accurate</th><th scope="col">Occasionally binding constraints</th><th scope="col">Many state variables</th></tr>
+  </thead>
+  <tbody>
+    <tr><th scope="row">Perturbation</th><td>a Taylor expansion of the rule around the deterministic steady state</td><td>near the steady state</td><td>a first-order rule is linear, so the constraint binds always or never; piecewise extensions such as OccBin exist</td><td>cheap</td></tr>
+    <tr><th scope="row">Projection</th><td>the rule as a weighted sum of polynomials, with coefficients fitted on a grid</td><td>on the grid box</td><td>smooth polynomials oscillate around the kink; splines or finer grids help</td><td>the grid has \(n^d\) points; sparse grids reduce the count</td></tr>
+    <tr><th scope="row">Time iteration</th><td>the rule at grid points, updated by solving the first-order conditions point by point given next period&rsquo;s rule</td><td>on the grid</td><td>the constraint is checked exactly at each grid point</td><td>the grid has \(n^d\) points</td></tr>
+    <tr class="this"><th scope="row">This method</th><td>the rule as a neural network, with coefficients fitted to make the equation errors small</td><td>on the states the economy visits</td><td>written as one complementarity equation; the smooth basis rounds the kink over a narrow range of states</td><td>the number of points is a free choice</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="example">The example, solved</h2>
+
+<p>After installing the package with <a href="https://docs.astral.sh/uv/">uv</a>, one command solves the running example:</p>
+
+<pre><code>git clone https://github.com/deqn-jax/deqn-jax
+cd deqn-jax &amp;&amp; uv sync
+uv run deqn-jax train --config configs/bm_labor_cap.yaml</code></pre>
+
+<p>The configuration file names the model, sets the cap to {{L_max}} and fixes the size of the network and the number of rounds. On a laptop (Apple M4 Pro, CPU only) the run took {{train_minutes}} minutes. The registered model sets the cap at 1.02, above the largest value the labor rule can take (1.01), so the cap never binds there; that calibration reproduces a course exercise, and the configuration file lowers the cap so that it binds.</p>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/labor_rule-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/labor_rule.svg" alt="Hours worked against capital for three productivity levels. Hours fall with capital. At high productivity and low capital hours sit at the cap of 1." width="680" height="340">
+  </picture>
+  <figcaption>The labor rule against capital at the 10th, 50th and 90th percentiles of simulated productivity. Hours fall as capital rises. At high productivity the cap binds for low and middle levels of capital.</figcaption>
+</figure>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/path-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/path.svg" alt="Top panel: productivity over 160 periods. Bottom panel: hours worked over the same periods; the global solution stays at the cap of 1 during high-productivity spells, while the linear rule evaluated at the same states rises above it." width="680" height="380">
+  </picture>
+  <figcaption>A simulated path of 160 periods. Top: productivity. Bottom: hours under the global solution, and the first-order rule of the uncapped economy evaluated at the same states. The global solution sits at the cap through the high-productivity spells.</figcaption>
+</figure>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/irf-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/irf.svg" alt="Impulse responses to a productivity shock of plus and minus two standard deviations. Hours rise to the cap after a positive shock and fall by more after a negative shock. The first-order response rises above the cap." width="680" height="340">
+  </picture>
+  <figcaption>Responses to a productivity shock of two standard deviations, up and down, starting from the deterministic steady state. Left: hours. Right: output. Under the global solution the responses are asymmetric: after a positive shock hours rise until they reach the cap, after a negative shock they fall freely. The first-order response to the positive shock crosses the cap.</figcaption>
+</figure>
+
+<h2 id="trust">Can you trust the answer?</h2>
+
+<p>The standard accuracy check for a solved model is the Euler-equation error (Judd 1992). At each state, take the consumption that would make the Euler equation hold exactly given the computed rule, and report its distance from the computed consumption as a fraction of consumption. A value of \(-3\) on the \(\log_{10}\) scale means an error of one dollar per thousand dollars of consumption.</p>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/euler_errors-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/euler_errors.svg" alt="Histogram of log10 Euler-equation errors along a simulated path, with the median and the 99th percentile marked." width="680" height="300">
+  </picture>
+  <figcaption>Euler-equation errors at {{n_periods}} simulated states of the running example, with the expectation computed by 16-node Gauss–Hermite quadrature.</figcaption>
+</figure>
+
+<p>Along the simulated path the median error is \(10^{ {{euler_median}} }\) and the 99th percentile is \(10^{ {{euler_p99}} }\). The median error is \(10^{ {{euler_median_cap}} }\) in periods at the cap and \(10^{ {{euler_median_interior}} }\) in periods below it. The labor condition, written as the Fischer–Burmeister equation, has an absolute error no larger than {{labor_max}} anywhere on the path.</p>
+
+<p>The second check uses a model whose exact solution is known. In the stochastic Brock–Mirman model with log utility and full depreciation (\(\delta = 1\)) the optimal savings rate is \(\alpha\beta = {{s_star}}\) in every state (Brock and Mirman 1972). The same program, run on that model (model <code>brock_mirman</code>, configuration <code>configs/brock_mirman_closed_form.yaml</code>), returns a rule that can be compared with the exact one.</p>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/closed_form-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/closed_form.svg" alt="Relative distance between the computed savings rate and the exact savings rate alpha times beta, on a log scale, falling over training rounds." width="680" height="300">
+  </picture>
+  <figcaption>Distance of the computed savings rate from the exact rule \(\alpha\beta\), relative to \(\alpha\beta\), at 5,000 states simulated under the exact rule. Largest and median over those states, after each 250 rounds.</figcaption>
+</figure>
+
+<p>After {{cf_final}} rounds the largest relative distance from \(\alpha\beta\) is {{cf_max}} and the median is {{cf_median}}.</p>
+
+<p>Two limits apply to every result produced this way.</p>
+
+<p>A small equation error is necessary for a solution but not sufficient. A model can have more than one rule that satisfies its equilibrium conditions, and nothing in the method selects among them. The global analogue of the Blanchard–Kahn condition, which picks the stable solution of a linearized model, does not exist here. A low error says the computed rule is an equilibrium; it does not say it is the equilibrium you meant. Checks against a perturbation solution near the steady state, and against known special cases like the one above, help.</p>
+
+<p>Accuracy is measured. The numbers above describe the states the simulation visited. They are not bounds that hold everywhere, and they say nothing about states outside the simulated cloud.</p>
+
+<h2 id="next">Next</h2>
+
+<ul>
+  <li><a href="model.html">Write your own model</a>: the three files of the running example, with notes, and the steps from a copy of them to a solved model.</li>
+  <li><a href="docs/">Reference documentation</a>: installation, the full model contract, the gallery of worked models, configuration and the programming interface.</li>
+  <li><a href="https://github.com/deqn-jax/deqn-jax">Source code</a> on GitHub.</li>
+</ul>
+
+<h3>How to cite</h3>
+
+<p>If you use <span class="nobr">deqn-jax</span> in research, please cite the papers that introduced the method:</p>
+<ul class="refs">
+  <li>Azinovic, M., Gaegauf, L. and Scheidegger, S. (2022). Deep equilibrium nets. <i>International Economic Review</i> 63(4), 1471–1525.</li>
+  <li>Scheidegger, S. and Bilionis, I. (2019). Machine learning for high-dimensional dynamic stochastic economies. <i>Journal of Computational Science</i> 33, 68–82.</li>
+</ul>
+<p>The repository also carries a <a href="https://github.com/deqn-jax/deqn-jax/blob/master/CITATION.cff">citation file</a> for the software.</p>
+
+<h3>Other references on this page</h3>
+<ul class="refs">
+  <li>Blanchard, O. J. and Kahn, C. M. (1980). The solution of linear difference models under rational expectations. <i>Econometrica</i> 48(5), 1305–1311.</li>
+  <li>Brock, W. A. and Mirman, L. J. (1972). Optimal economic growth and uncertainty: the discounted case. <i>Journal of Economic Theory</i> 4(3), 479–513.</li>
+  <li>Coleman, W. J. (1990). Solving the stochastic growth model by policy-function iteration. <i>Journal of Business &amp; Economic Statistics</i> 8(1), 27–29.</li>
+  <li>Fischer, A. (1992). A special Newton-type optimization method. <i>Optimization</i> 24(3–4), 269–284.</li>
+  <li>Guerrieri, L. and Iacoviello, M. (2015). OccBin: a toolkit for solving dynamic models with occasionally binding constraints easily. <i>Journal of Monetary Economics</i> 70, 22–38.</li>
+  <li>Judd, K. L. (1992). Projection methods for solving aggregate growth models. <i>Journal of Economic Theory</i> 58(2), 410–452.</li>
+</ul>
+
+</main>
+
+<footer class="page">
+  <p><span class="nobr">deqn-jax</span> is open-source software. The figures on this page are produced from trained solutions by <code>scripts/dev/econ_figures.py</code> in the repository, which lists the commands that reproduce them.</p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "bm_labor_cap": {
+    "L_max": 1.0,
+    "L_ss": 0.9751548171043396,
+    "share_at_cap": 0.1784,
+    "n_periods": 10000,
+    "euler_log10_median": -2.0586495399475098,
+    "euler_log10_p99": -1.4906115531921387,
+    "euler_log10_max": -1.3011795282363892,
+    "euler_log10_median_at_cap": -2.0677151679992676,
+    "euler_log10_median_interior": -2.056363105773926,
+    "labor_residual_abs_max": 0.00045267539098858833,
+    "linear_labor_max_on_path": 1.0646284818649292,
+    "linear_share_above_cap": 0.123,
+    "k_bar": 6.266655445098877,
+    "shock_sd": 2.0
+  },
+  "brock_mirman_closed_form": {
+    "s_star": 0.3564,
+    "final_episode": 10000,
+    "final_rel_err_median": 3.344817287143087e-06,
+    "final_rel_err_max": 5.100846465211362e-06,
+    "first_episode": 250,
+    "first_rel_err_max": 0.023708900436758995
+  }
+}

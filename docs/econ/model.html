@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Write your own model</title>
+<meta name="description" content="The three files that define the running example of deqn-jax, annotated, and the steps from a copy of them to a solved model.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 13 L8 6 L15 6' fill='none' stroke='%231f5fa6' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" integrity="sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous" onload="renderMathInElement(document.body,{delimiters:[{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="top" aria-label="Site">
+  <a class="name" href="./"><span class="nobr">deqn-jax</span></a>
+  <a href="./">Method</a>
+  <a href="model.html" aria-current="page">Write your own model</a>
+  <a href="docs/">Reference</a>
+  <a href="https://github.com/deqn-jax/deqn-jax">GitHub</a>
+</nav>
+
+<header class="page">
+  <h1>Write your own model</h1>
+  <p class="lede">A model is a folder of short Python files that state its variables, its calibration and its equilibrium conditions. This page reads the files of the running example and then lists the steps from a copy of them to a solved model of your own.</p>
+</header>
+
+<main>
+
+<p>The running example, Brock–Mirman with endogenous labor and a cap on hours (described on the <a href="./#idea">first page</a>), lives in <code>src/deqn_jax/models/bm_labor_constrained/</code>. It extends the model without a cap, <code>bm_labor</code>, and borrows from it everything that the cap does not change: the definitions of output, consumption and factor prices, the law of motion, the steady state, and the distribution from which simulations start. Its own folder therefore holds three files. Docstrings are left out below; the code is otherwise as it appears in the repository.</p>
+
+<h2 id="variables">variables.py: states, decisions, calibration</h2>
+
+<div class="annotated">
+  <div class="file">src/deqn_jax/models/bm_labor_constrained/variables.py</div>
+  <div class="row">
+<pre><code>import jax.numpy as jnp
+
+from deqn_jax.models.bm_labor.variables import CONSTANTS as _BM_LABOR_CONSTANTS
+from deqn_jax.models.variable_spec import VariableSpec
+
+SPEC = VariableSpec(state_names=("k", "z"), policy_names=("sav_rate", "L"))</code></pre>
+    <p class="note"><span class="tag">State and decisions</span>The state is capital \(K\) and log productivity \(z\). The decisions are the savings rate \(s\) and hours \(L\). The program learns one function from the state to the decisions; every other variable is computed from these.</p>
+  </div>
+  <div class="row">
+<pre><code>L_OUT_BOUND = 1.01
+L_MAX = 1.02</code></pre>
+    <p class="note"><span class="tag">Two labor numbers</span><code>L_OUT_BOUND</code> is the largest value the hours rule can take. <code>L_MAX</code> is \(\bar L\), the cap in the complementarity condition. With the cap above the largest attainable hours, the cap never binds at this calibration; the first page lowers \(\bar L\) to 1 in its run configuration so that it does.</p>
+  </div>
+  <div class="row">
+<pre><code>CONSTANTS = {**_BM_LABOR_CONSTANTS, "L_max": L_MAX}</code></pre>
+    <p class="note"><span class="tag">Calibration</span>A dictionary of parameters. It takes the calibration of <code>bm_labor</code>, \(\alpha = 0.36\), \(\beta = 0.99\), \(\delta = 0.1\), \(\psi = 1\), \(\theta = 1\), \(\rho = 0.9\), \(\sigma = 0.04\) and log utility, and adds the cap.</p>
+  </div>
+  <div class="row">
+<pre><code>POLICY_LOWER = jnp.array([1e-6, 1e-6])
+POLICY_UPPER = jnp.array([1 - 1e-6, L_OUT_BOUND])
+
+N_SHOCKS = 1
+
+DESCRIPTION = (
+    "Brock-Mirman with endogenous labor and an upper labor cap (Fischer-Burmeister)"
+)</code></pre>
+    <p class="note"><span class="tag">Bounds</span>The savings rate lies in \((0, 1)\) and hours in \((0, 1.01]\). The rule&rsquo;s outputs are squashed into these intervals, so consumption stays positive at every state without further care. One shock, to productivity. <code>DESCRIPTION</code> is the line shown by <code>deqn-jax list</code>.</p>
+  </div>
+</div>
+
+<h2 id="equations">equations.py: the equilibrium conditions</h2>
+
+<div class="annotated">
+  <div class="file">src/deqn_jax/models/bm_labor_constrained/equations.py</div>
+  <div class="row">
+<pre><code>from typing import Dict
+
+import jax.numpy as jnp
+from jax import Array
+
+from deqn_jax.models._complementarity import fischer_burmeister
+from deqn_jax.models.bm_labor.equations import definitions
+from deqn_jax.models.bm_labor_constrained.variables import SPEC
+
+EQUATION_NAMES = ("euler", "labor_foc")</code></pre>
+    <p class="note"><span class="tag">Equations</span>Two equilibrium conditions, one per decision: the Euler equation for savings and the labor condition with the cap.</p>
+  </div>
+  <div class="row">
+<pre><code>def equations(
+    state: Array,
+    policy: Array,
+    next_state: Array,
+    next_policy: Array,
+    constants: Dict,
+) -&gt; Dict[str, Array]:
+    beta = constants["beta"]
+    delta = constants["delta"]
+    psi = constants["psi"]
+    theta = constants["theta"]
+    L_max = constants["L_max"]
+
+    p = SPEC.unpack_policy(policy)
+    defs = definitions(state, policy, constants)
+    next_defs = definitions(next_state, next_policy, constants)</code></pre>
+    <p class="note"><span class="tag">Today and tomorrow</span>The function receives today&rsquo;s state and decisions and, for one value of next period&rsquo;s shock, tomorrow&rsquo;s state and decisions under the same rule. It returns each condition as an error that is zero in equilibrium. <code>definitions</code> turns a state and decisions into output, consumption, the wage and the marginal product of capital.</p>
+  </div>
+  <div class="row">
+<pre><code>    u_c = defs["u_c"]
+    w = defs["w"]
+    u_c_next = next_defs["u_c"]
+    mpk_next = next_defs["mpk"]
+
+    euler = u_c - beta * u_c_next * (1.0 + mpk_next - delta)</code></pre>
+    <p class="note"><span class="tag">Euler equation</span>\(u'(C_t) - \beta\, u'(C_{t+1})(1 + r_{t+1} - \delta)\). The program evaluates this error at each quadrature node for next period&rsquo;s shock and takes the weighted average, which gives \(u'(C_t) - \beta\,\mathbb{E}_t[\dots]\). Write each condition so that the expectation enters linearly, as here; the weighted average is then the conditional expectation.</p>
+  </div>
+  <div class="row">
+<pre><code>    slack = L_max - p.L
+    wedge = w * u_c / (psi * jnp.power(p.L, theta)) - 1.0
+    labor_foc = fischer_burmeister(slack, wedge)
+
+    return {"euler": euler, "labor_foc": labor_foc}</code></pre>
+    <p class="note"><span class="tag">The constraint</span>The slack \(\bar L - L_t\) and the wedge \(\mu_t = w_t u'(C_t) / (\psi L_t^\theta) - 1\) must both be non-negative with a zero product. <code>fischer_burmeister(a, b)</code> returns \(\sqrt{a^2 + b^2} - a - b\), which is zero exactly when \(a \ge 0\), \(b \ge 0\) and \(ab = 0\). Below the cap the wedge is zero and the usual labor condition holds; at the cap the slack is zero and the wedge is positive. The plain condition \(\psi L^\theta = w\,u'(C)\) would have no zero at the cap.</p>
+  </div>
+</div>
+
+<h2 id="init">__init__.py: the model as one object</h2>
+
+<div class="annotated">
+  <div class="file">src/deqn_jax/models/bm_labor_constrained/__init__.py</div>
+  <div class="row">
+<pre><code>from deqn_jax.models.bm_labor.dynamics import step
+from deqn_jax.models.bm_labor.equations import definitions
+from deqn_jax.models.bm_labor.steady_state import init_state, steady_state
+from deqn_jax.models.bm_labor_constrained.equations import EQUATION_NAMES, equations
+from deqn_jax.models.bm_labor_constrained.variables import (
+    CONSTANTS,
+    N_SHOCKS,
+    POLICY_LOWER,
+    POLICY_UPPER,
+    SPEC,
+)
+from deqn_jax.types import ModelSpec</code></pre>
+    <p class="note"><span class="tag">Borrowed pieces</span>The law of motion (<code>step</code>), the definitions, the analytical steady state and the starting distribution come from <code>bm_labor</code>. The cap is slack at the steady state, so the steady state of the model without the cap is also the steady state here.</p>
+  </div>
+  <div class="row">
+<pre><code>MODEL = ModelSpec(
+    name="bm_labor_constrained",
+    n_states=SPEC.n_states,
+    n_policies=SPEC.n_policies,
+    n_shocks=N_SHOCKS,
+    state_names=SPEC.state_names,
+    policy_names=SPEC.policy_names,
+    equation_names=EQUATION_NAMES,
+    shock_names=("eps_z",),
+    constants=CONSTANTS,
+    equations_fn=equations,
+    step_fn=step,
+    steady_state_fn=steady_state,
+    init_state_fn=init_state,
+    definitions_fn=definitions,
+    policy_lower=POLICY_LOWER,
+    policy_upper=POLICY_UPPER,
+)</code></pre>
+    <p class="note"><span class="tag">The model</span><code>ModelSpec</code> collects the pieces under one name. The name is what you type on the command line: <code>deqn-jax train bm_labor_constrained</code>.</p>
+  </div>
+</div>
+
+<h2 id="borrowed">The borrowed definitions and law of motion</h2>
+
+<p>For completeness, the two borrowed functions that carry economics. From <code>src/deqn_jax/models/bm_labor/equations.py</code>:</p>
+
+<pre><code>def definitions(state: Array, policy: Array, constants: Dict) -&gt; Dict[str, Array]:
+    s = SPEC.unpack_state(state)
+    p = SPEC.unpack_policy(policy)
+
+    alpha = constants["alpha"]
+    gamma = constants["gamma"]
+
+    Z = jnp.exp(s.z)
+    <span class="c"># Cobb-Douglas: Y = Z * L^(1-alpha) * K^alpha</span>
+    y = Z * jnp.power(p.L, 1.0 - alpha) * jnp.power(s.k, alpha)
+
+    <span class="c"># Factor prices</span>
+    mpk = alpha * Z * jnp.power(p.L, 1.0 - alpha) * jnp.power(s.k, alpha - 1.0)
+    w = (1.0 - alpha) * Z * jnp.power(p.L, -alpha) * jnp.power(s.k, alpha)
+
+    <span class="c"># Consumption via savings rate out of output</span>
+    c = (1.0 - p.sav_rate) * y
+    sav = p.sav_rate * y
+
+    u_c = jnp.power(c, -gamma)
+
+    return {"Z": Z, "y": y, "mpk": mpk, "w": w, "c": c, "s": sav, "u_c": u_c}</code></pre>
+
+<p>And the law of motion, built in <code>src/deqn_jax/models/brock_mirman/dynamics.py</code> and shared by the Brock–Mirman family:</p>
+
+<pre><code>        <span class="c"># Capital accumulation</span>
+        k_next = (1 - delta) * s.k + defs["s"]
+
+        <span class="c"># TFP shock</span>
+        eps = shock[:, 0] if shock.ndim &gt; 1 else shock
+        z_next = rho_z * s.z + sigma_z * eps
+
+        return jnp.stack([k_next, z_next], axis=1)</code></pre>
+
+<h2 id="steps">From a copy to a solved model</h2>
+
+<ol class="steps">
+  <li>
+    <p>Copy the folder under a new name, and in the copy replace <code>bm_labor_constrained</code> by the new name in the imports and in <code>name=</code>.</p>
+<pre><code>cp -r src/deqn_jax/models/bm_labor_constrained src/deqn_jax/models/my_model</code></pre>
+  </li>
+  <li>
+    <p>Change the economics. New states or decisions go into <code>SPEC</code>, parameters into <code>CONSTANTS</code>, bounds into <code>POLICY_LOWER</code> and <code>POLICY_UPPER</code>, and one error per decision into <code>equations</code>. If the definitions, the law of motion or the steady state change as well, copy those files from <code>bm_labor</code> into your folder and import them from there.</p>
+  </li>
+  <li>
+    <p>Register the model by adding two lines to <code>src/deqn_jax/models/__init__.py</code>, an import next to the others and an entry in the <code>_MODELS</code> dictionary:</p>
+<pre><code>from deqn_jax.models.my_model import MODEL as _my_model
+...
+    "my_model": _my_model,</code></pre>
+    <p>The model should now appear in <code>uv run deqn-jax list</code>, and <code>uv run deqn-jax info my_model</code> prints its states, decisions and equations.</p>
+  </li>
+  <li>
+    <p>Train it. Copy <code>configs/bm_labor_cap.yaml</code> to <code>configs/my_model.yaml</code>, set <code>model: my_model</code> and <code>checkpoint_dir: runs/my_model</code>, remove the <code>constants:</code> block, and run</p>
+<pre><code>uv run deqn-jax train --config configs/my_model.yaml</code></pre>
+    <p>The trained rule is saved in <code>runs/my_model/</code> every 5,000 rounds and at the end.</p>
+  </li>
+  <li>
+    <p>Read the results. The first command simulates 10,000 periods under the trained rule and prints the distribution of each equation&rsquo;s error on a \(\log_{10}\) scale; the second computes impulse responses to each shock.</p>
+<pre><code>uv run deqn-jax evaluate runs/my_model/checkpoint_020000.eqx
+uv run deqn-jax irf runs/my_model/checkpoint_020000.eqx --girf -o irf_out</code></pre>
+    <p>The evaluator reports the errors in the units in which <code>equations</code> returns them. The unit-free Euler error of the first page divides the Euler error by marginal utility; <code>scripts/dev/econ_figures.py</code> shows how.</p>
+  </li>
+</ol>
+
+<p>Everything else, including models without an analytical steady state, constraints inside an expectation, other shock processes, the network and training settings and the programming interface, is described in the reference documentation: <a href="docs/models/implementing/">implementing a model</a> and <a href="docs/REFERENCE/">the full model contract</a>.</p>
+
+</main>
+
+<footer class="page">
+  <p><a href="./">Back to the method</a>. <span class="nobr">deqn-jax</span> implements Deep Equilibrium Nets (Azinovic, Gaegauf and Scheidegger 2022; Scheidegger and Bilionis 2019).</p>
+</footer>
+
+</body>
+</html>
