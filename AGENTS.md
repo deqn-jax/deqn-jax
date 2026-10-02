@@ -482,7 +482,7 @@ maintainer's click.
 ## Commands
 | task | command |
 |---|---|
-| gate | `make check` (lint + format check + full pytest; what CI runs) — `make check-fast` skips the 9 `slow` tests (668 collected @2026-09-17; 21 skips when Dynare fixtures are absent (18) and for the steady-state legs the RSS replica has none for (3)) |
+| gate | `make check` (lint + format check + full pytest; what CI runs) — `make check-fast` skips the 9 `slow` tests (693 collected @2026-10-02; 24 skips when Dynare fixtures are absent (18) and for the steady-state legs the two RSS models have none for (6)) |
 | lint / format | `make lint` / `make format` (`uv run ruff …` on `src/ tests/ scripts/`; `scripts/local/` is excluded) |
 | typecheck (advisory) | `uv run pyright` (basic mode; dev group; not in the gate — see Nature) |
 | train | `uv run deqn-jax train <model> -n 1000` (`-o ngd -q` for smoke; arm configs via `--config configs/<arm>.yaml`) |

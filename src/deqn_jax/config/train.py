@@ -255,7 +255,7 @@ class TrainConfig(_ConfigBase):
 
     constants: Dict[str, float] = Field(
         default_factory=dict,
-        description="Per-run override of model.constants (e.g. `{p_disaster: 0.02}`). Merges into the model's built-in calibration.",
+        description="Per-run override of model.constants (e.g. `{p_disaster: 0.02}`). Merges into the model's built-in calibration; one constant from the command line with `--set constants.<name>=<value>`. The checkpoint loader applies the same overrides.",
     )
 
     use_risky_steady_state: bool = Field(
