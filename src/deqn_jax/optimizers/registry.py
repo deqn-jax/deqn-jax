@@ -5,9 +5,12 @@ The kind determines which train_step variant is used.
 """
 
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import optax
+
+if TYPE_CHECKING:
+    from deqn_jax.config.optimizer import OptimizerConfig
 
 
 class OptimizerKind(str, Enum):
@@ -72,7 +75,7 @@ def _build_lr_schedule(config, total_steps: int):
 
 
 def create_optimizer(
-    config,
+    config: "OptimizerConfig",
     total_steps: Optional[int] = None,
 ) -> Tuple[Any, OptimizerKind]:
     """Create optimizer from config.
