@@ -9,6 +9,10 @@ away left **intact**.
 > (Scheidegger and collaborators). All credit for the original method belongs to
 > the upstream authors — full references and provenance under *Credit &amp; provenance* below.
 
+Documentation: [deqn-jax.github.io](https://deqn-jax.github.io/) (the method and a worked
+example, for economists) and [deqn-jax.github.io/docs](https://deqn-jax.github.io/docs/)
+(reference: installation, model contract, gallery, API).
+
 ```mermaid
 flowchart LR
     subgraph WRITE["You write (your model, native objects)"]

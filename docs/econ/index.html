@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="author" content="Anna Smirnova, Simon Scheidegger">
+<title>deqn-jax</title>
+<meta name="description" content="A global solver for dynamic stochastic economic models: write the equilibrium conditions, get decision rules that hold where constraints bind.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 13 L8 6 L15 6' fill='none' stroke='%231f5fa6' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" integrity="sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous" onload="renderMathInElement(document.body,{delimiters:[{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="top" aria-label="Site">
+  <a class="name" href="./"><span class="nobr">deqn-jax</span></a>
+  <a href="./" aria-current="page">Method</a>
+  <a href="model.html">Write your own model</a>
+  <a href="docs/">Reference</a>
+  <a href="https://github.com/deqn-jax/deqn-jax">GitHub</a>
+</nav>
+
+
+<header class="page">
+  <h1>Global solutions of dynamic stochastic models</h1>
+  <p class="byline">Anna Smirnova and Simon Scheidegger, University of Lausanne</p>
+  <p class="credit">The method is Deep Equilibrium Nets (<a href="https://doi.org/10.1111/iere.12575">Azinovic, Gaegauf &amp; Scheidegger 2022</a>; <a href="https://doi.org/10.1016/j.jocs.2019.03.004">Scheidegger &amp; Bilionis 2019</a>). <span class="nobr">deqn-jax</span> reimplements and extends it in JAX.</p>
+  <p class="lede"><span class="nobr">deqn-jax</span> solves a dynamic stochastic model from its equilibrium conditions and returns decision rules that hold where the economy goes, including where a constraint binds.</p>
+</header>
+
+<main>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/hero-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/hero.svg" alt="Hours worked against productivity. The global solution rises with productivity and stays at the labor cap of 1 once the cap is reached. The first-order perturbation of the same economy without the cap is a straight line that crosses the cap and keeps rising." width="680" height="340">
+  </picture>
+  <figcaption>Hours against productivity at mean capital, Brock–Mirman with endogenous labor and a cap of 1 on hours (model <code>bm_labor_constrained</code>, run <code>configs/bm_labor_cap.yaml</code>; dots: simulated periods). The global solution stops at the cap; the first-order perturbation without the cap (model <code>bm_labor</code>) crosses it.</figcaption>
+</figure>
+
+<p>Along the simulated path hours sit at the cap in 16% of periods; the linear rule exceeds it in 13%.</p>
+
+<h2 id="idea">The idea in three pictures</h2>
+
+<div class="card" role="group" aria-label="The running example">
+<dl>
+  <dt>States</dt>
+  <dd>capital \(K_t\), log productivity \(z_t\)</dd>
+  <dt>Decisions</dt>
+  <dd>savings rate \(s_t\), hours \(L_t\)</dd>
+  <dt>Preferences</dt>
+  <dd>\(\mathbb{E}_0 \sum_t \beta^t \big[\ln C_t - \psi \tfrac{L_t^{1+\theta}}{1+\theta}\big]\)</dd>
+  <dt>Technology</dt>
+  <dd>\(Y_t = e^{z_t} K_t^{\alpha} L_t^{1-\alpha}\), \(C_t = (1-s_t)\,Y_t\), \(w_t = (1-\alpha)Y_t/L_t\), \(r_t = \alpha Y_t/K_t\)</dd>
+  <dt>Law of motion</dt>
+  <dd>\(K_{t+1} = (1-\delta)K_t + s_t Y_t\), \(z_{t+1} = \rho z_t + \sigma \varepsilon_{t+1}\)</dd>
+  <dt>Euler equation</dt>
+  <dd>\(\dfrac{1}{C_t} = \beta\, \mathbb{E}_t\Big[\dfrac{1 + r_{t+1} - \delta}{C_{t+1}}\Big]\)</dd>
+  <dt>Labor, capped</dt>
+  <dd>\(L_t \le \bar L\), \(\mu_t \equiv \dfrac{w_t}{C_t\,\psi L_t^{\theta}} - 1 \ge 0\), \((\bar L - L_t)\,\mu_t = 0\)</dd>
+  <dt>Calibration</dt>
+  <dd>\(\alpha = 0.36\), \(\beta = 0.99\), \(\delta = 0.1\), \(\psi = 1\), \(\theta = 1\), \(\rho = 0.9\), \(\sigma = 0.04\), \(\bar L = 1\)</dd>
+</dl>
+</div>
+<p class="caption">What you write: the running example on one card. The capped labor condition becomes one Fischer–Burmeister equation, \(\sqrt{a^2+b^2} - a - b = 0\), zero exactly when \(a, b \ge 0\) and \(ab = 0\) (<a href="model.html">code</a>).</p>
+
+<figure>
+<svg class="diagram" viewBox="0 0 560 300" role="img" aria-labelledby="loop-title loop-desc">
+  <title id="loop-title">The solution loop</title>
+  <desc id="loop-desc">Four steps in a cycle. Guess a decision rule. Simulate the economy with it. Measure the equation errors at the simulated states. Improve the rule. Then simulate again.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+  <rect class="box" x="10" y="20" width="220" height="74" rx="4"/>
+  <text x="120" y="52" text-anchor="middle">Guess a decision rule</text>
+  <text class="sub" x="120" y="74" text-anchor="middle">s(K, z) and L(K, z)</text>
+
+  <rect class="box" x="330" y="20" width="220" height="74" rx="4"/>
+  <text x="440" y="52" text-anchor="middle">Simulate the economy</text>
+  <text class="sub" x="440" y="74" text-anchor="middle">draw shocks, apply the rule</text>
+
+  <rect class="box" x="330" y="206" width="220" height="74" rx="4"/>
+  <text x="440" y="238" text-anchor="middle">Measure equation errors</text>
+  <text class="sub" x="440" y="260" text-anchor="middle">at the simulated states</text>
+
+  <rect class="box" x="10" y="206" width="220" height="74" rx="4"/>
+  <text x="120" y="238" text-anchor="middle">Improve the rule</text>
+  <text class="sub" x="120" y="260" text-anchor="middle">reduce the errors</text>
+
+  <path class="edge" d="M232 57 H326" marker-end="url(#ah)"/>
+  <path class="edge" d="M440 96 V202" marker-end="url(#ah)"/>
+  <path class="edge" d="M328 243 H234" marker-end="url(#ah)"/>
+  <path class="edge" d="M120 204 V98" marker-end="url(#ah)"/>
+</svg>
+  <figcaption>The loop. The rule is a small neural network, a basis like Chebyshev polynomials in projection, whose coefficients move to shrink the squared equation errors.</figcaption>
+</figure>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/states-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/states.svg" alt="Scatter of simulated capital and productivity pairs forming an elongated cloud in the middle of the plotting box, with a regular ten by ten grid of open circles spread evenly over the whole box." width="680" height="320">
+  </picture>
+  <figcaption>Where the points come from: simulated states (dots, run <code>bm_labor_cap</code>) against a 10 × 10 tensor grid (circles). A tensor grid needs \(n^d\) points for \(d\) states; the number of simulated points does not grow with \(d\).</figcaption>
+</figure>
+
+<h2 id="methods">Relation to familiar methods</h2>
+
+<div class="table-wrap wide">
+<table>
+  <caption>All four look for a decision rule that satisfies the equilibrium conditions.</caption>
+  <thead>
+    <tr><th scope="col">Method</th><th scope="col">Approximates</th><th scope="col">Accurate</th><th scope="col">Occasionally binding constraint</th><th scope="col">Many states</th></tr>
+  </thead>
+  <tbody>
+    <tr><th scope="row">Perturbation</th><td>Taylor expansion at the steady state</td><td>near the steady state</td><td>first order: always or never binds (OccBin extends this)</td><td>cheap</td></tr>
+    <tr><th scope="row">Projection</th><td>sum of polynomials fitted on a grid or simulated points</td><td>where the points are</td><td>polynomials oscillate near the kink</td><td>tensor grid: \(n^d\) points</td></tr>
+    <tr><th scope="row">Time iteration</th><td>the rule at grid points, solved point by point</td><td>on the grid</td><td>checked exactly at each grid point</td><td>tensor grid: \(n^d\) points</td></tr>
+    <tr class="this"><th scope="row">This method</th><td>neural network fitted to equation errors</td><td>where the economy goes</td><td>one complementarity equation; the kink is slightly rounded</td><td>simulated points</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="example">The example, solved</h2>
+
+<pre><code>git clone https://github.com/deqn-jax/deqn-jax
+cd deqn-jax &amp;&amp; uv sync
+uv run deqn-jax train --config configs/bm_labor_cap.yaml</code></pre>
+
+<p>About 15 minutes on a laptop CPU. The registered model sets the cap at 1.02, where it never binds; this run configuration lowers it to 1.</p>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/labor_rule-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/labor_rule.svg" alt="Hours worked against capital for three productivity levels. Hours fall with capital. At high productivity and low capital hours sit at the cap of 1." width="680" height="340">
+  </picture>
+  <figcaption>The labor rule against capital at the 10th, 50th and 90th percentiles of simulated productivity (run <code>bm_labor_cap</code>). At high productivity the cap binds below a capital of about 7.</figcaption>
+</figure>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/path-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/path.svg" alt="Top panel: productivity over 160 periods. Bottom panel: hours worked over the same periods; the global solution stays at the cap of 1 during high-productivity spells, while the linear rule evaluated at the same states rises above it." width="680" height="380">
+  </picture>
+  <figcaption>A simulated path of 160 periods (run <code>bm_labor_cap</code>). In high-productivity spells hours sit at the cap, where the linear rule would exceed it.</figcaption>
+</figure>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/irf-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/irf.svg" alt="Impulse responses to a productivity shock of plus and minus two standard deviations. Hours rise to the cap after a positive shock and fall by more after a negative shock. The first-order response rises above the cap." width="680" height="340">
+  </picture>
+  <figcaption>Responses to a two-standard-deviation productivity shock from the steady state (run <code>bm_labor_cap</code>). Hours rise only to the cap after a good shock and fall freely after a bad one; the first-order response crosses the cap.</figcaption>
+</figure>
+
+<h2 id="trust">Can you trust the answer?</h2>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/euler_errors-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/euler_errors.svg" alt="Histogram of log10 Euler-equation errors along a simulated path, with the median and the 99th percentile marked." width="680" height="300">
+  </picture>
+  <figcaption>Euler-equation errors as a fraction of consumption at 10,000 simulated states (run <code>bm_labor_cap</code>). Median \(10^{-5.2}\), 99th percentile \(10^{-4.4}\).</figcaption>
+</figure>
+
+<figure class="wide">
+  <picture>
+    <source srcset="figures/closed_form-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="figures/closed_form.svg" alt="Relative distance between the computed savings rate and the exact savings rate alpha times beta, on a log scale, falling over training rounds." width="680" height="300">
+  </picture>
+  <figcaption>Stochastic Brock–Mirman with full depreciation, where the exact savings rate is \(\alpha\beta = 0.3564\) in every state (model <code>brock_mirman</code>, run <code>configs/brock_mirman_closed_form.yaml</code>). After 10,000 rounds the computed rule is within \(3.5 \times 10^{-6}\) of it, relative to \(\alpha\beta\).</figcaption>
+</figure>
+
+<p>Two limits. A small error is necessary for a solution but does not establish one: a model can have several solutions, and nothing here selects among them. Accuracy is measured on the simulated states; it is not a bound elsewhere.</p>
+
+<h2 id="next">Next</h2>
+
+<p><a href="model.html">Write your own model</a> from the three files of this example, or read the <a href="docs/">reference documentation</a> and the <a href="https://github.com/deqn-jax/deqn-jax">source</a>. If you use <span class="nobr">deqn-jax</span>, please cite the two papers above.</p>
+
+<details>
+  <summary>Definitions and run settings</summary>
+  <p>The Euler error is the gap between computed consumption and the consumption that would satisfy the Euler equation exactly given next period&rsquo;s rule, as a fraction of consumption (Judd 1992), with the expectation taken by 16-node Gauss–Hermite quadrature. Its median is \(10^{-5.0}\) in periods at the cap and \(10^{-5.2}\) below it. &ldquo;At the cap&rdquo; means within 0.001 of it; hours never exceed the cap by more than 0.0002 on the path, and the labor equation&rsquo;s absolute error stays below \(2.7 \times 10^{-4}\).</p>
+  <p>Each training round simulates 64 economies for 100 periods and takes 100 steps on the coefficients; the expectation in training uses 8-node Gauss–Hermite quadrature. The run used 20,000 rounds; the closed-form run used 10,000 and was saved every 250. Both ran on a laptop CPU (Apple M4 Pro). The figures come from <code>scripts/dev/econ_figures.py</code>, whose docstring lists the commands, and every number on this page is in <code>figures/numbers.json</code>.</p>
+  <p>Projection with simulated points is due to Judd, Maliar and Maliar (2011). There is no global analogue of the Blanchard–Kahn condition that would select an equilibrium; checks against perturbation near the steady state and against known special cases help.</p>
+</details>
+
+<h2 id="refs">References</h2>
+<ul class="refs">
+  <li>Azinovic, M., Gaegauf, L. and Scheidegger, S. (2022). <a href="https://doi.org/10.1111/iere.12575">Deep equilibrium nets</a>. <i>International Economic Review</i> 63(4), 1471–1525.</li>
+  <li>Scheidegger, S. and Bilionis, I. (2019). <a href="https://doi.org/10.1016/j.jocs.2019.03.004">Machine learning for high-dimensional dynamic stochastic economies</a>. <i>Journal of Computational Science</i> 33, 68–82.</li>
+  <li>Blanchard, O. J. and Kahn, C. M. (1980). The solution of linear difference models under rational expectations. <i>Econometrica</i> 48(5), 1305–1311.</li>
+  <li>Brock, W. A. and Mirman, L. J. (1972). Optimal economic growth and uncertainty: the discounted case. <i>Journal of Economic Theory</i> 4(3), 479–513.</li>
+  <li>Coleman, W. J. (1990). Solving the stochastic growth model by policy-function iteration. <i>Journal of Business &amp; Economic Statistics</i> 8(1), 27–29.</li>
+  <li>Fischer, A. (1992). A special Newton-type optimization method. <i>Optimization</i> 24(3–4), 269–284.</li>
+  <li>Guerrieri, L. and Iacoviello, M. (2015). OccBin: a toolkit for solving dynamic models with occasionally binding constraints easily. <i>Journal of Monetary Economics</i> 70, 22–38.</li>
+  <li>Judd, K. L., Maliar, L. and Maliar, S. (2011). Numerically stable and accurate stochastic simulation approaches for solving dynamic economic models. <i>Quantitative Economics</i> 2(2), 173–210.</li>
+  <li>Judd, K. L. (1992). Projection methods for solving aggregate growth models. <i>Journal of Economic Theory</i> 58(2), 410–452.</li>
+</ul>
+<p class="muted">The software also has a <a href="https://github.com/deqn-jax/deqn-jax/blob/master/CITATION.cff">citation file</a>.</p>
+
+</main>
+
+</body>
+</html>

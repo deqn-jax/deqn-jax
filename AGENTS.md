@@ -430,7 +430,7 @@ and diverges not at build time but on the live call.
 | "a training recipe behaves" | the run directory on the DGX (checkpoints, `DONE` marker, config, TensorBoard) | `ls runs/<arm>_s<seed>/`, `logs/cert_container*.log` | agent (launch: `scripts/dgx/run_sweep_in_container.sh` in the NGC container) |
 | "a refactor changed no numbers" | same-seed short training on master and on the branch, and the bit-identical step guard | `uv run deqn-jax train <model> -n 3 --seed 0` on both trees, compare the final loss; `tests/test_step_common_guard.py` compares exactly on its recording platform (x64 on, per `tests/conftest.py`) | agent |
 | "a certified checkpoint still loads" | the certified checkpoints in the DGX record, through the current loader | the probe command above against `../deqn-jax/runs/disaster_cert` from a lane directory; SS error 0, drift@100 0.051%, ρ at the 0.987 floor is the July record | agent (ssh) |
-| "the docs are live" | https://deqn-jax.github.io | `curl -sI` the page; deploy is `mkdocs gh-deploy --remote-name pages` | agent observes; maintainer deploys |
+| "the docs are live" | https://deqn-jax.github.io (economist pages, `docs/econ/`) and https://deqn-jax.github.io/docs/ (mkdocs, `docs/site/`) | `curl -sI` both pages; deploy is `scripts/dev/build_pages.sh --publish` | agent observes; maintainer deploys |
 | "a config change took" | the resolved `TrainConfig` printed at run start / `config.yaml` in the run dir | `uv run deqn-jax train <model> --config <yaml> -n 1 -q` and read the resolved config | agent |
 
 **Ceiling**: the disaster model's *true* equilibrium (no oracle exists — the whole
@@ -493,7 +493,7 @@ maintainer's click.
 | certificates | `JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py --runs-dir runs/disaster_cert --arms <a> --seeds 0,1,2` |
 | DGX sync | `rsync -az --exclude .venv --exclude .git --exclude scripts/local <worktree>/ anna@130.223.169.108:~/projects/<lane-dir>/` (one directory per lane; never the main checkout — graph #45) |
 | DGX GPU sweep | `LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh` (DONE-marker resumable) |
-| docs deploy | `mkdocs gh-deploy --remote-name pages` |
+| docs deploy | `scripts/dev/build_pages.sh --publish` (builds `_pages/`: `docs/econ/` at the root, mkdocs under `/docs/`, redirects from old root paths; pushes branch `gh-pages` of remote `pages`); without `--publish` it only builds, preview with `python -m http.server -d _pages` |
 | cold review (Astra) | `codex exec -m gpt-6-astra --sandbox read-only -c model_reasoning_effort=high "<brief: branch vs origin/master, what to attack, file:line + failing input>"` from the branch's worktree; the Codex companion plugin refuses this model, the CLI does not. Findings and dispositions go on the PR as a comment |
 
 Always `uv run`; never activate the venv manually. On the DGX, non-interactive shells
@@ -515,6 +515,7 @@ src/deqn_jax/
 configs/         # arm configs (disaster_gated_pcgrad_bkpin.yaml etc.); configs/archive/ is gitignored
 scripts/         # cert/ (SS probe, stress table, risky SS, GN polish), dgx/ (container sweeps), dev/ (plots, config reference, module graph); scripts/local/ is ignored scratch
 tests/           # smoke convention: 3 episodes, hidden=(16,), batch=16; conftest enables x64 before any import
+docs/econ/       # the two-page economist front door (site root); figures from scripts/dev/econ_figures.py
 docs/dev/        # cert report, chronicle, library review (research state)
 .claude/agents/  # reader / worker / verifier / reviewer role agents
 Makefile         # the gate
@@ -597,6 +598,9 @@ Makefile         # the gate
 - `docs/dev/disaster_cert_report_2026_07_07.md` — any certification claim.
 - `docs/dev/selection_program_chronicle_2026_07.md` — program-level shifts (new
   results, retractions, method lessons).
+- `docs/econ/` (the economist front door) — every number on its pages comes from
+  `docs/econ/figures/numbers.json`; when solver numbers move, rerun the commands in the
+  docstring of `scripts/dev/econ_figures.py` and update the pages from the new file.
 - `docs/site/config_reference.md` — regenerate with `uv run python
   scripts/dev/gen_config_reference.py` after any config-field change.
 - Private notes repo — research narrative not for the public tree.

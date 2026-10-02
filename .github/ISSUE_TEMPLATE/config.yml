@@ -2,7 +2,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://deqn-jax.github.io/
+    url: https://deqn-jax.github.io/docs/
     about: Method Zoo, model gallery, and the REFERENCE.md contract — start here before filing.
   - name: Discussions
     url: https://github.com/deqn-jax/deqn-jax/discussions
