@@ -1,27 +1,29 @@
 # DEQN-JAX
 
-**A global solver for recursive economic equilibria, in JAX.**
+A global solver for recursive economic equilibria, written in JAX.
 
-You write your model's equilibrium conditions — Euler equations, FOCs, market
-clearing, a transition law, a calibration. It returns globally-solved decision
-rules and their Euler-equation accuracy, with the kinks your perturbation tools
-linearize away left **intact**.
+You write the model's equilibrium conditions: Euler equations, first-order
+conditions, market clearing, a transition law and a calibration. DEQN-JAX
+returns globally solved decision rules and their Euler-equation accuracy.
+Occasionally-binding constraints keep their kinks instead of being linearized
+away.
 
-> **Built on Deep Equilibrium Nets** — the method of **Azinovic, Gaegauf &
-> Scheidegger (2022)** and **Scheidegger & Bilionis (2019)**. DEQN-JAX is a
-> JAX/Equinox reimplementation and extension; all credit for the original method
-> belongs to the upstream authors. [Full references ↓](#citing)
+DEQN-JAX implements Deep Equilibrium Nets, the method of Azinovic, Gaegauf &
+Scheidegger (2022) and Scheidegger & Bilionis (2019). It is a JAX/Equinox
+reimplementation and extension; all credit for the original method belongs to
+the upstream authors. See [Citing](#citing) for the references.
 
 !!! note "Status: alpha (v0.2.0)"
-    The **validated stack is small**: `adam` + an MLP (or `LinearPlusMLP`) +
-    an MSE residual + antithetic Monte-Carlo (or Gauss–Hermite) expectations.
-    Everything else in the registries is a research instrument, not a turnkey
-    recommendation. Two hard limits — equilibrium **selection** and the absence
-    of certified error bounds — are stated plainly under *[Is this for you?](#is-this-for-you)*.
+    The API may change. The validated combination is `adam`, an MLP (or
+    `LinearPlusMLP`), an MSE residual, and antithetic Monte Carlo (or
+    Gauss–Hermite) expectations. The other networks, optimizers and losses in
+    the registries are research tools. Two limits apply to every result: the
+    solver does not enforce equilibrium selection, and it gives no certified
+    error bounds. See [Is this for you?](#is-this-for-you).
 
 ```mermaid
 flowchart LR
-    subgraph WRITE["You write — your model, in its own objects"]
+    subgraph WRITE["You write"]
         S["State s = (K, z)"]
         EQ["Euler / FOC / market-clearing<br/>conditions"]
         TR["Transition s' = g(s, &pi;(s), &epsilon;')"]
@@ -35,70 +37,55 @@ flowchart LR
     EQ --> RES["Residuals = E over next-period shock<br/>(quadrature or Monte Carlo)"]
     RES -->|refine &pi; until residuals vanish| PI
     PI --> TR
-    TR --> ERG["Ergodic set —<br/>states the economy visits"]
+    TR --> ERG["Ergodic set:<br/>states the economy visits"]
     ERG -->|simulate to draw collocation states| S
     RES -.->|relative Euler errors| ACC
 ```
 
-## Why reach for it
+## Features
 
-<div class="grid cards" markdown>
-
--   :material-chart-bell-curve-cumulative:{ .lg .middle } __Kinks stay kinked__
-
-    ---
-
-    The ZLB, borrowing limits, irreversible investment enter as
-    **Fischer–Burmeister complementarity** residuals — solved globally, *not*
-    linearized away at the steady state.
-
--   :material-cube-outline:{ .lg .middle } __No tensor-grid curse__
-
-    ---
-
-    The policy is a **neural network**, playing the role Chebyshev polynomials
-    or splines play in a projection method — but many state dimensions stay
-    tractable, with no grid to explode.
-
--   :material-vector-link:{ .lg .middle } __Composes with Dynare__
-
-    ---
-
-    A first-order **Blanchard–Kahn linearization — computed in-framework, or
-    imported from Dynare — warm-starts and anchors** the solve. DEQN extends
-    your workflow; it doesn't ask you to throw out perturbation.
-
--   :material-ruler-square-compass:{ .lg .middle } __Accuracy you'd quote__
-
-    ---
-
-    Reported as the distribution of **relative Euler errors (errREE)** on the
-    ergodic set — the number you already put in a paper, not a black-box loss.
-
-</div>
+- Occasionally-binding constraints (the ZLB, borrowing limits, irreversible
+  investment) enter as Fischer–Burmeister complementarity residuals and are
+  solved globally, not linearized at the steady state.
+- The policy is a neural network. It plays the role that Chebyshev polynomials
+  or splines play in a projection method, but there is no tensor grid, so
+  models with many state variables stay tractable.
+- A first-order Blanchard–Kahn linearization, computed in the framework or
+  imported from Dynare, can warm-start and anchor the solve. DEQN extends a
+  perturbation workflow rather than replacing it.
+- Accuracy is reported as the distribution of relative Euler errors (errREE)
+  on the ergodic set, the same measure used in the literature.
 
 ## Is this for you?
 
-!!! success "Reach for DEQN when…"
+DEQN is a good fit when:
 
-    - your model has **occasionally-binding constraints** a perturbation misses — ZLB, borrowing limits, irreversibility;
-    - the state space is **too large for a projection tensor grid**;
-    - you want a **global, nonlinear** decision rule, not a local Taylor expansion around the steady state.
+- the model has occasionally-binding constraints that perturbation misses (ZLB,
+  borrowing limits, irreversibility);
+- the state space is too large for a projection tensor grid;
+- you want a global, nonlinear decision rule rather than a local Taylor
+  expansion around the steady state.
 
-!!! warning "Reach for something else (for now) when…"
+Use something else for now when:
 
-    - a **first-order perturbation already answers your question** — Dynare is faster and proven;
-    - you need a **determinacy / equilibrium-selection guarantee** — there is no global analogue of the *local* Blanchard–Kahn saddle-path condition here. Like any nonlinear global solver, DEQN can settle on the **wrong equilibrium branch**, and nothing in the framework enforces selection — a low residual is necessary but **not sufficient**;
-    - you need **certified error bounds** — accuracy here is *measured* (the errREE distribution), not a theorem.
+- a first-order perturbation already answers your question. Dynare is faster
+  and well tested.
+- you need a determinacy or equilibrium-selection guarantee. There is no global
+  analogue of the local Blanchard–Kahn saddle-path condition. Like any
+  nonlinear global solver, DEQN can converge to the wrong equilibrium branch,
+  and the framework does not enforce selection. A low residual is necessary
+  but not sufficient.
+- you need certified error bounds. Accuracy here is measured (the errREE
+  distribution), not proven.
 
-## You write the model; it returns the solve
+## What you write and what you get
 
 === "What you write"
 
-    The equilibrium conditions, as residuals that must vanish in expectation.
-    Here is the **actual** Brock–Mirman model in the tree — its real objects,
-    not a sketch. The one decision rule is the **savings rate**; consumption and
-    everything else fall out of it.
+    The equilibrium conditions, written as residuals that must vanish in
+    expectation. This is the Brock–Mirman model as it appears in the source
+    tree. The only decision rule is the savings rate; consumption and the other
+    variables follow from it.
 
     ```python
     # variables.py — you declare the model's objects
@@ -118,12 +105,12 @@ flowchart LR
         return {"euler": euler}
     ```
 
-    No grid, no basis functions, no solver loop to hand-roll: you declare the
-    economics; the framework supplies the approximation and the solve.
+    You do not write a grid, basis functions or a solver loop. The framework
+    supplies the approximation and the solve.
 
 === "What you get"
 
-    A trained decision rule you can call, simulate, and shock —
+    A trained decision rule that you can evaluate, simulate and shock:
 
     ```text
     policy(k, z)  ->  sav_rate              # the trained decision rule
@@ -132,99 +119,54 @@ flowchart LR
     impulse responses, simulated moments, stability check
     ```
 
-    See the **[Gallery](gallery/index.md)** for worked models with their
-    *measured* errREE certificates — the evidence, not a promise.
+    The [Gallery](gallery/index.md) has worked models with their measured
+    errREE.
 
-??? abstract "Where it sits among the methods you already use"
+??? abstract "Where it sits among standard methods"
 
-    Same target as perturbation, projection, and time iteration — a decision
-    rule $\pi(s)$ that drives the equilibrium residuals to zero. DEQN is the
-    **global** member that scales in the state dimension and keeps the kinks.
+    Perturbation, projection, time iteration and DEQN all look for a decision
+    rule $\pi(s)$ that sets the equilibrium residuals to zero. DEQN is a global
+    method that scales with the number of state variables and handles kinks.
 
     ```mermaid
     flowchart TD
         T["Target: a decision rule &pi;(s) that zeroes the<br/>Euler / FOC / market-clearing residuals"]
         T --> L["Perturbation (Dynare):<br/>LOCAL Taylor expansion at the steady state"]
-        T --> P["Projection (Judd):<br/>Chebyshev / splines on a tensor grid — global"]
-        T --> I["Time iteration / PFI:<br/>iterate the policy to a fixed point — global"]
-        T --> D["DEQN — this framework:<br/>network &pi;(s), residuals on the simulated ergodic set — global"]
-        D --> N["scales to many state dimensions without a tensor grid;<br/>occasionally-binding constraints via Fischer–Burmeister,<br/>no linearizing-away the kink"]
+        T --> P["Projection (Judd):<br/>Chebyshev / splines on a tensor grid, global"]
+        T --> I["Time iteration / PFI:<br/>iterate the policy to a fixed point, global"]
+        T --> D["DEQN (this framework):<br/>network &pi;(s), residuals on the simulated ergodic set, global"]
+        D --> N["scales to many state dimensions without a tensor grid;<br/>occasionally-binding constraints via Fischer–Burmeister,<br/>kink not linearized away"]
         L -.->|linearization warm-starts / anchors DEQN| D
     ```
 
-??? quote "ML ↔ economics dictionary"
+??? quote "Machine-learning terms and their economics equivalents"
 
-    Every ML word here is a numerical-methods idea you already use:
-
-    | The ML word | What it is, in your language |
+    | Machine-learning term | Economics equivalent |
     |---|---|
-    | neural-network policy | a flexible approximation of the decision rule $\pi(s)$ — the role Chebyshev/splines play in projection |
+    | neural-network policy | a flexible approximation of the decision rule $\pi(s)$, the role Chebyshev polynomials or splines play in projection |
     | loss / training residual | the Euler / FOC / market-clearing error |
-    | gradient descent / "training" | solving for the approximation's coefficients — the collocation / projection solve |
-    | on-policy sampling / minibatch | collocation points drawn by **simulating the model** (the ergodic set), not a fixed tensor grid |
+    | gradient descent / "training" | solving for the approximation's coefficients, as in a collocation / projection solve |
+    | on-policy sampling / minibatch | collocation points drawn by simulating the model (the ergodic set), not a fixed tensor grid |
     | expectation over shocks | Gauss–Hermite quadrature, or Monte Carlo with antithetic variates |
     | constraint penalty | a Fischer–Burmeister complementarity residual (irreversibility, borrowing limits, ZLB) |
     | "deep equilibrium net" | a global, nonlinear, high-dimensional recursive-equilibrium / policy-function solver |
-    | "converged" / low loss | small relative Euler errors (errREE) on the ergodic path — necessary, **not** sufficient |
+    | "converged" / low loss | small relative Euler errors (errREE) on the ergodic path; necessary, not sufficient |
 
 ## Start here
 
-<div class="grid cards" markdown>
-
--   :material-rocket-launch:{ .lg .middle } __Run it in five minutes__
-
-    ---
-
-    Install, then train the canonical smoke-test model and read its accuracy.
-
-    [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
-
--   :material-image-multiple:{ .lg .middle } __See worked models__
-
-    ---
-
-    Closed-form pedagogy → the constraint trilogy → an experimental NK-DSGE —
-    each with its measured errREE certificate.
-
-    [:octicons-arrow-right-24: Gallery](gallery/index.md)
-
--   :material-tune-variant:{ .lg .middle } __Pick your method__
-
-    ---
-
-    The swappable toolkit — networks, optimizers, expectations, diagnostics —
-    and *when* (and when not) to reach for each.
-
-    [:octicons-arrow-right-24: Method Zoo](method-zoo/index.md)
-
--   :material-pencil-ruler:{ .lg .middle } __Write your own model__
-
-    ---
-
-    Declare states, equilibrium equations, transition, calibration — as data.
-    The `ModelSpec` contract is the whole surface.
-
-    [:octicons-arrow-right-24: Implementing a model](models/implementing.md)
-
--   :material-robot-outline:{ .lg .middle } __Paper → policy, automated__
-
-    ---
-
-    `deqn-agent` turns a model description into a trained, residual-checked DEQN
-    policy. Experimental, v0 alpha.
-
-    [:octicons-arrow-right-24: deqn-agent](ecosystem/deqn-agent.md)
-
--   :material-book-open-variant:{ .lg .middle } __The full contract__
-
-    ---
-
-    Type-signature-first reference for every public entry point — for
-    contributors and codegen.
-
-    [:octicons-arrow-right-24: REFERENCE](REFERENCE.md)
-
-</div>
+- [Quickstart](getting-started/quickstart.md): install, train the smoke-test
+  model and read its accuracy.
+- [Gallery](gallery/index.md): worked models, from closed-form examples through
+  the three occasionally-binding-constraint models to an experimental NK-DSGE,
+  each with its measured errREE.
+- [Method Zoo](method-zoo/index.md): the interchangeable networks, optimizers,
+  expectation operators and diagnostics, and when to use each.
+- [Implementing a model](models/implementing.md): declare states, equilibrium
+  equations, transition and calibration through the `ModelSpec` contract.
+- [deqn-agent](ecosystem/deqn-agent.md): an experimental (v0 alpha) package that
+  turns a model description into a trained, residual-checked DEQN policy.
+- [REFERENCE](REFERENCE.md): signatures of every public entry point, for
+  contributors and code generation.
 
 ## Citing
 
@@ -238,4 +180,3 @@ If you use DEQN-JAX in research, please cite the foundational DEQN papers:
 This is a JAX/Equinox reimplementation and extension of the Deep Equilibrium
 Networks methodology of Simon Scheidegger and collaborators; all credit for the
 original method belongs to the upstream authors.
-

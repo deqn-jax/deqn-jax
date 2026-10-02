@@ -1,6 +1,6 @@
 # Configuration
 
-DEQN-JAX uses a layered config with three sources merged in priority order:
+Configuration values come from four sources, in priority order:
 
 ```
 --set overrides  >  CLI args  >  YAML file  >  defaults
@@ -46,13 +46,12 @@ constants:
   theta_disaster: 0.05
 ```
 
-Useful for calibration sweeps and disaster-risk experiments. See
+This is useful for calibration sweeps and disaster-risk experiments. See the
 [disaster model](../models/disaster.md).
 
 ## Validation
 
 Configs are Pydantic v2 models. Unknown keys are rejected with
-did-you-mean suggestions. Type errors are reported with the offending
-field path.
+"did you mean" suggestions, and type errors name the offending field path.
 
 For the full schema, see the [Config API reference](../api/config.md).
