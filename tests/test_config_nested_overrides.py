@@ -50,3 +50,16 @@ def test_set_coverage_field_reaches_the_block():
 def test_unknown_nested_key_still_rejected():
     with pytest.raises(ValueError, match="Unknown keys"):
         TrainConfig(model="brock_mirman").with_overrides({"coverage.nope": 1})
+
+
+def test_constants_override_folds_into_the_constants_dict(tmp_path):
+    """``--set constants.<name>=<value>`` reaches one model constant without
+    restating the others, and the run's config.yaml records it."""
+    cfg = TrainConfig(model="brock_mirman", constants={"alpha": 0.3})
+    cfg = cfg.with_overrides({"constants.beta": "0.9", "constants.alpha": "0.35"})
+    assert cfg.constants == {"alpha": 0.35, "beta": 0.9}
+    path = tmp_path / "config.yaml"
+    cfg.to_yaml(str(path))
+    assert TrainConfig.from_yaml(str(path)).constants == {"alpha": 0.35, "beta": 0.9}
+    with pytest.raises(ValueError, match="Empty constant name"):
+        cfg.with_overrides({"constants.": "1"})

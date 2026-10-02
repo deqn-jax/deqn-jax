@@ -50,30 +50,46 @@ def transport_truncated_normal(
     return mu + sigma * normal_ppf(u)
 
 
+def tariff_step(
+    tau: Array, sig: Array, eps_tau: Array, eps_sigma: Array, constants, pairs
+) -> tuple[Array, Array]:
+    """Writeup (34)–(35) for the tariff pairs selected by ``pairs`` (flat
+    indices into the ``[n, n]`` parameter matrices): log-volatility AR(1),
+    then the tariff AR(1) mean with the innovation transported onto the
+    truncated normal at the new volatility. Returns ``(tau', log_sigma')``."""
+    rho_s = jnp.asarray(constants["rho_sigma_tau"]).reshape(-1)[pairs]
+    bar_s = jnp.asarray(constants["bar_sigma_tau"]).reshape(-1)[pairs]
+    sig_s = jnp.asarray(constants["sigma_sigma_tau"]).reshape(-1)[pairs]
+    rho_t = jnp.asarray(constants["rho_tau"]).reshape(-1)[pairs]
+    bar_t = jnp.asarray(constants["bar_tau"]).reshape(-1)[pairs]
+    # (35) log-volatility AR(1)
+    sig_next = (1.0 - rho_s) * bar_s + rho_s * sig + sig_s * eps_sigma
+    # (34) tariff level: AR(1) mean with the transported innovation
+    mu_tau = (1.0 - rho_t) * bar_t + rho_t * tau
+    tau_next = transport_truncated_normal(eps_tau, mu_tau, jnp.exp(sig_next))
+    return tau_next, sig_next
+
+
 def make_step(layout: Layout):
     n = layout.n
     n_pairs = n * n
     tau_idx = layout.tau.reshape(-1)
     sig_idx = layout.sigma_tau.reshape(-1)
+    all_pairs = jnp.arange(n_pairs)
 
     def step(state: Array, policy: Array, shock: Array, constants) -> Array:
-        rho_s = jnp.asarray(constants["rho_sigma_tau"]).reshape(-1)
-        bar_s = jnp.asarray(constants["bar_sigma_tau"]).reshape(-1)
-        sig_s = jnp.asarray(constants["sigma_sigma_tau"]).reshape(-1)
-        rho_t = jnp.asarray(constants["rho_tau"]).reshape(-1)
-        bar_t = jnp.asarray(constants["bar_tau"]).reshape(-1)
         offdiag = (~jnp.eye(n, dtype=bool)).reshape(-1).astype(state.dtype)
-
         eps_sigma = shock[:, :n_pairs]
         eps_tau = shock[:, n_pairs : 2 * n_pairs]
-        sig = state[:, sig_idx]
-        tau = state[:, tau_idx]
-
-        # (35) log-volatility AR(1); diagonal parameters are zero -> stays 0
-        sig_next = (1.0 - rho_s) * bar_s + rho_s * sig + sig_s * eps_sigma
-        # (34) tariff level: AR(1) mean with the transported innovation
-        mu_tau = (1.0 - rho_t) * bar_t + rho_t * tau
-        tau_next = transport_truncated_normal(eps_tau, mu_tau, jnp.exp(sig_next))
+        # all n^2 pairs; diagonal parameters are zero, so log-vol stays 0 there
+        tau_next, sig_next = tariff_step(
+            state[:, tau_idx],
+            state[:, sig_idx],
+            eps_tau,
+            eps_sigma,
+            constants,
+            all_pairs,
+        )
         tau_next = jnp.maximum(tau_next * offdiag, 0.0)
 
         nxt = state

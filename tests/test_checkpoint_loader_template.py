@@ -93,3 +93,23 @@ def test_inert_removed_fields_in_a_saved_config_are_tolerated(tmp_path):
     with pytest.warns(UserWarning, match="ignoring removed field"):
         net, _ = load_policy_from_checkpoint(ckpt)
     assert net is not None
+
+
+def test_constants_override_is_part_of_the_loaded_model(tmp_path):
+    """A run's ``constants`` overrides were merged into the trained model's
+    calibration; the loader must rebuild the same model (template
+    completeness, the silent-drop class above)."""
+    ckpt = _save_run(tmp_path)
+    cfg_path = tmp_path / "config.yaml"
+    cfg = yaml.safe_load(cfg_path.read_text())
+    cfg["constants"] = {"beta": 0.9}
+    cfg_path.write_text(yaml.safe_dump(cfg))
+    net, model = load_policy_from_checkpoint(ckpt)
+    base = load_model("brock_mirman")
+    assert model.constants["beta"] == 0.9 and base.constants["beta"] != 0.9
+    assert model.constants["alpha"] == base.constants["alpha"]
+    s = jax.numpy.array([[0.2, 1.0]])
+    p = net(s)
+    r = model.equations_fn(s, p, s, p, model.constants)
+    r0 = base.equations_fn(s, p, s, p, base.constants)
+    assert any(float(jax.numpy.max(jax.numpy.abs(r[k] - r0[k]))) > 0 for k in r)

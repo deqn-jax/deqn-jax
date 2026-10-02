@@ -108,6 +108,14 @@ def create_optimizer(
     return opt, kind
 
 
+def get_optimizer_kind(name: str) -> OptimizerKind:
+    """The train-step variant a registered optimizer name dispatches to."""
+    if name not in _REGISTRY:
+        available = ", ".join(sorted(_REGISTRY.keys()))
+        raise ValueError(f"Unknown optimizer '{name}'. Available: {available}")
+    return _REGISTRY[name][1]
+
+
 def list_optimizers() -> List[str]:
     """Return sorted list of registered optimizer names."""
     return sorted(_REGISTRY.keys())

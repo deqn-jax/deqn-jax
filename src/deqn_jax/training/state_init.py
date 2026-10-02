@@ -521,6 +521,39 @@ def _validate_train_config(config) -> None:
             )
 
 
+def _validate_aux_residuals(config, model: ModelSpec) -> None:
+    """A model whose own residuals include ``aux_*`` keys (constant-weight
+    auxiliary terms, e.g. rss_trade_ez's transversality) relies on the plain
+    total loss to carry them: they are excluded from ``eq_losses_to_array``
+    by contract. Reject the update paths that differentiate only that
+    per-equation vector (PCGrad, MAO, GN-family) — the aux terms would be
+    logged but silently dropped from the gradient — and adaptive
+    reweighting, whose weight vector skips them while the loss indexes
+    weights by residual position."""
+    aux = [n for n in (model.equation_names or ()) if n.startswith("aux_")]
+    if not aux:
+        return
+    from deqn_jax.optimizers.registry import get_optimizer_kind
+
+    ok_kinds = {OptimizerKind.STANDARD, OptimizerKind.LBFGS}
+    names = [config.optimizer.name] + (
+        [config.switch_optimizer] if config.switch_optimizer else []
+    )
+    bad = [n for n in names if get_optimizer_kind(n.lower()) not in ok_kinds]
+    problems = [f"optimizer '{n}'" for n in bad]
+    if config.gradient_surgery != "none":
+        problems.append(f"gradient_surgery='{config.gradient_surgery}'")
+    if config.loss_reweight != "none":
+        problems.append(f"loss_reweight='{config.loss_reweight}'")
+    if problems:
+        raise ValueError(
+            f"model '{model.name}' has auxiliary residuals {aux}, which only "
+            f"the total loss carries; {', '.join(problems)} would drop or "
+            "misweight them. Use a STANDARD optimizer (adam/muon/ngd/shampoo) "
+            "or lbfgs, with gradient_surgery='none' and loss_reweight='none'."
+        )
+
+
 def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
     """Load the model, validate sizes, apply constants override and setup_fn.
 
@@ -610,6 +643,8 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
 
     if model.setup_fn is not None:
         model = model.setup_fn(model, config)
+
+    _validate_aux_residuals(config, model)
 
     n_equations = len(model.equation_names) if model.equation_names else 1
 

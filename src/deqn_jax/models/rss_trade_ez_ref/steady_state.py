@@ -18,15 +18,23 @@ from jax import Array
 from deqn_jax.models.rss_trade_ez_ref.variables import K_SS_REFERENCE, Layout
 
 
+def sample_capital(
+    key: Array, batch_size: int, n: int, k_center=K_SS_REFERENCE, jitter: float = 0.1
+) -> Array:
+    """``[b, n]`` capital stocks: the reference steady-state stocks jittered
+    multiplicatively by ``exp(U(-jitter, jitter))``."""
+    center = jnp.asarray(k_center[:n], dtype=jnp.float32)
+    u = jax.random.uniform(key, (batch_size, n), minval=-jitter, maxval=jitter)
+    return center[None, :] * jnp.exp(u)
+
+
 def make_init_state(layout: Layout, k_center=K_SS_REFERENCE, jitter: float = 0.1):
     n = layout.n
-    k_center = jnp.asarray(k_center[:n], dtype=jnp.float32)
 
     def init_state(key: Array, batch_size: int, constants) -> Array:
         bar_sigma = jnp.asarray(constants["bar_sigma_tau"]).reshape(-1)
         s = jnp.zeros((batch_size, layout.n_states))
-        u = jax.random.uniform(key, (batch_size, n), minval=-jitter, maxval=jitter)
-        s = s.at[:, layout.K].set(k_center[None, :] * jnp.exp(u))
+        s = s.at[:, layout.K].set(sample_capital(key, batch_size, n, k_center, jitter))
         s = s.at[:, layout.sigma_tau.reshape(-1)].set(bar_sigma[None, :])
         s = s.at[:, layout.homo].set(1.0)
         s = s.at[:, layout.homo_1].set(1.0)

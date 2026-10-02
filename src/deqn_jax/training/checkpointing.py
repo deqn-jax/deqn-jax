@@ -235,6 +235,11 @@ def load_policy_from_checkpoint(
     from deqn_jax.models import load_model
 
     model = load_model(cfg["model"])
+    # The run's constants overrides (``constants:`` / ``--set constants.X=``)
+    # are part of the trained model: the trainer merged them into the
+    # calibration, so the loaded model must carry them too.
+    if cfg.get("constants"):
+        model = model._replace(constants={**model.constants, **cfg["constants"]})
 
     # Extract network config
     net_cfg = cfg.get("network", {})

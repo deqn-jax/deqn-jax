@@ -121,8 +121,29 @@ def _config_to_flat_dict(config: TrainConfig) -> Dict[str, Any]:
     return flat
 
 
+def _fold_constants(flat: Dict[str, Any]) -> Dict[str, Any]:
+    """Fold ``constants.<name>`` keys into the ``constants`` dict, so a
+    single model constant can be overridden from the command line
+    (``--set constants.beta=0.95``) without restating the others. The
+    trainer merges the dict into the model's calibration and the run's
+    config.yaml records it for the checkpoint loader."""
+    keys = [k for k in flat if k.startswith("constants.")]
+    if not keys:
+        return flat
+    flat = dict(flat)
+    constants = dict(flat.get("constants") or {})
+    for key in keys:
+        name = key[len("constants.") :]
+        if not name:
+            raise ValueError(f"Empty constant name in override {key!r}")
+        constants[name] = flat.pop(key)
+    flat["constants"] = constants
+    return flat
+
+
 def _flat_dict_to_config(flat: Dict[str, Any]) -> TrainConfig:
     """Reconstruct TrainConfig from flat dot-notation dict."""
+    flat = _fold_constants(flat)
     blocks = _nested_blocks()
     block_kw: Dict[str, Dict[str, Any]] = {name: {} for name in blocks}
     train_kw: Dict[str, Any] = {}

@@ -1,0 +1,43 @@
+# RSS-2019 three-country trade DSGE (Epstein–Zin), Phase-1 variant model.
+# The cleaned layout (18 states / 70 policies / 76 residuals / 12 shocks)
+# trained with the library's standard bounded MLP: 512-path batch, 256-step
+# episodes re-initialized every episode, monomial quadrature over the 12
+# off-diagonal tariff shocks (24 nodes), plain MSE, Adam 1e-4 with a cosine
+# schedule, final-checkpoint convention.
+#
+# Curriculum: the defaults are the converged stage (true calibration, bonds
+# traded). Earlier stages are resumed runs that step the model constants,
+# e.g. `--set constants.bonds_active=0 --set constants.homotopy_asym=0
+# --set constants.homotopy_trade=0`, then `--resume <final checkpoint>` with
+# the next values.
+model: rss_trade_ez
+
+episodes: 10000
+batch_size: 512
+sim_batch: 512
+episode_length: 256
+initialize_each_episode: true
+n_epochs_per_rollout: 1
+n_minibatches_per_epoch: 1
+
+expectation_type: monomial
+loss_type: mse
+loss_choice: mse
+loss_reweight: none
+warm_start: false
+
+network:
+  type: mlp
+  hidden_sizes: [512, 512, 256, 256, 128]
+  activation: gelu
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  grad_clip: 1.0
+
+checkpoint_every: 250
+save_best_checkpoint: false
+log_every: 50

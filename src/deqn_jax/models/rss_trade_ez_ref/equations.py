@@ -13,6 +13,10 @@ two-stage hooks factor them as ``E[inside]`` (``inside_fn``, 3n columns in the
 order CE / EB / EC) and current-period factors (``combine_fn``). The
 single-stage ``equations_fn`` composes the two on a single draw and is what
 the standard loss path integrates.
+
+The economic conditions themselves (:func:`economic_blocks`,
+:func:`integrands`) are layout-free and shared with the Phase-1 variant
+``rss_trade_ez``, which names and orders them its own way.
 """
 
 from __future__ import annotations
@@ -22,7 +26,11 @@ from typing import Dict, Tuple
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.models.rss_trade_ez_ref.definitions import clip_policy, core
+from deqn_jax.models.rss_trade_ez_ref.definitions import (
+    capital_identity,
+    clip_policy,
+    core,
+)
 from deqn_jax.models.rss_trade_ez_ref.variables import Layout
 
 
@@ -67,31 +75,148 @@ def inside_keys(n: int) -> Tuple[str, ...]:
     )
 
 
+def integrands(cur: Dict[str, Array], nxt: Dict[str, Array], constants):
+    """The three continuation integrands at one next-period draw, from the
+    current and next-period definitions: ``U'^(1-gama)`` (CE), the bond
+    payoff ``kernel' (1+q') / P_C'`` (EB) and the capital payoff
+    ``kernel' P_X' (r'/P_X' - Phi_2') / P_C'`` (EC). ``mu`` (current
+    certainty equivalent) enters the EZ kernel and is the only
+    current-period quantity used here."""
+    gama = float(constants["gama"])
+    psi = float(constants["psi"])
+    kernel = ez_kernel(nxt["U"], cur["mu"], nxt["muc"], gama, psi)
+    ce = nxt["U"] ** (1.0 - gama)
+    eb = kernel * (1.0 + nxt["q"]) / nxt["P_C"]
+    ec = kernel * nxt["P_X"] * (nxt["r"] / nxt["P_X"] - nxt["Phi_2"]) / nxt["P_C"]
+    return ce, eb, ec
+
+
+def economic_blocks(
+    d: Dict[str, Array], E_ce: Array, E_eb: Array, E_ec: Array, constants
+) -> Dict[str, Array]:
+    """The equilibrium conditions the replica and the Phase-1 variant share,
+    as ``[b, n]`` blocks (``world`` is ``[b]``), keyed by block. ``d`` holds
+    the policy blocks (``K`` = next-period capital, ``A`` = next-period
+    cleared bond position) and :func:`~.definitions.economy`; ``E_*`` are
+    the expectations of :func:`integrands`."""
+    c = constants
+    alpha = float(c["alpha"])
+    beta = float(c["beta"])
+    gama = float(c["gama"])
+    psi = float(c["psi"])
+    min_K = float(c["min_K"])
+    K_floor = jnp.maximum(d["K_state"], min_K)
+
+    r: Dict[str, Array] = {}
+    sectors = {
+        "C": (d["nu_c"], d["P_C"], d["Y_C"], d["K_C"], d["L_C"], d["M_C"]),
+        "M": (d["nu_m"], d["P_M"], d["Y_M"], d["K_M"], d["L_M"], d["M_M"]),
+        "X": (d["nu_x"], d["P_X"], d["Y_X"], d["K_X"], d["L_X"], d["M_X"]),
+    }
+    # (1)-(3) capital income, ratio form: 1 - alpha nu P Y / (r K_share K)
+    for s, (nu, P, Y, Ks, Ls, Ms) in sectors.items():
+        r[f"capital_income_{s}"] = 1.0 - alpha * nu * P * Y / (d["r"] * Ks * K_floor)
+    # (4)-(6) labor income: ((1-alpha) nu P Y - w L_share L_eff) / ((1-alpha) nu P Y)
+    for s, (nu, P, Y, Ks, Ls, Ms) in sectors.items():
+        lhs = (1.0 - alpha) * nu * P * Y
+        r[f"labor_income_{s}"] = (lhs - d["w"] * Ls * d["L_eff"]) / lhs
+    # (7)-(9) intermediate input demand: ((1-nu) P Y - P_M M_share M) / ((1-nu) P Y)
+    for s, (nu, P, Y, Ks, Ls, Ms) in sectors.items():
+        lhs = (1.0 - nu) * P * Y
+        r[f"input_demand_{s}"] = (lhs - d["P_M"] * Ms * d["M"]) / lhs
+    # (10)-(12) allocation constraints as shares summing to one
+    r["capital_allocation"] = 1.0 - (d["K_C"] + d["K_M"] + d["K_X"])
+    r["labor_allocation"] = 1.0 - (d["L_C"] + d["L_M"] + d["L_X"])
+    r["intermediate_allocation"] = 1.0 - (d["M_C"] + d["M_M"] + d["M_X"])
+    # (13) C = Y_C ; (14) exports = output of M ; (15) X = Y_X
+    r["market_clearing_C"] = (d["C"] - d["Y_C"]) / d["Y_C"]
+    # importer j pays P_M_j M_j pi_ji omega_ji to exporter i
+    exports = jnp.einsum("bj,bji->bi", d["P_M"] * d["M"], d["pi"] * d["omega"])
+    pmy = d["P_M"] * d["Y_M"]
+    r["market_clearing_M"] = (exports - pmy) / (-pmy)
+    r["market_clearing_X"] = (d["X"] - d["Y_X"]) / d["Y_X"]
+    # (16)-(18) price indices: unit cost = price
+    r["price_index_C"] = (d["uc_C"] - d["P_C"]) / d["P_C"]
+    r["price_index_M"] = (d["P_M_index"] - d["P_M"]) / d["P_M"]
+    r["price_index_X"] = (d["uc_X"] - d["P_X"]) / d["P_X"]
+    # (22) balance of payments per country, normalized by P_M Y_M; (24) world
+    # clearing as the sum of net exports plus interest on outstanding bonds
+    imports_share = jnp.sum(d["pi"] * d["omega"], axis=2)
+    trade_balance = d["P_M"] * (d["Y_M"] - d["M"] * imports_share)
+    r["bop"] = (
+        -d["A"] * d["L_eff"]
+        + trade_balance
+        + (1.0 + d["q"]) * d["A_state"] * d["L_eff"]
+    ) / pmy
+    r["world"] = jnp.sum(trade_balance + d["q"] * d["A_state"] * d["L_eff"], axis=1)
+    # (25) law of motion of capital against the K' policy, ratio form
+    r["law_of_motion_K"] = (capital_identity(d["K_state"], d["X"], c) - d["K"]) / (
+        -jnp.maximum(d["K"], min_K)
+    )
+    # (29) certainty equivalent: mu^(1-gama) = E[U'^(1-gama)]
+    mu_pow = d["mu"] ** (1.0 - gama)
+    r["certainty_equivalent"] = (mu_pow - E_ce) / (mu_pow + 1e-8)
+    # (28) value function aggregator
+    rho = 1.0 - 1.0 / psi
+    U_pow = (d["U"] + 1e-8) ** rho
+    r["value_function"] = (
+        U_pow
+        - (
+            (1.0 - beta) * (d["C"] / d["L_eff"] + 1e-8) ** rho
+            + beta * (d["mu"] + 1e-8) ** rho
+        )
+    ) / U_pow
+    # (26) bond Euler: 1 = beta E[kernel (1+q') P_C/P_C'] with kernel = (U'/mu)^p muc'/muc
+    r["euler_bond"] = 1.0 - beta * (d["P_C"] / d["muc"]) * E_eb
+    # (27) capital Euler
+    r["euler_capital"] = (
+        1.0
+        - beta * d["P_C"] / (d["muc"] * d["P_X"] * jnp.maximum(d["Phi_1"], 1e-5)) * E_ec
+    )
+    return r
+
+
+# Replica residual prefixes per shared block, in the reference's order; the
+# world clearing condition sits between the BoP and the capital blocks.
+_REPLICA_HEAD = (
+    [(f"capital_income_{s}", f"capital_income_{s}") for s in "CMX"]
+    + [(f"labor_income_{s}", f"labor_income_{s}") for s in "CMX"]
+    + [(f"input_demand_{s}", f"input_demand_{s}") for s in "CMX"]
+    + [
+        ("capital_allocation", "capital_allocation"),
+        ("labor_allocation", "labor_allocation"),
+        ("intermediate_allocation", "intermediate_goods_allocation"),
+    ]
+    + [(f"market_clearing_{s}", f"market_clearing_{s}") for s in "CMX"]
+    + [(f"price_index_{s}", f"price_index_{s}") for s in "CMX"]
+    + [("bop", "BoP_")]
+)
+_REPLICA_TAIL = (
+    ("law_of_motion_K", "law_of_motion_K_"),
+    ("certainty_equivalent", "certainty_equivalent_"),
+    ("value_function", "value_function_"),
+    ("euler_bond", "EE_bond_"),
+    ("euler_capital", "EE_capital_"),
+)
+
+
 def make_equations(layout: Layout):
     n = layout.n
     names = equation_names(n)
     keys = inside_keys(n)
 
-    def _spread(
-        out: Dict[str, Array], prefix: str, values: Array, sep: str = ""
-    ) -> None:
+    def _spread(out: Dict[str, Array], prefix: str, values: Array) -> None:
         for i in range(n):
-            out[f"{prefix}{sep}{i + 1}"] = values[:, i]
+            out[f"{prefix}{i + 1}"] = values[:, i]
 
     def inside_fn(
         state, policy, next_state, next_policy, constants
     ) -> Dict[str, Array]:
         """Pure forward parts of the three expectation-bearing blocks, at a
-        next-period draw. ``mu`` (current certainty equivalent) enters the
-        EZ kernel and is the only current-period quantity used here."""
-        gama = float(constants["gama"])
-        psi = float(constants["psi"])
+        next-period draw."""
         cur = core(state, policy, constants, layout)
         nxt = core(next_state, next_policy, constants, layout)
-        kernel = ez_kernel(nxt["U"], cur["mu"], nxt["muc"], gama, psi)
-        ce = nxt["U"] ** (1.0 - gama)
-        eb = kernel * (1.0 + nxt["q"]) / nxt["P_C"]
-        ec = kernel * nxt["P_X"] * (nxt["r"] / nxt["P_X"] - nxt["Phi_2"]) / nxt["P_C"]
+        ce, eb, ec = integrands(cur, nxt, constants)
         out: Dict[str, Array] = {}
         _spread(out, "ce_", ce)
         _spread(out, "eb_", eb)
@@ -103,107 +228,23 @@ def make_equations(layout: Layout):
     ) -> Dict[str, Array]:
         """All 82 residuals from the current state/policy and E[inside]."""
         c = constants
-        alpha = float(c["alpha"])
         beta = float(c["beta"])
-        delta = float(c["delta"])
-        lam = float(c["lambda_"])
         gama = float(c["gama"])
         psi = float(c["psi"])
-        min_K = float(c["min_K"])
         p_exp = -gama + 1.0 / psi
 
         d = core(state, policy, c, layout)
-        K_floor = jnp.maximum(d["K_state"], min_K)
         E_ce = jnp.stack([expectations[k] for k in keys[:n]], axis=1)
         E_eb = jnp.stack([expectations[k] for k in keys[n : 2 * n]], axis=1)
         E_ec = jnp.stack([expectations[k] for k in keys[2 * n :]], axis=1)
+        blocks = economic_blocks(d, E_ce, E_eb, E_ec, c)
 
         r: Dict[str, Array] = {}
-        sectors = {
-            "C": (d["nu_c"], d["P_C"], d["Y_C"], d["K_C"], d["L_C"], d["M_C"]),
-            "M": (d["nu_m"], d["P_M"], d["Y_M"], d["K_M"], d["L_M"], d["M_M"]),
-            "X": (d["nu_x"], d["P_X"], d["Y_X"], d["K_X"], d["L_X"], d["M_X"]),
-        }
-        # (1)-(3) capital income, ratio form: 1 - alpha nu P Y / (r K_share K)
-        for s, (nu, P, Y, Ks, Ls, Ms) in sectors.items():
-            _spread(
-                r,
-                f"capital_income_{s}",
-                1.0 - alpha * nu * P * Y / (d["r"] * Ks * K_floor),
-            )
-        # (4)-(6) labor income: ((1-alpha) nu P Y - w L_share L_eff) / ((1-alpha) nu P Y)
-        for s, (nu, P, Y, Ks, Ls, Ms) in sectors.items():
-            lhs = (1.0 - alpha) * nu * P * Y
-            _spread(r, f"labor_income_{s}", (lhs - d["w"] * Ls * d["L_eff"]) / lhs)
-        # (7)-(9) intermediate input demand: ((1-nu) P Y - P_M M_share M) / ((1-nu) P Y)
-        for s, (nu, P, Y, Ks, Ls, Ms) in sectors.items():
-            lhs = (1.0 - nu) * P * Y
-            _spread(r, f"input_demand_{s}", (lhs - d["P_M"] * Ms * d["M"]) / lhs)
-        # (10)-(12) allocation constraints as shares summing to one
-        _spread(r, "capital_allocation", 1.0 - (d["K_C"] + d["K_M"] + d["K_X"]))
-        _spread(r, "labor_allocation", 1.0 - (d["L_C"] + d["L_M"] + d["L_X"]))
-        _spread(
-            r, "intermediate_goods_allocation", 1.0 - (d["M_C"] + d["M_M"] + d["M_X"])
-        )
-        # (13) C = Y_C ; (14) exports = output of M ; (15) X = Y_X
-        _spread(r, "market_clearing_C", (d["C"] - d["Y_C"]) / d["Y_C"])
-        # importer j pays P_M_j M_j pi_ji omega_ji to exporter i
-        exports = jnp.einsum("bj,bji->bi", d["P_M"] * d["M"], d["pi"] * d["omega"])
-        pmy = d["P_M"] * d["Y_M"]
-        _spread(r, "market_clearing_M", (exports - pmy) / (-pmy))
-        _spread(r, "market_clearing_X", (d["X"] - d["Y_X"]) / d["Y_X"])
-        # (16)-(18) price indices: unit cost = price
-        _spread(r, "price_index_C", (d["uc_C"] - d["P_C"]) / d["P_C"])
-        _spread(r, "price_index_M", (d["P_M_index"] - d["P_M"]) / d["P_M"])
-        _spread(r, "price_index_X", (d["uc_X"] - d["P_X"]) / d["P_X"])
-        # (22) balance of payments per country, normalized by P_M Y_M; (24) world
-        # clearing as the sum of net exports plus interest on outstanding bonds
-        imports_share = jnp.sum(d["pi"] * d["omega"], axis=2)
-        trade_balance = d["P_M"] * (d["Y_M"] - d["M"] * imports_share)
-        bop = (
-            -d["A"] * d["L_eff"]
-            + trade_balance
-            + (1.0 + d["q"]) * d["A_state"] * d["L_eff"]
-        ) / pmy
-        _spread(r, "BoP_", bop)
-        r["Good_Market_Clearing_condition"] = jnp.sum(
-            trade_balance + d["q"] * d["A_state"] * d["L_eff"], axis=1
-        )
-        # (25) law of motion of capital against the K policy, ratio form
-        K_next_identity = (1.0 - delta) * d["K_state"] + delta ** (1.0 - lam) * d[
-            "X"
-        ] ** lam * K_floor ** (1.0 - lam)
-        _spread(
-            r,
-            "law_of_motion_K_",
-            (K_next_identity - d["K"]) / (-jnp.maximum(d["K"], min_K)),
-        )
-        # (29) certainty equivalent: mu^(1-gama) = E[U'^(1-gama)]
-        mu_pow = d["mu"] ** (1.0 - gama)
-        _spread(r, "certainty_equivalent_", (mu_pow - E_ce) / (mu_pow + 1e-8))
-        # (28) value function aggregator
-        rho = 1.0 - 1.0 / psi
-        U_pow = (d["U"] + 1e-8) ** rho
-        vf = (
-            U_pow
-            - (
-                (1.0 - beta) * (d["C"] / d["L_eff"] + 1e-8) ** rho
-                + beta * (d["mu"] + 1e-8) ** rho
-            )
-        ) / U_pow
-        _spread(r, "value_function_", vf)
-        # (26) bond Euler: 1 = beta E[kernel (1+q') P_C/P_C'] with kernel = (U'/mu)^p muc'/muc
-        _spread(r, "EE_bond_", 1.0 - beta * (d["P_C"] / d["muc"]) * E_eb)
-        # (27) capital Euler
-        _spread(
-            r,
-            "EE_capital_",
-            1.0
-            - beta
-            * d["P_C"]
-            / (d["muc"] * d["P_X"] * jnp.maximum(d["Phi_1"], 1e-5))
-            * E_ec,
-        )
+        for block, prefix in _REPLICA_HEAD:
+            _spread(r, prefix, blocks[block])
+        r["Good_Market_Clearing_condition"] = blocks["world"]
+        for block, prefix in _REPLICA_TAIL:
+            _spread(r, prefix, blocks[block])
         # --- reference training scaffolding (not in the writeup) ---
         # SDF accumulator: U_store' = U U_store / max(mu, 1e-5)
         sdf = (
@@ -254,6 +295,8 @@ def ez_kernel(
 
 __all__ = [
     "make_equations",
+    "economic_blocks",
+    "integrands",
     "equation_names",
     "inside_keys",
     "ez_kernel",

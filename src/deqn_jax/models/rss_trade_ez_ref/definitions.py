@@ -7,6 +7,11 @@ the country-specific calibration against its cross-country average
 (``homo``) and the iceberg trade costs against a near-autarky anchor in log
 space (``homo_1``); at the converged values (both 1) the true calibration is
 in force.
+
+The economics (:func:`economy`, :func:`interpolate_calibration`,
+:func:`capital_identity`) is layout-free and shared with the Phase-1 variant
+``rss_trade_ez``; only :func:`core` reads the replica's state and policy
+layout.
 """
 
 from __future__ import annotations
@@ -46,19 +51,17 @@ def unpack_policy(policy: Array, layout: Layout) -> Dict[str, Array]:
     return {block: policy[:, idx] for block, idx in layout.blocks.items()}
 
 
-def effective_calibration(state: Array, constants, layout: Layout) -> Dict[str, Array]:
-    """Homotopy-interpolated calibration: ``homo * true + (1 - homo) * average``
-    for the country arrays, and log-space interpolation of the trade-cost
-    matrix against the near-autarky anchor (diagonal 1, off-diagonal
-    ``d_average_off_diag``)."""
-    h = state[:, layout.homo][:, None]
-    h1 = state[:, layout.homo_1][:, None, None]
+def interpolate_calibration(h: Array, h1: Array, constants, n: int) -> Dict[str, Array]:
+    """Homotopy-interpolated calibration: ``h * true + (1 - h) * average`` for
+    the country arrays, and log-space interpolation of the trade-cost matrix
+    against the near-autarky anchor (diagonal 1, off-diagonal
+    ``d_average_off_diag``). ``h`` broadcasts against ``[b, n]``, ``h1``
+    against ``[b, n, n]``; at ``h = h1 = 1`` the true calibration is in force."""
     out = {}
     for key in ("L", "nu_c", "nu_m", "nu_x", "A_c", "A_x", "T_m"):
         out[key] = h * _c(constants, key)[None, :] + (1.0 - h) * float(
             constants["base_" + key]
         )
-    n = layout.n
     d = _c(constants, "d")
     anchor = jnp.where(
         jnp.eye(n, dtype=bool), 0.0, jnp.log(float(constants["d_average_off_diag"]))
@@ -67,8 +70,38 @@ def effective_calibration(state: Array, constants, layout: Layout) -> Dict[str, 
     return out
 
 
-def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Array]:
-    """All definitions as ``[b, n]`` / ``[b, n, n]`` arrays.
+def effective_calibration(state: Array, constants, layout: Layout) -> Dict[str, Array]:
+    """The replica reads its homotopy weights from the state columns
+    ``homo`` (calibration) and ``homo_1`` (trade costs)."""
+    h = state[:, layout.homo][:, None]
+    h1 = state[:, layout.homo_1][:, None, None]
+    return interpolate_calibration(h, h1, constants, layout.n)
+
+
+def capital_identity(K_state: Array, X: Array, constants) -> Array:
+    """Accumulation identity (writeup (25)):
+    ``K' = (1-delta) K + delta^(1-lambda) X^lambda max(K, min_K)^(1-lambda)``."""
+    delta = float(constants["delta"])
+    lam = float(constants["lambda_"])
+    K_floor = jnp.maximum(K_state, float(constants["min_K"]))
+    return (1.0 - delta) * K_state + delta ** (1.0 - lam) * X**lam * K_floor ** (
+        1.0 - lam
+    )
+
+
+def economy(
+    p: Dict[str, Array],
+    K_state: Array,
+    A_state: Array,
+    tau: Array,
+    cal: Dict[str, Array],
+    constants,
+) -> Dict[str, Array]:
+    """The model's derived quantities, shared by the replica and the Phase-1
+    variant: ``p`` holds the per-block policy views (``p["A"]`` is the
+    next-period per-capita bond position, already cleared), ``tau`` the
+    ``[b, n, n]`` tariff matrix (zero diagonal), ``cal`` the effective
+    calibration.
 
     Budget pieces (per capita positions ``A`` scaled by effective labor;
     ``q`` is the bond's net return in the reference's accounting -- holdings
@@ -84,8 +117,6 @@ def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Ar
     muc = (max(C, 1e-5) / L_eff)^(-1/psi); payment fraction omega = 1/(1+tau)
     (33); Eaton–Kortum trade shares pi_ij (19) in closed form.
     """
-    p = unpack_policy(clip_policy(policy, layout), layout)
-    cal = effective_calibration(state, constants, layout)
     alpha = float(constants["alpha"])
     delta = float(constants["delta"])
     lam = float(constants["lambda_"])
@@ -93,8 +124,6 @@ def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Ar
     theta = float(constants["theta"])
     min_K = float(constants["min_K"])
 
-    K_state = state[:, layout.K]
-    A_state = state[:, layout.A]
     L_eff = cal["L"]
     q = p["q"]  # [b, 1]
 
@@ -122,15 +151,13 @@ def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Ar
     uc_X = unit_cost(cal["nu_x"]) / cal["A_x"]
     muc = (jnp.maximum(C, 1e-5) / L_eff) ** (-1.0 / psi)
 
-    tau = state[:, layout.tau.reshape(-1)].reshape(-1, layout.n, layout.n)
     omega = 1.0 / (1.0 + tau)
     # Fréchet term T_j (u_M_j d_ij / omega_ij)^(-theta), i importer, j exporter
     frechet = cal["T_m"][:, None, :] * (u_M[:, None, :] * cal["d"] / omega) ** (-theta)
     pi = frechet / jnp.sum(frechet, axis=2, keepdims=True)
     P_M_index = float(constants["gam"]) * jnp.sum(frechet, axis=2) ** (-1.0 / theta)
 
-    out = dict(p)
-    out.update(
+    return dict(
         L_eff=L_eff,
         nu_c=cal["nu_c"],
         nu_m=cal["nu_m"],
@@ -151,6 +178,19 @@ def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Ar
         omega=omega,
         pi=pi,
         P_M_index=P_M_index,
+    )
+
+
+def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Array]:
+    """All replica definitions as ``[b, n]`` / ``[b, n, n]`` arrays: the
+    clipped policy blocks, :func:`economy` at the state's homotopy weights,
+    and the scaffolding columns the replica's residuals read."""
+    p = unpack_policy(clip_policy(policy, layout), layout)
+    cal = effective_calibration(state, constants, layout)
+    tau = state[:, layout.tau.reshape(-1)].reshape(-1, layout.n, layout.n)
+    out = dict(p)
+    out.update(economy(p, state[:, layout.K], state[:, layout.A], tau, cal, constants))
+    out.update(
         U_store_state=state[:, layout.U_store],
         A_min=state[:, layout.A_min],
         a_mask=state[:, layout.a_mask],
@@ -158,29 +198,36 @@ def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Ar
     return out
 
 
+FLAT_DEFINITION_KEYS = ("C", "X", "B", "wealth", "muc", "Phi_1", "Phi_2", "u_M")
+
+
+def flat_definitions(d: Dict[str, Array], n: int) -> Dict[str, Array]:
+    """Per-name ``[b]`` views of the shared definitions (the logger
+    histograms them): per-country blocks, the pair matrices, and the world
+    diagnostics (net bond supply, which must clear, and minimum C / K)."""
+    out: Dict[str, Array] = {}
+    for key in FLAT_DEFINITION_KEYS:
+        for i in range(n):
+            out[f"{key}_{i + 1}"] = d[key][:, i]
+    for i in range(n):
+        for j in range(n):
+            out[f"pi_{i + 1}{j + 1}"] = d["pi"][:, i, j]
+            out[f"omega_{i + 1}{j + 1}"] = d["omega"][:, i, j]
+    out["world_bond_supply"] = jnp.sum(d["A"] * d["L_eff"], axis=1)
+    out["min_C"] = jnp.min(d["C"], axis=1)
+    out["min_K"] = jnp.min(d["K_state"], axis=1)
+    return out
+
+
 def make_definitions(layout: Layout):
     """``definitions_fn`` for the ModelSpec: flat per-name ``[b]`` arrays
     (the logger histograms them); accepts a single state too."""
-
-    n = layout.n
 
     def definitions(state: Array, policy: Array, constants) -> Dict[str, Array]:
         single = state.ndim == 1
         if single:
             state, policy = state[None, :], policy[None, :]
-        d = core(state, policy, constants, layout)
-        out: Dict[str, Array] = {}
-        for key in ("C", "X", "B", "wealth", "muc", "Phi_1", "Phi_2", "u_M"):
-            for i in range(n):
-                out[f"{key}_{i + 1}"] = d[key][:, i]
-        for i in range(n):
-            for j in range(n):
-                out[f"pi_{i + 1}{j + 1}"] = d["pi"][:, i, j]
-                out[f"omega_{i + 1}{j + 1}"] = d["omega"][:, i, j]
-        # world diagnostics: net bond supply (must clear) and minimum C / K
-        out["world_bond_supply"] = jnp.sum(d["A"] * d["L_eff"], axis=1)
-        out["min_C"] = jnp.min(d["C"], axis=1)
-        out["min_K"] = jnp.min(d["K_state"], axis=1)
+        out = flat_definitions(core(state, policy, constants, layout), layout.n)
         return {k: v[0] for k, v in out.items()} if single else out
 
     return definitions
