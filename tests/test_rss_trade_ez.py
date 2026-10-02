@@ -3,11 +3,11 @@
 Pinned here: the cleaned layout (18 / 70 / 76 / 12), each variant's
 mechanics (constants instead of scaffolding columns, the auxiliary
 transversality term, the bond projection in definitions, the off-diagonal
-shock set, one tariff measure through the transport map, capital by the
-accumulation identity), and residual parity with the replica on shared
-physical states for one and the same policy: every residual the two models
-share agrees to rounding once the node set and the capital transition are
-aligned, so the remaining deltas are the variants' own. The replica-side
+shock set, one tariff measure through the transport map, the capital
+transition), and residual parity with the replica on shared physical states
+for one and the same policy: every residual the two models share agrees to
+rounding under one node set, so the remaining deltas are the variants' own
+(the node set, D6; transversality, D4). The replica-side
 identities (budget, trade shares, kernel limit, transport against the closed
 form) are pinned in ``test_rss_trade_ez_ref.py`` on the shared code.
 """
@@ -23,7 +23,6 @@ from deqn_jax.models.rss_trade_ez import build_constants, build_model, parity
 from deqn_jax.models.rss_trade_ez.definitions import bond_projection, core
 from deqn_jax.models.rss_trade_ez.variables import Layout
 from deqn_jax.models.rss_trade_ez_ref.definitions import capital_identity
-from deqn_jax.models.rss_trade_ez_ref.definitions import core as ref_core
 from deqn_jax.models.rss_trade_ez_ref.dynamics import (
     normal_cdf,
     transport_truncated_normal,
@@ -275,16 +274,18 @@ def test_simulation_draws_land_on_the_truncated_law(model):
     np.testing.assert_allclose(np.asarray(jnp.exp(sig_next)), sigma, rtol=1e-10)
 
 
-def test_capital_follows_the_accumulation_identity(model, batch):
+def test_capital_follows_the_next_capital_policy(model, batch):
     _, s, p, s2, p2 = batch
     lay = Layout(3)
-    d = core(s, p, model.constants, lay)
     np.testing.assert_allclose(
-        np.asarray(s2[:, lay.K]),
-        np.asarray(capital_identity(d["K_state"], d["X"], model.constants)),
+        np.asarray(s2[:, lay.K]), np.asarray(p[:, lay.blocks["K_prime"]])
     )
-    # with K_prime set to the identity the law-of-motion residual vanishes
-    pk = p.at[:, lay.blocks["K_prime"]].set(s2[:, lay.K])
+    # the law-of-motion residual vanishes exactly when K_prime is the
+    # accumulation identity
+    d = core(s, p, model.constants, lay)
+    k_id = capital_identity(d["K_state"], d["X"], model.constants)
+    np.testing.assert_allclose(np.asarray(d["K_next"]), np.asarray(k_id))
+    pk = p.at[:, lay.blocks["K_prime"]].set(k_id)
     r = model.equations_fn(s, pk, s2, p2, model.constants)
     for i in range(3):
         np.testing.assert_allclose(
@@ -298,8 +299,8 @@ def test_capital_follows_the_accumulation_identity(model, batch):
 @pytest.fixture(scope="module")
 def shared():
     """Shared physical states (replica sampler, positive tariffs, raised
-    volatility, nonzero bonds) and a random replica policy whose capital
-    column is the accumulation identity, so both transitions coincide."""
+    volatility, nonzero bonds) and a random replica policy that reads the
+    scaffolding at its converged values."""
     ref = load_model("rss_trade_ez_ref")
     var = load_model("rss_trade_ez")
     rl = RefLayout(3)
@@ -307,16 +308,14 @@ def shared():
     s = ref.init_state_fn(k[0], 12, ref.constants)
     off = ~np.eye(3, dtype=bool)
     s = s.at[:, rl.tau[off]].set(jax.random.uniform(k[1], (12, 6), maxval=0.5))
-    s = s.at[:, rl.sigma_tau[off]].add(jax.random.uniform(k[2], (12, 6), minval=1.0, maxval=2.5))
+    s = s.at[:, rl.sigma_tau[off]].add(
+        jax.random.uniform(k[2], (12, 6), minval=1.0, maxval=2.5)
+    )
     s = s.at[:, rl.A].set(0.05 * jax.random.normal(k[3], (12, 3)))
     net = parity.random_reference_net(ref, jax.random.PRNGKey(5))
 
     def ref_policy(x):
-        p = jax.vmap(net)(parity.pin_scaffolding(x, ref))
-        d = ref_core(x, p, ref.constants, rl)
-        return p.at[:, rl.blocks["K"]].set(
-            capital_identity(d["K_state"], d["X"], ref.constants)
-        )
+        return jax.vmap(net)(parity.pin_scaffolding(x, ref))
 
     return ref, var, s, ref_policy, rl
 
