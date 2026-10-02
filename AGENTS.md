@@ -283,7 +283,9 @@ The reviewer's field is four things, all mandatory: the **branch diff against tr
 role** (`#1`, `#8`/`#9`); **references to the graph nodes entering the diff** — the
 leading vimarsha and every action, phenomenon and rule the branch changes — never a
 retelling. The reviewer runs `iskron:integrity` read-only and returns findings plus an
-**integration report**. `NEEDS_CONTEXT` names a graph gap: fix the graph (design,
+**integration report**. Every review brief, Astra's included, asks for docstrings,
+comments and docs in the diff to be checked against the code they describe.
+`NEEDS_CONTEXT` names a graph gap: fix the graph (design,
 weave, wake the neighbour through `iskron:standing`), then repeat. Fix what came back
 in the same branch; reject a finding with a recorded "why" (in the PR or on the node).
 
@@ -528,6 +530,15 @@ Makefile         # the gate
   the same move if it does not. Readers of this public code include people without
   graph access: keep such references to the places where *why* is otherwise
   unrecoverable, and keep the dev docs self-standing.
+- **Docstrings are claims about the code, and they move with it.** A change that
+  removes, renames or alters behaviour updates, in the same commit, every
+  docstring, comment, Pydantic field description and doc page that names it:
+  grep the old name across `src/`, `docs/`, `README.md` before committing. Never
+  repeat a docstring to the maintainer as fact without checking the code it
+  describes. A docstring that enumerates a registry points to the CLI command
+  instead, or is guarded by a test. (why: removed optimizers stayed listed in four
+  module docstrings for weeks, the API reference is generated from them, and
+  agents passed them on as truth; graph #59.)
 - Config precedence: `--set` overrides > CLI args > YAML file > defaults
   (`load_config()` in `config/io.py`; dot-notation reaches every nested block, e.g.
   `--set coverage.enabled=true`; lists cannot be set from `--set`). When a
