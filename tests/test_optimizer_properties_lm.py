@@ -150,6 +150,27 @@ def test_adaptive_damping_follows_the_gain_ratio_rule():
     assert seen == {"good", "fair", "poor", "reject"}, seen
 
 
+def test_damping_carries_across_updates():
+    """The damping the next step solves with is the one the previous step stored.
+
+    Twelve consecutive updates on one optimizer state, step sizes cycling so
+    accepts and rejects alternate; each step is checked against the rule
+    applied to the damping carried from the step before.
+    """
+    opt = levenberg_marquardt(learning_rate=1.0, initial_damping=0.3)
+    p = jnp.asarray(THETA0)
+    state = opt.init(p)
+    theta, lam = THETA0.copy(), 0.3
+    seen = []
+    for lr_scale in [1.0, 2.2, 1.6, 0.5, 2.2, 1.0, 1.6, 2.2, 1.0, 0.5, 2.2, 1.0]:
+        theta, lam, branch = _expected_rule(theta, lam, lr_scale)
+        seen.append(branch)
+        p, state = opt.update(_residual, p, state, lr_scale)
+        np.testing.assert_allclose(np.asarray(p), theta, rtol=1e-9, atol=1e-12)
+        assert float(state.damping) == pytest.approx(lam, rel=1e-12), seen
+    assert len(set(seen)) >= 3, seen
+
+
 def test_linear_residual_full_step_is_exact_and_shrinks_damping():
     """For r = A theta - b the linear model is exact, so rho = 1 at any step size."""
     rng = np.random.default_rng(4)

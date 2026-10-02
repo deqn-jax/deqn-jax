@@ -119,6 +119,37 @@ def test_underdetermined_step_is_minimum_norm_correction():
     assert float(state.last_loss) < 1e-10
 
 
+@pytest.mark.parametrize("damping", [0.5, 1.0])
+def test_underdetermined_damped_step_matches_primal_normal_equations(damping):
+    """Dual branch with real damping equals -(A^T A + lam I)^{-1} A^T r0 (primal form).
+
+    E.g. A = [[1, 0]], b = [1], theta0 = 0, lam = 1 gives theta1 = [0.5, 0];
+    an undamped dual solve would give [1, 0].
+    """
+    rng = np.random.default_rng(5)
+    A = _well_conditioned(rng, 2, 4)
+    b = rng.standard_normal(2)
+    theta0 = rng.standard_normal(4)
+
+    def residual_fn(p):
+        return jnp.asarray(A) @ _join(p) - jnp.asarray(b)
+
+    expected = theta0 - np.linalg.solve(
+        A.T @ A + damping * np.eye(4), A.T @ (A @ theta0 - b)
+    )
+    theta1, _ = _gn_step(_split(theta0), residual_fn, damping=damping)
+    np.testing.assert_allclose(theta1, expected, rtol=1e-10, atol=1e-12)
+
+    one_row = np.array([[1.0, 0.0, 0.0, 0.0]])
+
+    def tiny(p):
+        return jnp.asarray(one_row) @ _join(p) - 1.0
+
+    if damping == 1.0:
+        theta1, _ = _gn_step(_split(np.zeros(4)), tiny, damping=1.0)
+        np.testing.assert_allclose(theta1, [0.5, 0.0, 0.0, 0.0], atol=1e-14)
+
+
 def _nonlinear_residual(p):
     t = _join(p)
     return jnp.stack(

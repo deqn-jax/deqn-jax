@@ -151,7 +151,7 @@ def test_train_step_feeds_per_equation_gradients_of_the_base_loss(lr_scale):
     from deqn_jax.training.loss import compute_loss, eq_losses_to_array
     from deqn_jax.training.trainer import create_train_state
 
-    model = load_model("brock_mirman")
+    model = load_model("bm_labor")  # two equations: euler, labor_foc
     n_eq = len(model.equation_names)
     state, opt, _ = create_train_state(
         model=model,
@@ -186,7 +186,7 @@ def test_train_step_feeds_per_equation_gradients_of_the_base_loss(lr_scale):
             jax.tree.unflatten(treedef, [jnp.asarray(x) for x in theta])
         )
         jac = [np.asarray(j) for j in jax.tree.leaves(jac)]
-        assert jac[0].shape[0] == n_eq
+        assert jac[0].shape[0] == n_eq == 2
         for k, j in enumerate(jac):
             m[k] = B1 * m[k] + (1 - B1) * j
             v[k] = B2 * v[k] + (1 - B2) * j**2

@@ -113,6 +113,29 @@ def test_underdetermined_residual_matches_dense_solve():
     np.testing.assert_allclose(theta1, THETA0 + np.linalg.solve(A, b), rtol=1e-8)
 
 
+def test_zero_damping_solves_with_the_1e12_floor():
+    """damping=0 solves with lam = 1e-12 (line 218), not gn's 1e-6.
+
+    The residual is scaled by 1e-3 so J^T J has eigenvalues 1e-6..9e-6: a
+    1e-6 ridge would move the step by tens of percent, a 1e-12 ridge does not.
+    """
+    rng = np.random.default_rng(6)
+    U, _ = np.linalg.qr(rng.standard_normal((6, 6)))
+    V, _ = np.linalg.qr(rng.standard_normal((4, 4)))
+    A = 1e-3 * U[:, :4] @ np.diag([1.0, 1.5, 2.0, 3.0]) @ V.T
+    b = 1e-3 * rng.standard_normal(6)
+
+    def residual(t):
+        return jnp.asarray(A) @ t - jnp.asarray(b)
+
+    r0 = A @ THETA0 - b
+    expected = THETA0 - np.linalg.solve(A.T @ A + 1e-12 * np.eye(4), A.T @ r0)
+    with_1e6 = THETA0 - np.linalg.solve(A.T @ A + 1e-6 * np.eye(4), A.T @ r0)
+    assert np.max(np.abs(expected - with_1e6)) > 0.1 * np.max(np.abs(expected - THETA0))
+    theta1, _ = _ign_step(THETA0, residual, 0.0, cg_iters=50, cg_tol=1e-13)
+    np.testing.assert_allclose(theta1, expected, rtol=1e-6)
+
+
 def test_learning_rate_and_lr_scale_scale_the_step():
     full, _ = _ign_step(THETA0, _residual, 0.05, cg_iters=50)
     scaled, _ = _ign_step(THETA0, _residual, 0.05, cg_iters=50, lr=0.5, lr_scale=0.3)
