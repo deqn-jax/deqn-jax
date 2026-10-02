@@ -280,7 +280,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     and grouped TensorBoard logging.
 
     Args:
-        config: TrainConfig instance
+        config (TrainConfig): the training configuration.
 
     Returns:
         Tuple of (trained_params, history_dict), or None when a resumed
