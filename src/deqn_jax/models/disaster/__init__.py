@@ -90,7 +90,7 @@ MODEL = ModelSpec(
     init_state_fn=init_state,
     definitions_fn=definitions,
     policy_lower=POLICY_LOWER,
-    policy_upper=POLICY_UPPER,  # None → softplus bounding (no gradient death)
+    policy_upper=POLICY_UPPER,  # inf → softplus bounding; finite (pi) → sigmoid
     # default_output_links left None: existing disaster.yaml configs use the
     # legacy additive-linear ansatz unchanged. Opt in to the log ansatz
     # explicitly via NetworkConfig.output_links: [log, log, ..., log] (see

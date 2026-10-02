@@ -10,8 +10,7 @@ deterministic given (state, policy) — so under per-shock averaging
 E_shock[resid] = 1 - beta * E[r' u_c']/u_c, zero at equilibrium and free
 of the Jensen-under-reciprocal trap that dividing by a SHOCK-DEPENDENT
 quantity would introduce. (See the equations() docstring for the full
-rationale; an earlier version of this header wrongly described the raw
-LHS - RHS form.)
+rationale.)
 
 The 5x per-agent dimension of the residual comes out as 5 separate
 named equations (euler_h1..euler_h5) so the reweighting machinery can

@@ -22,8 +22,9 @@ Economic structure:
 
 Residual forms (all raw; no LHS/RHS ratios, so MC-safe):
 
-    euler_j = mu_j + beta * E[lambda' * mpk_j' - (1 - delta) * mu_j']
+    euler_j = mu_j + beta * E[lambda' * M_j' - (1 - delta) * mu_j']
               - lambda * (1 + d_adj_cost_dk_next_j)
+    M_j'    = 1 - delta + mpk_j' - d_adj_cost_dk_j'   (at k_j', k_j'')
     arc     = sum_j (y_j + (1-delta) k_j - k_j_next - adj_cost_j - c_j)
     fb_j    = mu_j + i_j - sqrt(mu_j^2 + i_j^2 + fb_eps)
 

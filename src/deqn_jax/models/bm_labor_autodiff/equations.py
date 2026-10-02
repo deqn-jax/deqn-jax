@@ -11,9 +11,10 @@ intratemporal argument list -- sav_rate is absorbed into K_{t+1} via
 the law of motion, exactly as in the no-labor autodiff variant.
 
 The helper produces:
-- ``euler`` = capital Euler via ``dPi/dK_{t+1} + beta * dPi/dK at t+1``.
-- ``labor_foc`` = intratemporal labor FOC ``dPi/d(policy[1])``, evaluated
-  pointwise (no expectation).
+- ``euler`` = capital Euler ``-(dPi/dK_{t+1} + beta * dPi/dK at t+1)``.
+- ``labor_foc`` = intratemporal labor FOC ``-dPi/d(policy[1])``, evaluated
+  pointwise (no expectation); the sign matches the hand-derived
+  ``psi * L^theta - w * u'(c)`` of ``bm_labor``.
 
 Parity against the hand-derived ``bm_labor`` is verified in
 ``tests/test_autodiff_equations.py``.
@@ -38,7 +39,9 @@ def period_return(
     policy: Array,
     constants: Dict,
 ) -> Array:
-    """Pi(K, K_next, z, policy) = ln C(K, K_next, L, z) - psi L^(1+theta)/(1+theta).
+    """Pi(K, K_next, z, policy) = u(C(K, K_next, L, z)) - psi L^(1+theta)/(1+theta).
+
+    ``u`` is CRRA with exponent ``gamma`` (``ln C`` at the default gamma = 1).
 
     Budget: C = Z * L^(1-alpha) * K^alpha - (K_next - (1-delta) K).
     Savings rate is absorbed into K_next; only L enters Pi explicitly.

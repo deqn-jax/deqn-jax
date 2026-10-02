@@ -16,9 +16,9 @@ and collecting,
 
     L^(theta + 1) = (1 - alpha) / [psi * (1 - delta * kappa^{1-alpha})]
 
-which pins down L_ss. Then K_ss = kappa * L_ss. This is the general case;
-for log utility (gamma=1) it matches; for other gamma the derivation
-generalizes by carrying the u'(C) factor through.
+which pins down L_ss. Then K_ss = kappa * L_ss. The labor FOC above uses
+log utility (u'(C) = 1/C), and ``steady_state`` does not read ``gamma``:
+for gamma != 1 the returned point is not the steady state.
 
 Init sampling: uniform rect covering the brock_mirman-matching training
 domain (easier side-by-side comparison).

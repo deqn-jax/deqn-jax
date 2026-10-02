@@ -40,6 +40,8 @@ def fischer_burmeister(
         eps: regularization inside the sqrt for differentiability at 0
 
     Returns:
-        ``sqrt(a^2 + b^2 + eps) - a - b``. Zero iff the NCP is satisfied.
+        ``sqrt(a^2 + b^2 + eps) - a - b``. With ``eps = 0`` it is zero iff the
+        NCP is satisfied; the ``eps`` regularization shifts it by at most
+        ``sqrt(eps)`` (attained at ``a = b = 0``).
     """
     return jnp.sqrt(a * a + b * b + eps) - a - b

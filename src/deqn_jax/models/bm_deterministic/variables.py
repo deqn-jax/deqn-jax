@@ -37,8 +37,9 @@ N_SHOCKS = 0
 
 # Training distribution: uniform on [K_LB, K_UB]. Same as the reference
 # notebook. ``init_state_fn`` samples from this interval, and when the
-# trainer is configured with ``initialize_each_episode=True`` the full
-# batch is redrawn every cycle — no rollouts, no attractor collapse.
+# trainer is configured with ``initialize_each_episode=True`` and
+# ``episode_length=1`` the full batch is redrawn every cycle, so there are no
+# rollouts and no attractor collapse.
 K_LB = 0.10
 K_UB = 1.00
 

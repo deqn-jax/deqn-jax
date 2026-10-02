@@ -8,17 +8,15 @@ from jax import Array
 
 
 def steady_state(constants: Dict) -> Tuple[Array, Array]:
-    """Compute approximate deterministic steady state.
+    """Return a reference point, not a solved steady state.
 
     With beta*(1+r) < 1, the deterministic agent converges to the
     borrowing constraint. But with idiosyncratic risk, precautionary
     savings keep the mean capital positive. We use the aggregate K
-    (implied by prices) as the reference capital level.
+    (implied by prices) as the reference capital level, a = 0, and the
+    capital-stabilizing consumption share at that point:
 
-    The steady-state c_share at k = K_agg with a = 0:
-      coh = (1+r)*K + w
-      At the asymptotic savings rate (high k, no risk):
-        1 - c_share = (beta * (1+r)^(1-gamma))^(1/gamma)
+      coh = (1+r)*K + w,   c_share = (r*K + w) / coh   (so k' = k)
     """
     r = constants["r_ss"]
     w = constants["w_ss"]

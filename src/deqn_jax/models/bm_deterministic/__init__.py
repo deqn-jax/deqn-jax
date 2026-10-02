@@ -6,9 +6,10 @@ beta=0.99, delta=1, gamma=1) the optimal policy is the constant
 sav_rate* = alpha * beta (Brock & Mirman 1972); used as oracle.
 
 Training recipe: sample K uniformly on [0.10, 1.00] every cycle (set
-``initialize_each_episode: True`` in the run config). No rollouts; the
-deterministic attractor would otherwise collapse the training
-distribution onto K_ss.
+``initialize_each_episode: True`` and ``episode_length: 1`` in the run
+config, as ``configs/bm_deterministic.yaml`` does). The batch is then the
+fresh draw, never a rollout; the deterministic attractor would otherwise
+collapse the training distribution onto K_ss.
 
 References: Brock & Mirman (1972), J. Econ. Theory 4(3), 479-513.
 Azinovic, Gaegauf & Scheidegger (2022), IER 63(4), 1471-1525.

@@ -40,7 +40,7 @@ CONSTANTS = {
     "kappa": 0.5,  # quadratic capital-adjustment-cost coefficient
     "rho_z": 0.95,  # TFP autocorrelation
     "sigma_eps": 0.01,  # std of both country-specific and aggregate innovations
-    "A_tfp": 0.055836,  # TFP scale, calibrated so MPK_ss = 1/beta
+    "A_tfp": 0.055836,  # TFP scale: 1 - delta + mpk = 1/beta at k=1
     # Heterogeneous risk aversion. Notebook uses a linear spread [0.25, 1.0]
     # across N=2 countries; exposed here as separate keys for Pydantic
     # compatibility (constants are Dict[str, float]).

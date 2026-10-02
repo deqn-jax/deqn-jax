@@ -5,8 +5,8 @@ solution's function: 31 states (economic states plus the reference's training
 scaffolding held at converged values), 73 policies in the reference's order,
 82 residuals with the reference's names. It exists so that a trained
 reference checkpoint can be loaded into ``network.type: rss_market_clearing_net``
-and its policies reproduced exactly (the port's gate A); the Phase-1 variant
-model with the cleaned layout is built on top of it, one flagged change at a
+and its policies reproduced exactly (the port's gate A); a Phase-1 variant
+with a cleaned layout is to be built on top of it, one flagged change at a
 time.
 
 Two-stage loss hooks carry the three expectation-bearing blocks (certainty

@@ -8,8 +8,9 @@ bracket, sign flips in the investment Euler, sharp kinks at the ELB). Those
 encodings are model-specific and live here, not in the generic library
 module.
 
-Shape priors and selection devices, each independently toggleable
-(forward-pass order in ``DisasterPolicyNet._forward_single``):
+Shape priors and selection devices, each independently toggleable (the
+order in which ``DisasterPolicyNet._forward_single`` applies them is listed in
+the class docstring):
 
 1. **K/F restriction** (``kf_names``, ON by default). Zeros the MLP delta at
    the named policy positions so those outputs stay exactly equal to the BK
@@ -71,17 +72,19 @@ class DisasterPolicyNet(eqx.Module):
 
     Forward pass (each step optional, controlled by configuration):
 
-      1. ``mlp_input = augment_with_zlb_feature(state)``     (if use_zlb_feature)
-      2. ``linear = π_BK(state)``                              (always)
-      3. ``M_BK = transform_q_to_m(linear)``                  (if reparam_q_as_m)
-      4. ``δ = mlp(mlp_input)``                                (always)
-      5. ``δ = mask_kf(δ)``                                   (if kf_indices)
-      6. ``raw = linear + δ``                                  (always)
+      1. ``bk = P @ (state - ss_state)``                        (always)
+      2. replace the BK term at the ``pi`` / ``w_tilda`` / ``q`` slots by
+         its K_p_inner / K_w_inner / M value     (if the matching reparam)
+      3. ``δ = mlp(augment_with_zlb_feature(state))``  (feature if use_zlb_feature)
+      4. ``δ = mask_kf(δ)``                                    (if kf_indices)
+      5. ``δ = δ - δ(ss_state) - Jδ(ss_state) (state - ss_state)``  (if bk_pin)
+      6. ``raw = combine(ss_policy, bk, δ)`` per output link  (always)
       7. ``raw = recover_q_from_m(raw, state)``               (if reparam_q_as_m)
       8. ``policy = clip(raw, lower, upper)``                  (always)
+      9. recover ``pi`` / ``K_p`` and ``w_tilda`` / ``K_w`` from the clipped
+         K_p_inner / K_w_inner                  (if the matching reparam)
 
-    Each step is a thin transformation; the core residual ansatz is
-    the same as in the generic LinearPlusMLP.
+    With no prior enabled, the result is the generic LinearPlusMLP ansatz.
     """
 
     # Generic ansatz components (mirror LinearPlusMLP)
@@ -237,8 +240,9 @@ class DisasterPolicyNet(eqx.Module):
             key=key,
         )
 
-        # Final-layer scaling for zero-init delta: at training step 0 the
-        # MLP output is exactly zero, so policy = π_BK exactly.
+        # Final-layer scaling: the bias is zeroed and the weights scaled by
+        # init_scale, so with init_scale=0 the MLP output is exactly zero at
+        # training step 0 and policy = π_BK exactly.
         last = self.mlp.layers[-1]
         scaled_w = last.weight * init_scale
         zero_b = jnp.zeros_like(last.bias)
