@@ -5,14 +5,14 @@ What the code computes (``optimizers/mao.py``):
 * for each equation ``i`` with gradient ``J_i`` (row ``i`` of the per-equation
   Jacobian), Adam moments ``m_i <- b1 m_i + (1-b1) J_i`` and
   ``v_i <- b2 v_i + (1-b2) J_i**2`` (lines 84-93), bias-corrected with the
-  shared step count (lines 96-97, 103-104);
+  shared step count (lines 97-98, 103-104);
 * the update is ``-lr * mean_i m_hat_i / (sqrt(v_hat_i) + eps)``
   (lines 106-109) -- the mean of the per-equation Adam directions, i.e. the
   MultiAdam rule (Yao et al., 2023). The comment on line 100 says "sum"; the
   code averages.
 * in the MAO step (``make_grad_step_mao``) the Jacobian is ``jacrev`` of the
-  *unweighted* base per-equation losses (lines 167-180), and the update is
-  multiplied by ``lr_scale`` (line 214).
+  *unweighted* base per-equation losses (lines 179-191), and the update is
+  multiplied by ``lr_scale`` (line 215).
 
 Consequences tested here, each against an independent computation: with one
 equation MAO is Adam (``optax.adam``); each equation's moments see only its

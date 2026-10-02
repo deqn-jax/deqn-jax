@@ -13,14 +13,14 @@ in between).
 What the code does (``optimizers/shampoo.py``):
 
 * statistics are an EMA, ``L <- beta L + (1 - beta) G G^T`` and
-  ``R <- beta R + (1 - beta) G^T G`` (lines 86, 99), started at the identity
+  ``R <- beta R + (1 - beta) G^T G`` (lines 88, 100), started at the identity
   (lines 57-66), and refreshed only when ``count % precond_update_freq == 0``
-  (lines 78-79, 84-89);
+  (lines 78-79, 86-91, 98-103);
 * the inverse fourth roots are recomputed from the current statistics at every
   step by an eigendecomposition with eigenvalues clipped from below at
-  ``epsilon`` (lines 29-35, 109-111); the update is
-  ``-lr L^{-1/4} G R^{-1/4}`` (lines 110-115);
-* a 1-D parameter is treated as a ``[1, n]`` matrix (lines 81-82, 104-105).
+  ``epsilon`` (lines 30-36, 112-113); the update is
+  ``-lr L^{-1/4} G R^{-1/4}`` (lines 112-118);
+* a 1-D parameter is treated as a ``[1, n]`` matrix (lines 82-83, 107-108).
 
 Independent reference: NumPy ``eigh``/``svd``. The passing tests check the
 recurrence and the root against the state the optimizer returns, so they do
@@ -84,7 +84,7 @@ def test_pure_gradient_statistics_give_the_polar_factor():
     strict=True,
     reason=(
         "shampoo adds G G^T to the statistics only on refresh steps "
-        "(shampoo.py:84-89, 97-102): with precond_update_freq=k, k-1 of every k "
+        "(shampoo.py:86-91, 98-103): with precond_update_freq=k, k-1 of every k "
         "gradients never enter L, R"
     ),
 )
