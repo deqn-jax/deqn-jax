@@ -99,6 +99,7 @@ exclude = [
     "site/**",
     "mkdocs.yml",
     "docs/site/**",
+    "docs/econ/**",
     "docs/figures/training_step_spec.md",
     "docs/figures/*.jpeg",
     "docs/figures/*.jpg",

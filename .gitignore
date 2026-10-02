@@ -94,3 +94,6 @@ docs/*.synctex.gz
 # local caches / node tooling
 .cache/
 node_modules/
+
+# Built public site (scripts/dev/build_pages.sh)
+/_pages/

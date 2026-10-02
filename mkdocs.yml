@@ -1,6 +1,6 @@
 site_name: DEQN-JAX
 site_description: Pure-JAX framework for Deep Equilibrium Networks
-site_url: https://deqn-jax.github.io/
+site_url: https://deqn-jax.github.io/docs/
 repo_url: https://github.com/deqn-jax/deqn-jax
 repo_name: deqn-jax/deqn-jax
 docs_dir: docs/site

@@ -1,5 +1,8 @@
 # DEQN-JAX
 
+*This is the reference documentation. For a two-page introduction to the method
+and a worked example, written for economists, see [deqn-jax.github.io](https://deqn-jax.github.io/).*
+
 **A global solver for recursive economic equilibria, in JAX.**
 
 You write your model's equilibrium conditions — Euler equations, FOCs, market
