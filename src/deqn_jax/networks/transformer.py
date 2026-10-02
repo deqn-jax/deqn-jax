@@ -120,12 +120,12 @@ class TransformerPolicy(eqx.Module):
         input [H, D] -> normalize -> Linear -> [H, hidden_dim]
         + learned positional embeddings
         -> N TransformerBlocks
-        -> extract last timestep [hidden_dim]
+        -> extract last timestep [hidden_dim] -> LayerNorm
         -> Linear -> [n_policies] -> bounds
     """
 
     input_proj: eqx.nn.Linear
-    pos_embed: Array  # [max_history, hidden_dim]
+    pos_embed: Array  # [history_len, hidden_dim]
     blocks: list  # list of TransformerBlock
     final_ln: eqx.nn.LayerNorm
     output_proj: eqx.nn.Linear
@@ -163,7 +163,7 @@ class TransformerPolicy(eqx.Module):
         self.input_shift = _to_tuple(input_shift)
         self.input_scale = _to_tuple(input_scale)
 
-        # Split keys: input_proj, pos_embed, each block, final_ln, output_proj
+        # Split keys: input_proj, pos_embed, each block, output_proj
         keys = jax.random.split(key, n_layers + 3)
 
         self.input_proj = eqx.nn.Linear(in_features, hidden_dim, key=keys[0])  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]

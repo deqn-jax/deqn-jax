@@ -15,26 +15,26 @@ Two output parameterizations are supported, selectable per-policy via
     parameterization for log-deviations-from-SS, which is the standard
     DSGE convention (cf. Dynare's log-linearized solutions).
 
-The linear part is the Dynare-linearized (Blanchard-Kahn) solution,
-which solves the model to first order and is correct by construction
-near SS. The MLP starts at zero (via a scaled final layer) so at
-initialization the full policy IS the linear policy (in level or log
-space depending on the per-policy link). Training only learns
-corrections on top.
+The linear part is the first-order Blanchard-Kahn solution computed by
+``deqn_jax.training.linearize.linearize_model``, correct to first order
+near SS. The MLP's final layer has zero bias and weights scaled by
+``init_scale``, so with ``init_scale=0`` the full policy at initialization
+IS the linear policy (in level or log space depending on the per-policy
+link). Training learns corrections on top.
 
 This architecture solves a specific PINN pathology observed when
 networks are trained directly against equilibrium residuals: a bare
 MLP can converge to a degenerate fixed point where policies collapse
 to low values, even when that produces dynamics far from the true SS.
-A residual parameterization inherits the linear policy's correctness
-as a floor — the network can only help, never hurt.
+A residual parameterization starts training from the linear policy
+instead of from an arbitrary network.
 
 The MLP is UNBOUNDED (no sigmoid/softplus on output). Instead, the
 linear baseline + small MLP corrections keep policies in the valid
 region. Hard clipping to policy bounds happens at the very end to
 prevent catastrophic policy outputs during early training.
 
-This module is **model-agnostic**. Per-model shape priors (e.g. K/F
+This module is **model-agnostic**. Per-model shape priors (e.g.
 the K/F restriction, ELB feature augmentation, output-space reparameterizations
 to encode equation-specific curvature) live in the model's own
 ``network.py`` module, not here. See ``models/disaster/network.py`` for
@@ -87,7 +87,7 @@ class LinearPlusMLP(eqx.Module):
     ss_policy: Array
     # output_links: tuple of ints [n_policies], 0=linear, 1=log. Stored as
     # Python tuple for true staticness (mirrors policy_lower/upper pattern);
-    # converted to a JAX array in _forward_single.
+    # _apply_output_links reads it at trace time to pick the combination.
     output_links: tuple = eqx.field(static=True)
     policy_lower: Optional[tuple] = eqx.field(static=True)
     policy_upper: Optional[tuple] = eqx.field(static=True)
