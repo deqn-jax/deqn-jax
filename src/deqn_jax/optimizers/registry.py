@@ -89,7 +89,7 @@ def create_optimizer(
     for where ``lr_scale`` is computed per episode.
 
     Args:
-        config: OptimizerConfig with at least a ``name`` field.
+        config (OptimizerConfig): config with at least a ``name`` field.
         total_steps: Unused (kept for API compat). Schedule is handled
             by the training loop.
 
