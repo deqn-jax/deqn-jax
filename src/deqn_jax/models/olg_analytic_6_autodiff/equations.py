@@ -69,8 +69,6 @@ def objective(
     return jnp.sum(_utility(c, constants["gamma"]))
 
 
-# stop_next_policy_gradient=False keeps the training gradient of the
-# hand-written olg_analytic_6, which does not freeze next_policy.
 equations = residuals_from_lagrangian(
     objective,
     step,
@@ -79,5 +77,4 @@ equations = residuals_from_lagrangian(
     n_shocks=N_SHOCKS,
     prices_fn=prices,
     euler_form="ratio",
-    stop_next_policy_gradient=False,
 )

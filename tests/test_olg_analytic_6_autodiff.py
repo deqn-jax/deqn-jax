@@ -114,6 +114,33 @@ def test_derived_equals_hand_written_at_random_points(models):
     assert float(jnp.median(jnp.abs(r_hand["euler_h1"]))) > 0.1
 
 
+def test_training_gradient_equals_hand_written(models):
+    """Same gradient of the squared residuals with respect to the period-t
+    and the next-period policy, so training sees the same signal."""
+    hand, auto = models
+    c = auto.constants
+    state = _grid_states(auto)[::5]
+    policy = analytic_policy(state, c) * 0.8
+    shock = jnp.broadcast_to(NODES[1], (state.shape[0], 2))
+    next_state = auto.step_fn(state, policy, shock, c)
+    next_policy = analytic_policy(next_state, c) * 1.3
+
+    def loss(model, p, q):
+        ns = model.step_fn(state, p, shock, c)
+        out = model.equations_fn(state, p, ns, q, c)
+        return sum(jnp.sum(v**2) for v in out.values())
+
+    for argnum in (0, 1):
+        g_auto = jax.grad(lambda p, q: loss(auto, p, q), argnums=argnum)(
+            policy, next_policy
+        )
+        g_hand = jax.grad(lambda p, q: loss(hand, p, q), argnums=argnum)(
+            policy, next_policy
+        )
+        assert float(jnp.max(jnp.abs(g_hand))) > 1e-3
+        np.testing.assert_allclose(g_auto, g_hand, rtol=1e-10, atol=1e-10)
+
+
 def _closed_form_worst(eq_fn, model, constants):
     state = _grid_states(model)[::7]
     policy = analytic_policy(state, model.constants)

@@ -21,8 +21,7 @@ per-shock residuals, which is the expectation.
 
 **Intratemporal FOCs** (optional): ``-dPi/d(policy[j])`` for each listed
 index, holding ``K_{t+1}`` fixed. In multi-agent mode the derivative is
-taken of the sum of the agents' returns, so each agent's own static
-choice gets its own condition.
+taken of agent 0's return.
 
 For constraints with multipliers, prices taken as given, or the ratio
 Euler form, use ``residuals_from_lagrangian`` directly.
@@ -139,27 +138,66 @@ def euler_from_period_return(
 
     exog = jnp.asarray(exog_idx)
 
-    def objective(state, x_next, policy, prices, constants):
-        """Sum of the agents' returns, each on its own capital column."""
-        del prices
-        z = jnp.take(state, exog)
-        if not is_multi_agent:
-            return period_return_fn(
-                state[capital_indices[0]], x_next[0], z, policy, constants
+    def agent_objective(agents):
+        """Sum of the listed agents' returns, each on its own capital column."""
+
+        def objective(state, x_next, policy, prices, constants):
+            del prices
+            z = jnp.take(state, exog)
+            if not is_multi_agent:
+                cap = capital_indices[0]
+                return period_return_fn(state[cap], x_next[0], z, policy, constants)
+            return sum(
+                period_return_fn(
+                    state[capital_indices[i]],
+                    x_next[i],
+                    z,
+                    policy,
+                    constants,
+                    agent_index=i,
+                )
+                for i in agents
             )
-        return sum(
-            period_return_fn(state[cap], x_next[i], z, policy, constants, agent_index=i)
-            for i, cap in enumerate(capital_indices)
+
+        return objective
+
+    common = dict(n_shocks=n_shocks, euler_form="raw", stop_next_policy_gradient=True)
+    if not is_multi_agent:
+        return residuals_from_lagrangian(
+            agent_objective((0,)),
+            step_fn,
+            endogenous=capital_indices,
+            euler_names=equation_names,
+            static_controls=intratemporal_policy_idx,
+            static_names=intratemporal_equation_names,
+            **common,
         )
 
-    return residuals_from_lagrangian(
-        objective,
+    # Multi-agent: Eulers from the summed returns; intratemporal FOCs from
+    # agent 0's return alone, as this helper has always defined them.
+    eulers = residuals_from_lagrangian(
+        agent_objective(range(len(capital_indices))),
         step_fn,
         endogenous=capital_indices,
         euler_names=equation_names,
-        n_shocks=n_shocks,
+        **common,
+    )
+    if not intratemporal_policy_idx:
+        return eulers
+    statics = residuals_from_lagrangian(
+        agent_objective((0,)),
+        step_fn,
+        endogenous=capital_indices[:1],
+        euler_names=("_agent0_euler",),
         static_controls=intratemporal_policy_idx,
         static_names=intratemporal_equation_names,
-        euler_form="raw",
-        stop_next_policy_gradient=True,
+        **common,
     )
+
+    def equations_fn(state, policy, next_state, next_policy, constants):
+        out = eulers(state, policy, next_state, next_policy, constants)
+        intra = statics(state, policy, next_state, next_policy, constants)
+        out.update({n: intra[n] for n in intratemporal_equation_names})
+        return out
+
+    return equations_fn

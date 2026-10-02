@@ -25,7 +25,8 @@ enter ``L`` as an argument that is never differentiated, so a competitive
 equilibrium (OLG, heterogeneous agents) is not mistaken for a planner's
 problem. Summing the period objectives of all agents into one ``F`` gives
 each agent's own conditions as long as every endogenous state and static
-control belongs to one agent.
+control enters only its owner's terms; any effect on another agent must go
+through ``prices_fn``, or the summed derivative becomes a planner's.
 
 The t+1 term is evaluated at the next state the trainer passed in, with
 ``x_{t+2}`` rebuilt by ``step_fn`` at zero shock; the trainer averages the
@@ -88,7 +89,7 @@ def residuals_from_lagrangian(
     inequalities: Sequence[Constraint] = (),
     discount: Union[str, float, Callable] = "beta",
     euler_form: str = "ratio",
-    stop_next_policy_gradient: bool = True,
+    stop_next_policy_gradient: bool = False,
 ) -> Callable:
     """Build ``equations_fn(state, policy, next_state, next_policy, constants)``.
 
@@ -111,7 +112,9 @@ def residuals_from_lagrangian(
         equalities: ``h = 0`` constraints; residual ``h``.
         inequalities: ``g >= 0`` constraints; residual ``FB(mu, g)``.
         discount: constants key, number, or ``beta(state, constants)`` for
-            one sample at t (time-varying discounting).
+            one sample at t. A callable may read exogenous states such as
+            calendar time, not endogenous ones: the derivative of a future
+            discount factor is not part of the Euler.
         euler_form: ``"ratio"`` divides the raw residual
             ``-(dL_t/dx'_j + beta dL_{t+1}/dx_j)`` by the period-t marginal
             cost ``A_j = -d(F + lambda.h)/dx'_j``, giving
@@ -120,8 +123,10 @@ def residuals_from_lagrangian(
             training support. ``"raw"`` returns the residual in objective
             units.
         stop_next_policy_gradient: freeze ``next_policy`` (semi-gradient),
-            the convention of the period-return helper. The residual value
-            is unaffected; only the training gradient changes.
+            the convention of the period-return helper, which keeps it. The
+            residual value is unaffected; only the training gradient
+            changes. Off by default: the hand-written models do not freeze,
+            and on olg_analytic_6 the frozen variant trained worse.
 
     Returns:
         ``equations_fn`` returning residuals in the order Euler, static

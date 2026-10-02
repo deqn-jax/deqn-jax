@@ -119,6 +119,36 @@ def test_multi_agent_mode_unchanged():
         np.testing.assert_array_equal(new[eq], old[eq])
 
 
+def _pi_external(K, K_next, z, policy, constants, *, agent_index):
+    """Agent 1's return depends on agent 0's control p0 (an externality)."""
+    if agent_index == 0:
+        return K - K_next - 0.5 * policy[0] ** 2
+    return K - K_next + policy[0] - 0.5 * policy[1] ** 2
+
+
+def test_multi_agent_intratemporal_uses_agent_zero():
+    """The intratemporal FOC stays agent 0's (-dPi_0/dp0 = p0), not the
+    derivative of the summed returns (p0 - 1)."""
+    kwargs = dict(
+        exog_idx=(2,),
+        n_shocks=1,
+        capital_indices=(0, 1),
+        equation_names=("euler_a0", "euler_a1"),
+        intratemporal_policy_idx=(0, 1),
+        intratemporal_equation_names=("foc0", "foc1"),
+    )
+    state = jnp.array([[1.0, 1.0, 1.0], [0.5, 0.8, 1.05]])
+    policy = jnp.array([[0.3, 0.2], [0.7, 0.4]])
+    next_state = _step_two(state, policy, None, None)
+    args = (state, policy, next_state, policy + 0.1, {"beta": 0.96})
+    new = euler_from_period_return(_pi_external, _step_two, **kwargs)(*args)
+    old = frozen_euler_from_period_return(_pi_external, _step_two, **kwargs)(*args)
+    assert list(new) == list(old)
+    for eq in old:
+        np.testing.assert_array_equal(new[eq], old[eq])
+    np.testing.assert_allclose(new["foc0"], policy[:, 0], atol=1e-12)
+
+
 # ---------------------------------------------------------------------------
 # A two-period consumption-saving toy with every residual class
 # ---------------------------------------------------------------------------
