@@ -154,7 +154,7 @@ irbc-grade exactness.
 
 ## 9. Alex's weird calibration (the original table)
 
-Three finds in `docs/disaster.tex`: (a) **σ_p = 0.49** — the monetary shock std listed 100×
+Three finds in `docs/dev/disaster/disaster.tex`: (a) **σ_p = 0.49** — the monetary shock std listed 100×
 too large (percent written as decimal); code correctly ships 0.0049; if you ever ran the table
 verbatim and watched it detonate, that row is why. (b) **The disaster was real**: p = 1%/quarter,
 θ = 15% ("Own calibration", Barro-consistent) vs the shipped p = 0, θ = 5%. (c) **The ghost
@@ -198,5 +198,5 @@ disaster).
 `docs/dev/handoff_2026_07_06.md` (spec-lets + state);
 `docs/superpowers/specs/2026-06-29-ewm-coverage-sampling-design.md` (EWM + composition
 results); `docs/dev/disaster_house_audit.md` (untracked, refereed);
-`docs/disaster_corrected.tex` (the model, errata 12 current); `scripts/ewm_stress_table.py`
+`docs/dev/disaster/disaster_corrected.tex` (the model, errata 12 current); `scripts/ewm_stress_table.py`
 (the certification table); mathgraph `ergodic.html` / `ergodic2.html` (the pictures).
