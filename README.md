@@ -95,7 +95,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 
 ## What's implemented
 
-Ten models are registered today (`uv run deqn-jax list`). The small Brock–Mirman family is the canonical/teaching tier; the occasionally-binding-constraint examples are the ones that show the sell.
+`uv run deqn-jax list` prints the registered models. The small Brock–Mirman family is the canonical/teaching tier; the occasionally-binding-constraint examples are the ones that show the sell.
 
 | Component | Status | Notes |
 |-----------|--------|-------|
