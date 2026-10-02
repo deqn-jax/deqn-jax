@@ -68,7 +68,7 @@ this surface is plain Python and reproducible from a seed.
 solve-paper --from-model path/to/model.py --runs-dir ./runs --seed 42
 ```
 
-It runs validate -> smoke -> train -> verify -> notebook and writes a
+It runs validate, smoke, train, verify and notebook in order, and writes a
 self-contained run directory (`config.yaml`, `history.csv`, `checkpoints/`,
 `metrics.json` verdict, `notebook.ipynb`). The exit code is the verdict (`0`
 pass, `1` warn, `2` fail; `3`-`6` are LLM-path outcomes), so it can run in CI.
@@ -107,8 +107,8 @@ The LLM path is built from three Claude Code skills:
 - `solve-paper`: the orchestrator. It reads one workflow document, walks the
   three phases, dispatches subagents and invokes the two retry loops. For
   `--from-model` input it calls the deterministic CLI.
-- `codegen-loop` (budget 5): bounded model repair. It runs validator -> fix ->
-  re-validate -> 2-episode smoke, classifies each failure and applies a
+- `codegen-loop` (budget 5): bounded model repair. It runs the validator, a fix,
+  re-validation and a 2-episode smoke, classifies each failure and applies a
   targeted fix, until the model passes or the budget runs out.
 - `ralph-loop` (budget 4): bounded training escalation, entered only on a
   `fail` verdict. It climbs a fixed ladder of steps and records every patch

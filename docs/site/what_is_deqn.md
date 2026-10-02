@@ -87,13 +87,13 @@ The sections below are reference material for implementing or debugging.
 
     DEQN is a four-level nested loop. From the outside in:
 
-    - **CYCLE**: the outer iteration, run until the equilibrium residuals are
+    - CYCLE: the outer iteration, run until the equilibrium residuals are
       small.
-    - **SIMULATION** (one episode per cycle): fills a trajectory by stepping the
+    - SIMULATION (one episode per cycle): fills a trajectory by stepping the
       model under the current network policy.
-    - **STEP** (one per timestep): a forward pass gives the policy at the
+    - STEP (one per timestep): a forward pass gives the policy at the
       current state, and the model dynamics produce the next state.
-    - **TRAINING** (on the trajectory just simulated): sweeps EPOCH × BATCH
+    - TRAINING (on the trajectory just simulated): sweeps EPOCH × BATCH
       updates that adjust $\theta$ to drive the residuals toward zero.
 
     The end state of the episode is the next cycle's start state. This makes
@@ -102,11 +102,11 @@ The sections below are reference material for implementing or debugging.
 
     Per cycle, in code terms:
 
-    1. **Simulate** a trajectory (or draw a rectangular batch of states).
-    2. **Forward** the network at each state for $\pi = \mathcal{N}_\theta(s)$.
-    3. **Step** under a sampled shock to get $s'$, and forward again for $\pi'$.
-    4. **Residual**: evaluate $r(s, \pi, s', \pi')$ and take the expectation over shocks.
-    5. **Loss and backprop**: square, average over the batch, take a gradient step on $\theta$.
+    1. Simulate a trajectory (or draw a rectangular batch of states).
+    2. Forward the network at each state for $\pi = \mathcal{N}_\theta(s)$.
+    3. Step under a sampled shock to get $s'$, and forward again for $\pi'$.
+    4. Residual: evaluate $r(s, \pi, s', \pi')$ and take the expectation over shocks.
+    5. Loss and backprop: square, average over the batch, take a gradient step on $\theta$.
     6. Optionally sweep several minibatches before the next rollout.
 
     Repeat for $N$ cycles. Useful diagnostics during training are per-equation
