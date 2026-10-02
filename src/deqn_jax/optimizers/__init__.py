@@ -9,8 +9,8 @@ Includes:
 - Gauss-Newton / implicit Gauss-Newton / Levenberg-Marquardt for residual minimization
 
 Every optimizer is registered by name in ``registry.py`` and created via
-``create_optimizer(config)``. ``deqn-jax optimizers`` (or
-``list_optimizers()``) lists the registered names with their kinds.
+``create_optimizer(config)``. ``deqn-jax optimizers`` lists the
+registered names with their kinds; ``list_optimizers()`` returns the names.
 """
 
 # Import all optimizer modules to trigger @register_optimizer
