@@ -167,7 +167,8 @@ class GaussNewton:
 class ImplicitGaussNewton:
     """Matrix-free damped Gauss-Newton / natural-gradient optimizer.
 
-    For residual least squares ``0.5 * ||r(theta)||^2``, the Gauss-Newton
+    For residual least squares ``0.5 * ||r(theta)||^2`` (``last_loss``
+    records ``sum r^2``, as for ``GaussNewton``), the Gauss-Newton
     metric is ``J.T @ J`` where ``J = dr/dtheta``. This class solves
 
         ``(J.T @ J + damping * I) delta = -J.T @ r``
@@ -306,7 +307,11 @@ def implicit_gauss_newton(
     cg_iters: int = 20,
     cg_tol: float = 1e-6,
 ) -> ImplicitGaussNewton:
-    """Create a matrix-free damped Gauss-Newton optimizer."""
+    """Create a matrix-free damped Gauss-Newton optimizer.
+
+    The update floors ``damping`` at 1e-12 (``GaussNewton`` and
+    ``LevenbergMarquardt`` floor it at 1e-6).
+    """
 
     return ImplicitGaussNewton(
         learning_rate=learning_rate,
@@ -442,7 +447,8 @@ def levenberg_marquardt(
         initial_damping: Starting damping value
         damping_increase: Factor when step is bad
         damping_decrease: Factor when step is good
-        min_damping: Minimum damping
+        min_damping: Minimum stored damping. The solve floors damping at
+            1e-6, so stored values below that do not change the step.
         max_damping: Maximum damping
 
     Returns:

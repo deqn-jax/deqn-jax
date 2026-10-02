@@ -2,7 +2,7 @@
 
 Includes:
 - Standard optimizers via Optax
-- Natural Gradient Descent (diagonal Fisher)
+- ``ngd``: an RMSProp-style diagonal scaling (named NGD; not a natural-gradient step)
 - Multi-Adaptive Optimizer (per-equation moments)
 - Kronecker-factored Shampoo
 - L-BFGS via optax
