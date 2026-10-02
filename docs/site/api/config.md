@@ -1,19 +1,18 @@
 # Config
 
 Configuration is a tree of Pydantic v2 models rooted at `TrainConfig`.
-Constructing a `TrainConfig` validates every field; passing unknown keys
-(typos) raises `ValueError` with did-you-mean suggestions. Sub-configs
+Constructing a `TrainConfig` validates every field; unknown keys (typos) raise
+`ValueError` with did-you-mean suggestions. The sub-configs
 (`OptimizerConfig`, `NetworkConfig`, `CompositeLossConfig`,
-`ReplayBufferConfig`, `MomentMatchingConfig`) are constructed via
-`default_factory`, so omitting a sub-block is safe.
+`ReplayBufferConfig`, `MomentMatchingConfig`) are built by `default_factory`,
+so a sub-block can be omitted.
 
-For the field-by-field schema with defaults and ranges, see the
-[Configuration schema](../REFERENCE.md#configuration-schema) section in
-REFERENCE.md. This page is the auto-generated symbol-level reference.
+The field-by-field schema with defaults and ranges is in
+[Configuration schema](../REFERENCE.md#configuration-schema) in REFERENCE.md.
+This page is the generated symbol-level reference.
 
-YAML loading: `TrainConfig.from_yaml(path)`. CLI override priority:
-`--set` overrides > CLI args > YAML > defaults. Round-trip via
-`cfg.to_yaml(path)` (tuples are coerced to lists for `safe_load`
-compatibility).
+Load YAML with `TrainConfig.from_yaml(path)` and write it back with
+`cfg.to_yaml(path)` (tuples become lists so `safe_load` can read the file).
+Override priority: `--set` overrides > CLI args > YAML > defaults.
 
 ::: deqn_jax.config

@@ -1,8 +1,7 @@
 # Python API examples
 
-Use DEQN-JAX as a library — useful when you want to script experiments,
-plug a custom analysis on top of trained policies, or integrate with
-notebook-style workflows.
+Use DEQN-JAX as a library to script experiments, run your own analysis on
+trained policies, or work from a notebook.
 
 ## Train from a config object
 

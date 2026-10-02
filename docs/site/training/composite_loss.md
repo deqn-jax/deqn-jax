@@ -1,9 +1,8 @@
 # Composite loss
 
-The composite loss layers four supervised auxiliary terms on top of the
-residual MSE. It exists because the bare residual loss is
-**set-identifying** — many policies satisfy it equally well, including
-degenerate self-referential fixed points.
+The composite loss adds four supervised auxiliary terms to the residual MSE.
+It exists because the bare residual loss is set-identifying: many policies
+satisfy it equally well, including degenerate self-referential fixed points.
 
 ## Terms
 
@@ -14,18 +13,17 @@ degenerate self-referential fixed points.
 | `aux_barrier_*`     | Box penalties on bounded states/policies                 |
 | `aux_newton_*`      | Conditioning + residual of the Newton step at SS         |
 
-All keys are prefixed with `aux_` so adaptive reweighting and per-equation
-gradient surgery (PCGrad, MAO) ignore them.
+All keys start with `aux_`, so adaptive reweighting and per-equation gradient
+surgery (PCGrad, MAO) ignore them.
 
 ## Why anchor
 
-Without it, the network can drift to any point in the residual-loss
-zero set. With it, the network is *supervised* toward the linearized
-policy near SS, which uniquely identifies the equilibrium of interest.
+Without the anchor, the network can drift to any point in the zero set of the
+residual loss. With it, the network is supervised toward the linearized policy
+near SS, which identifies the equilibrium of interest uniquely.
 
-The anchor weight stays active throughout training when
-`aux_decay_floor: 1.0`. Lowering it lets the anchor term decay during
-the curriculum ramp.
+With `aux_decay_floor: 1.0` the anchor weight stays fully active throughout
+training. A lower value lets the anchor term decay during the curriculum ramp.
 
 ## Configure
 
@@ -43,6 +41,6 @@ composite_loss:
 
 ## Source
 
-`src/deqn_jax/training/composite_loss.py`. Pre-computed linearization
-data flows in via `prepare_composite_data(model, P, Q)` once before
-training, then is reused inside the JIT boundary every step.
+`src/deqn_jax/training/composite_loss.py`. The linearization data is computed
+once before training by `prepare_composite_data(model, P, Q)` and reused inside
+the JIT boundary at every step.

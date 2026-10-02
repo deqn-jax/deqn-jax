@@ -1,6 +1,6 @@
 # Running Experiments
 
-Once a model is implemented and training works on a basic config (see [Implementing a model](models/implementing.md)), this doc covers everything *after*: launching runs, persisting checkpoints, resuming, logging to TensorBoard/W&B, comparing runs, and tuning. Anchor-linked so you can jump to the specific operation.
+This page assumes a model is implemented and trains on a basic config (see [Implementing a model](models/implementing.md)). It covers launching runs, checkpoints, resuming, logging to TensorBoard and W&B, comparing runs, and tuning.
 
 - [CLI quickstart](#cli-quickstart)
 - [YAML config patterns](#yaml-config-patterns)
@@ -9,7 +9,7 @@ Once a model is implemented and training works on a basic config (see [Implement
 - [TensorBoard](#tensorboard)
 - [Weights & Biases](#weights-biases)
 - [Comparing runs](#comparing-runs)
-- [Tuning](#tuning) (outline — fleshed out once enough models are ported to state empirical tradeoffs)
+- [Tuning](#tuning) (an outline for now)
 
 ---
 
@@ -39,7 +39,7 @@ uv run deqn-jax train brock_mirman --fp64
 
 # post-training diagnostics
 uv run deqn-jax evaluate <checkpoint.eqx>
-uv run deqn-jax irf <checkpoint.eqx> --shock-name eps_z --horizon 40
+uv run deqn-jax irf <checkpoint.eqx> --shock eps_z --horizon 40
 
 # introspection
 uv run deqn-jax info brock_mirman   # model details
@@ -53,7 +53,7 @@ uv run deqn-jax init-config          # generate a default YAML
 --set overrides  >  CLI flags  >  YAML file  >  dataclass defaults
 ```
 
-Dot-notation works for any depth: `--set network.hidden_sizes='[128, 128]'`, `--set composite_loss.anchor_weight=0.01`, etc. Repeat `--set` as many times as needed.
+Dot notation reaches any depth, for example `--set network.hidden_sizes='[128, 128]'` or `--set composite_loss.anchor_weight=0.01`. `--set` can be repeated.
 
 ---
 
@@ -89,18 +89,18 @@ log_every: 1000
 
 ### Sampling patterns
 
-- **Exogenous rect** (`episode_length: 1` + `initialize_each_episode: true`): fresh uniform draws from the rect specified by `init_state_fn`, one gradient step, repeat. Required for strongly-attracting systems (deterministic, low-dimensional) and for models with closed-form benchmarks.
-- **Rollout ergodic** (`episode_length: N` + `initialize_each_episode: false`): simulate `N` periods from the last cycle's terminal state and use those as training points. Concentrates training density on the ergodic support — good for accuracy on simulated moments, bad for extrapolation.
-- **Hybrid** (`episode_length: N` + `initialize_each_episode: true`): fresh rect start, then `N` rollout steps. Fills out both the rect and the attractor.
-- **Minibatch sweep** (`n_epochs_per_rollout > 1`, `n_minibatches_per_epoch > 1`): after simulating, take multiple gradient steps over the same data before re-rolling. Raises sample efficiency; risks overfitting to a single rollout.
+- Exogenous rect (`episode_length: 1`, `initialize_each_episode: true`): fresh uniform draws from the rect given by `init_state_fn`, one gradient step, repeat. Required for strongly attracting systems (deterministic, low-dimensional) and for models with closed-form benchmarks.
+- Rollout ergodic (`episode_length: N`, `initialize_each_episode: false`): simulate `N` periods from the last cycle's terminal state and train on those points. Training density concentrates on the ergodic support. This helps accuracy on simulated moments and hurts extrapolation.
+- Hybrid (`episode_length: N`, `initialize_each_episode: true`): a fresh rect start, then `N` rollout steps. Covers both the rect and the attractor.
+- Minibatch sweep (`n_epochs_per_rollout > 1`, `n_minibatches_per_epoch > 1`): after simulating, take several gradient steps over the same data before the next rollout. Raises sample efficiency at the risk of overfitting one rollout.
 
 ### Sim batch vs minibatch batch
 
-Post the upstream parity work, `sim_batch` (number of trajectories simulated) and `batch_size` (gradient minibatch size) are independent. Simulate 1024 trajectories, do gradient on chunks of 128: set `sim_batch: 1024, batch_size: 128`. If `sim_batch` is omitted it defaults to `batch_size` (the simple case).
+`sim_batch` (number of simulated trajectories) and `batch_size` (gradient minibatch size) are independent. To simulate 1024 trajectories and take gradients on chunks of 128, set `sim_batch: 1024, batch_size: 128`. If `sim_batch` is omitted it defaults to `batch_size`.
 
 ### Composite loss
 
-For models with a known linearization and where you want the auxiliary anchor / Jacobian / barrier / Newton losses:
+For models with a known linearization, the composite loss adds auxiliary anchor, Jacobian, barrier and Newton terms:
 
 ```yaml
 loss_type: composite
@@ -122,17 +122,19 @@ See `src/deqn_jax/training/composite_loss.py` for the full field list.
 warm_start: true
 ```
 
-Runs an L-BFGS pre-fit of the network to the deterministic steady-state policy before gradient-based training starts. 10-50 L-BFGS steps; no effect on the main training loop.
+Before gradient training starts, an L-BFGS pre-fit (10-50 steps) fits the network to the deterministic steady-state policy. The main training loop is unchanged.
 
-**When to use it:**
-- Models with a non-trivial `steady_state_fn` where a cold random init wastes the first few hundred gradient steps drifting toward the fixed point.
-- High-dimensional models where the unwarmed initial loss is so large it dominates gradient direction for a long time.
+Use it for:
 
-**When to skip it:**
-- Debugging a freshly ported model — warm start can mask a bug by starting the network at a hand-computed steady state regardless of whether the Euler equation is correct.
-- Small/closed-form models where the rect is tiny and the cold init is cheap.
+- models with a non-trivial `steady_state_fn`, where a random init spends the first few hundred gradient steps drifting toward the fixed point;
+- high-dimensional models whose initial loss without warm start is large enough to dominate the gradient direction for a long time.
 
-Implementation lives in `src/deqn_jax/training/warm_start.py` — it is a thin wrapper around `optax.lbfgs` with a flat-parameter loop.
+Skip it for:
+
+- debugging a newly ported model, since starting at a hand-computed steady state can hide a wrong Euler equation;
+- small or closed-form models, where the rect is small and a cold init is cheap.
+
+The implementation, in `src/deqn_jax/training/warm_start.py`, wraps `optax.lbfgs` in a flat-parameter loop.
 
 ---
 
@@ -148,13 +150,14 @@ uv run deqn-jax train brock_mirman \
     --max-checkpoints 5
 ```
 
-Emits:
-- `runs/brock_mirman_2026_04/checkpoint_<episode>.eqx` — periodic
-- `runs/brock_mirman_2026_04/checkpoint_best.eqx` — overwritten whenever a new best loss is seen
-- `runs/brock_mirman_2026_04/checkpoint_best.meta` — episode + loss for the best
-- `runs/brock_mirman_2026_04/config.yaml` — the full resolved config used for the run
+This writes:
 
-`--max-checkpoints N` trims the periodic checkpoints to the most recent N (the best checkpoint is never deleted).
+- `runs/brock_mirman_2026_04/checkpoint_<episode>.eqx`: periodic checkpoints;
+- `runs/brock_mirman_2026_04/checkpoint_best.eqx`: overwritten at each new best loss;
+- `runs/brock_mirman_2026_04/checkpoint_best.meta`: episode and loss of the best checkpoint;
+- `runs/brock_mirman_2026_04/config.yaml`: the full resolved config of the run.
+
+`--max-checkpoints N` keeps only the N most recent periodic checkpoints. The best checkpoint is never deleted.
 
 ### Resume
 
@@ -165,35 +168,35 @@ uv run deqn-jax train \
     --checkpoint-dir runs/brock_mirman_2026_04
 ```
 
-Reuses the exact config (hence the re-pointing of `--config` to the saved one) and continues from the checkpointed episode. Combine with `-n`/`--episodes` to set a new termination horizon.
+Pointing `--config` at the saved file reuses the exact config. Training continues from the checkpointed episode; `-n`/`--episodes` sets a new end point.
 
 ### What resume preserves, and what it doesn't
 
-Full `TrainState` deserialises from the `.eqx` file: params, optimizer state, episode-state batch, **PRNG key**, step/episode counters, loss weights, reweighting running stats, target params, aux params. Resume is deterministic across the boundary — running N episodes straight through is equivalent to running K + (N-K) with a checkpoint at K, modulo JAX-wide non-determinism (device, precision).
+The full `TrainState` deserialises from the `.eqx` file: params, optimizer state, episode-state batch, PRNG key, step and episode counters, loss weights, reweighting running statistics, target params and aux params. Resume is deterministic across the boundary. Running N episodes straight through equals running K and then N-K with a checkpoint at K, up to JAX-wide non-determinism (device, precision).
 
-Things that must match the original run (pytree-shape-governed):
-- **Network architecture** — `hidden_sizes`, `activation`, `type`. Changing these changes the params pytree shape and deserialisation will error.
-- **Number of equations** — `loss_weights` and `reweight_state` are shaped by `n_equations`.
-- **`sim_batch`** — shapes the saved `episode_state`.
-- **Precision** — fp32 checkpoints can't be loaded into fp64 training and vice versa.
+These must match the original run, because they set pytree shapes:
 
-On resume the framework auto-loads the checkpoint directory's sibling `config.yaml` to rebuild the correct template. Always keep the saved `config.yaml` next to the `.eqx` file.
+- Network architecture (`hidden_sizes`, `activation`, `type`). A change alters the params pytree and deserialisation fails.
+- Number of equations. `loss_weights` and `reweight_state` are shaped by `n_equations`.
+- `sim_batch`, which shapes the saved `episode_state`.
+- Precision. An fp32 checkpoint cannot be loaded into fp64 training, and vice versa.
 
-Things that can change freely on resume:
-- **Learning rate, LR schedule, episodes, log frequency, checkpoint frequency** — none of these affect the checkpointed tree shape.
-- **Optimizer** — swapping explicitly supported. The new optimizer's state is re-initialised from the resumed params; old moments are discarded. Use `--switch-optimizer` / `--switch-episode` for mid-training handoffs (e.g. Adam → L-BFGS near convergence).
+On resume the framework loads the `config.yaml` next to the checkpoint to rebuild the template, so keep that file beside the `.eqx`.
+
+These can change on resume:
+
+- Learning rate, LR schedule, episodes, log frequency and checkpoint frequency. None of them affects the checkpointed tree shape.
+- The optimizer. The new optimizer's state is initialised from the resumed params and the old moments are discarded. For a handoff during training (for example Adam to L-BFGS near convergence) use `--switch-optimizer` and `--switch-episode`.
 
 ### Evaluate or IRF from a checkpoint
-
-No training required:
 
 ```bash
 uv run deqn-jax evaluate runs/brock_mirman_2026_04/checkpoint_best.eqx
 uv run deqn-jax irf runs/brock_mirman_2026_04/checkpoint_best.eqx \
-    --shock-name eps_z --horizon 40 --csv runs/brock_mirman_2026_04/irf.csv
+    --shock eps_z --horizon 40 --output runs/brock_mirman_2026_04/irf
 ```
 
-Config is auto-detected from the checkpoint's sibling `config.yaml` unless `--config` is passed explicitly.
+The config is read from the `config.yaml` next to the checkpoint unless `--config` is given.
 
 ---
 
@@ -205,18 +208,19 @@ uv run deqn-jax train brock_mirman \
     --tensorboard runs/brock_mirman_2026_04/tb
 ```
 
-Logs:
-- **Scalars**: total loss, per-equation losses, gradient norm, learning rate, wall-clock episodes/sec.
-- **Histograms** (every `log_every` episodes): each variable in `definitions()`, each equation residual, each policy output. This is what lets you diagnose "is the policy going out of bounds" or "is a definition collapsing to zero" without writing plot code.
-- **Aux losses**: every entry prefixed `aux_` in the `eq_losses` dict (barrier, anchor, Jacobian, bound penalties) as scalars.
+It logs:
 
-View:
+- scalars: total loss, per-equation losses, gradient norm, learning rate, episodes per second;
+- histograms, every `log_every` episodes: each variable in `definitions()`, each equation residual, each policy output. These show a policy leaving its bounds or a definition collapsing to zero without extra plotting code;
+- aux losses: every `aux_`-prefixed entry of the `eq_losses` dict (barrier, anchor, Jacobian, bound penalties), as scalars.
+
+To view:
 
 ```bash
 uv run tensorboard --logdir runs/
 ```
 
-The framework's logger lives in `src/deqn_jax/training/metrics.py` (class `TensorBoardLogger`). All scalar/histogram calls go through a shared `MetricLogger` interface so TB, W&B, and the null logger are swappable.
+The logger is `TensorBoardLogger` in `src/deqn_jax/training/metrics.py`. Scalar and histogram calls go through the `MetricLogger` interface, so TensorBoard, W&B and the null logger are interchangeable.
 
 ---
 
@@ -228,83 +232,87 @@ uv run deqn-jax train brock_mirman \
     --wandb my-deqn-project
 ```
 
-Logs the same scalar/histogram surface as TensorBoard plus the full resolved config as the W&B run's `config` field (searchable/filterable in the UI).
+This logs the same scalars and histograms as TensorBoard, plus the full resolved config as the W&B run's `config` field, which the UI can search and filter.
 
-Combine freely: `--tensorboard runs/.../tb --wandb my-project` writes to both.
+`--tensorboard runs/.../tb --wandb my-project` writes to both.
 
-Authentication: `wandb login` once; the CLI picks up the token from `~/.netrc`. No env-var plumbing required.
+Run `wandb login` once; the CLI reads the token from `~/.netrc`, so no environment variables are needed.
 
 ---
 
 ## Comparing runs
 
-The `deqn_jax.plots.compare` module reads TensorBoard event files (or the text logs from `-q`-less runs) and produces aligned multi-run plots.
+The `deqn_jax.plots.compare` module parses the text logs of runs made without `-q` (the per-episode `loss=… | grad=…` lines) and overlays several runs in one plot.
 
 ```python
-from deqn_jax.plots.compare import parse_log, plot_multi_run_loss
+from deqn_jax.plots.compare import parse_log_single, plot_multi_run_loss
 
 runs = {
-    "adam-3e-4": parse_log("runs/brock_mirman_adam_3e4/train.log"),
-    "adam-1e-3": parse_log("runs/brock_mirman_adam_1e3/train.log"),
-    "mao":        parse_log("runs/brock_mirman_mao/train.log"),
+    **parse_log_single("runs/brock_mirman_adam_3e4/train.log", "adam-3e-4"),
+    **parse_log_single("runs/brock_mirman_adam_1e3/train.log", "adam-1e-3"),
+    **parse_log_single("runs/brock_mirman_mao/train.log", "mao"),
 }
 plot_multi_run_loss(runs, log_y=True)
 ```
 
-For schedule alignment (e.g. comparing LR curves across runs with different schedules):
+`parse_log_single(path, name)` returns `{name: history}` for a log holding one run. `parse_log(path)` splits a log holding several runs at `==== <name> starting ...` / `==== <name> finished ...` marker lines and returns `{name: history}` for each. A history has the keys `episodes`, `loss`, `grad_norm` and `best`.
+
+Runs that take different numbers of gradient updates per cycle compare better against total gradient updates. Pass each history with its updates per cycle:
 
 ```python
 from deqn_jax.plots.compare import plot_schedule_alignment
-plot_schedule_alignment(runs, metric="learning_rate")
+plot_schedule_alignment({
+    "adam-3e-4": (runs["adam-3e-4"], 1),
+    "mao": (runs["mao"], 4),
+})
 ```
-
-Full text-log parsing lives in `plots.compare.parse_log`; schema is stable across framework versions.
 
 ---
 
 ## Tuning
 
-> Sketch only. Will be fleshed out with empirical tradeoffs once more models are ported and cross-model patterns emerge. For now, treat as a menu of knobs.
+> An outline, to be filled in with measured tradeoffs as more models are ported. For now it lists the settings to try.
 
 ### Optimizer choice
 
-Baseline Adam is fine for most models. Reach for specialized optimizers when:
-- **NGD** — when the equilibrium conditions have wildly different scales across equations and Adam's diagonal preconditioner under-corrects.
-- **MAO** — when gradient conflict across equations is measurable (per-equation gradients point in different directions).
-- **Shampoo** — large networks (100k+ params) where Kronecker-factored preconditioning outweighs its per-step cost.
-- **L-BFGS / GN / LM** — low-noise regimes near convergence (after Adam has done the bulk of the work).
+Adam works for most models. The other optimizers fit specific cases:
+
+- NGD: equations whose scales differ widely, so that Adam's diagonal preconditioner under-corrects.
+- MAO: measurable gradient conflict across equations (per-equation gradients point in different directions).
+- Shampoo: large networks (100k+ params), where Kronecker-factored preconditioning repays its per-step cost.
+- L-BFGS, GN, LM: low-noise regimes near convergence, after Adam has done most of the work.
 
 ### LR schedule
 
-- `constant` — debugging only.
-- `cosine` — default for single-phase training. `lr_min_factor: 0.1` retains meaningful gradient pressure at the end.
+- `constant`: debugging only.
+- `cosine`: the usual choice for single-phase training. `lr_min_factor: 0.1` keeps a useful learning rate at the end.
 
 ### Reweighting
 
-- `none` — single-equation models.
-- `lr_annealing` — inverse-EMA weighting; stable, low-maintenance.
-- `relobralo` — softmax of loss ratios; reacts faster to regime changes but can thrash.
+- `none`: single-equation models.
+- `lr_annealing`: inverse-EMA weighting; stable and needs little tuning.
+- `relobralo`: softmax of loss ratios; reacts faster to regime changes but can oscillate.
 
 ### Batch and sampling
 
-- `batch_size`: start 128; raise if gradient noise dominates late-stage training.
-- `mc_samples`: 5 is standard; increase if Euler residuals are dominated by shock variance (check by comparing per-shock std to mean in `definitions`).
-- `initialize_each_episode`: true for edge-case robustness, false for simulated-moment accuracy.
+- `batch_size`: start at 128; raise it if gradient noise dominates late training.
+- `mc_samples`: 5 is standard; increase it if Euler residuals are dominated by shock variance (compare per-shock std to the mean in `definitions`).
+- `initialize_each_episode`: true for robustness at the edges of the state space, false for accuracy on simulated moments.
 
 ### Composite loss
 
-- Toggle on only when a linearization is trusted. A wrong linearization poisons the anchor and Jacobian terms and makes training worse than `mse`.
-- `aux_decay_floor: 1.0` keeps the curriculum aux terms active all the way through (no late-stage decay).
+- Turn it on only when the linearization is trusted. A wrong linearization corrupts the anchor and Jacobian terms, and training ends up worse than with `mse`.
+- `aux_decay_floor: 1.0` keeps the curriculum aux terms at full weight to the end.
 
 ### Warm start
 
-See the dedicated section above.
+See [Warm start](#warm-start) above.
 
 ---
 
 ## Cross-references
 
-- [Overview](why.md) — positioning / when to use the framework at all.
-- [Implementing a model](models/implementing.md) — how to add a new model.
-- [Composite loss](training/composite_loss.md) — the composite-loss system in detail.
-- `src/deqn_jax/config/` — canonical source for every config field's type, default, and validation (the `config/` package: `TrainConfig` in `train.py`, the nested configs in their own submodules). (Until the config reference doc lands, this is the ground truth.)
+- [Overview](why.md): when to use the framework.
+- [Implementing a model](models/implementing.md): adding a new model.
+- [Composite loss](training/composite_loss.md): the composite loss in detail.
+- [Config field reference](config_reference.md), generated from `src/deqn_jax/config/`. The package is the source of truth for each field's type, default and validation: `TrainConfig` in `train.py`, the nested configs in their own submodules.

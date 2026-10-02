@@ -1,15 +1,14 @@
 # Quickstart
 
-Train the canonical model with the **validated stack**, then read its accuracy
-the way you'd report it in a paper — the relative-Euler-error (errREE)
-distribution on the ergodic path.
+This page trains the canonical model with the validated configuration and then
+reads its accuracy as the relative-Euler-error (errREE) distribution on the
+ergodic path.
 
-!!! note "Status: alpha (v0.2.0) — the validated stack is small"
-    Everything below leads with the combination the test suite and gallery
-    actually exercise: `adam` + an `MLP` + an `MSE` residual + antithetic
-    Monte-Carlo expectations, on `brock_mirman`. Everything else in the
-    registries is a research instrument, not a turnkey recommendation — see the
-    [Method Zoo](../method-zoo/index.md) for *when* (and when not) to reach for it.
+The commands below use the combination that the test suite and the gallery
+exercise: `adam`, an `MLP`, an `MSE` residual and antithetic Monte Carlo
+expectations, on `brock_mirman`. The other options in the registries are
+research tools; the [Method Zoo](../method-zoo/index.md) describes when to use
+them.
 
 ## 0. Verify the install
 
@@ -19,8 +18,8 @@ uv run deqn-jax check     # JAX backend, devices, registered models & optimizers
 uv run deqn-jax list      # the registered models
 ```
 
-??? abstract "Install detail — source checkout, CUDA, editable mode"
-    Alpha is not yet on PyPI; install from a source checkout.
+??? abstract "Install details: source checkout, CUDA, editable mode"
+    The alpha release is not on PyPI; install from a source checkout.
 
     ```bash
     git clone <repo>
@@ -36,51 +35,49 @@ uv run deqn-jax list      # the registered models
     ```
 
     `uv run deqn-jax check` reports the active backend and devices. Always use
-    `uv run`; never activate the venv by hand.
+    `uv run`; do not activate the venv by hand.
 
-## 1. Solve a model in five minutes
+## 1. Solve a model
 
-`brock_mirman` is the canonical/teaching tier: state $(k, z)$, one decision rule
-(the savings rate), one consumption Euler equation, an **analytical** steady
-state. It is the smoke test that proves the stack works on your machine.
+`brock_mirman` is the teaching model: state $(k, z)$, one decision rule (the
+savings rate), one consumption Euler equation and an analytical steady state.
+It serves as the smoke test for an installation.
 
 ```bash
 uv run deqn-jax train brock_mirman -n 1000 --warm-start \
     --checkpoint-dir checkpoints/brock_mirman
 ```
 
-You should see the residual loss fall several orders of magnitude in under a
-minute on CPU. `--warm-start` fits the network to the steady-state policy first
-(an L-BFGS supervised pre-fit), so training begins from a sane economic guess
-rather than noise; `--checkpoint-dir` is what lets the next step read the trained
-policy back.
+The residual loss should fall by several orders of magnitude in under a minute
+on CPU. `--warm-start` first fits the network to the steady-state policy with
+a supervised L-BFGS pre-fit, so training starts from an economically sensible
+policy rather than from random weights. `--checkpoint-dir` saves the trained
+policy so the next step can read it.
 
-!!! tip "What just happened, in your language"
+!!! tip "The same steps in economics terms"
     The network plays the role Chebyshev polynomials or splines play in a
-    projection method — a flexible approximation of the decision rule $\pi(s)$.
-    "Training" is the collocation/projection solve for its coefficients;
-    "minibatches" are collocation states drawn by **simulating the model** (the
-    ergodic set), not a fixed tensor grid; the "loss" is the Euler residual,
+    projection method: a flexible approximation of the decision rule $\pi(s)$.
+    "Training" is the collocation/projection solve for its coefficients.
+    "Minibatches" are collocation states drawn by simulating the model (the
+    ergodic set), not a fixed tensor grid. The "loss" is the Euler residual,
     integrated over next-period shocks by antithetic Monte Carlo.
 
 ## 2. Read its accuracy
 
-A low loss is **necessary but not sufficient** — like any nonlinear global
-solver, residual-minimization can land on the wrong answer. So you don't trust
-the loss; you check the policy. `evaluate` simulates a long ergodic path and
-reports the errREE distribution — the gold-standard accuracy metric (Azinovic et
-al. 2022), the number you'd quote.
+A low loss is necessary but not sufficient: like any nonlinear global solver,
+residual minimization can converge to a wrong solution. Check the policy
+itself. `evaluate` simulates a long ergodic path and reports the errREE
+distribution, the standard accuracy measure (Azinovic et al. 2022).
 
 ```bash
 uv run deqn-jax evaluate checkpoints/brock_mirman/checkpoint_best.eqx -n 10000
 ```
 
-It also runs the market-clearing, simulated-moments, and stability checks; the
-config is auto-detected from the checkpoint directory. For *measured* errREE
-certificates on worked models, see the **[Gallery](../gallery/index.md)** — the
-evidence, not a promise.
+It also runs the market-clearing, simulated-moments and stability checks. The
+config is read from the checkpoint directory. The [Gallery](../gallery/index.md)
+has measured errREE for the worked models.
 
-## 3. The everyday loop
+## 3. Train, evaluate, shock
 
 === "Train"
 
@@ -89,9 +86,9 @@ evidence, not a promise.
         --checkpoint-dir checkpoints/brock_mirman
     ```
 
-    Swap in any registered model: `bm_labor_constrained`, `irbc`,
-    `olg_lifecycle`. Config-driven runs read a YAML and accept dot-notation
-    overrides:
+    Any registered model works here, for example `bm_labor_constrained`,
+    `irbc` or `olg_lifecycle`. Config-driven runs read a YAML file and accept
+    dot-notation overrides:
 
     ```bash
     uv run deqn-jax train --config configs/brock_mirman.yaml \
@@ -105,8 +102,8 @@ evidence, not a promise.
     uv run deqn-jax evaluate checkpoints/brock_mirman/checkpoint_best.eqx -n 10000
     ```
 
-    The errREE distribution, market-clearing errors, simulated moments, and the
-    stability gate. The config is auto-detected from the checkpoint directory.
+    Reports the errREE distribution, market-clearing errors, simulated moments
+    and the stability check. The config is read from the checkpoint directory.
 
 === "Shock it"
 
@@ -114,51 +111,30 @@ evidence, not a promise.
     uv run deqn-jax irf checkpoints/brock_mirman/checkpoint_best.eqx --shock eps_z
     ```
 
-    Impulse responses from a trained policy. `--girf` gives the generalized
-    (state-dependent, no-shock-baseline-subtracted) variant for nonlinear models.
-    Run `deqn-jax info brock_mirman` for valid shock names.
+    Impulse responses from a trained policy. `--girf` computes the generalized
+    IRF for nonlinear models: it subtracts a no-shock baseline path from the
+    same initial state, so the response is state-dependent. Run
+    `deqn-jax info brock_mirman` for valid shock names.
 
 ## Where to next
 
-<div class="grid cards" markdown>
+- [Gallery](../gallery/index.md): closed-form examples, the three
+  occasionally-binding-constraint models (`bm_labor_constrained`, `irbc`,
+  `olg_lifecycle`) and an experimental NK-DSGE, each with its measured errREE.
+- [Method Zoo](../method-zoo/index.md): the interchangeable networks,
+  optimizers, expectation operators and diagnostics, and when to use each. The
+  default recipe is at the top of the page.
+- [Implementing a model](../models/implementing.md): declare states,
+  equilibrium residuals, transition and calibration through the `ModelSpec`
+  contract.
 
--   :material-image-multiple:{ .lg .middle } __See the sell, measured__
-
-    ---
-
-    Closed-form pedagogy → the occasionally-binding constraint trilogy
-    (`bm_labor_constrained`, `irbc`, `olg_lifecycle`) → an experimental NK-DSGE,
-    each with its measured errREE certificate.
-
-    [:octicons-arrow-right-24: Gallery](../gallery/index.md)
-
--   :material-tune-variant:{ .lg .middle } __Pick your method__
-
-    ---
-
-    The swappable toolkit — networks, optimizers, expectations, diagnostics —
-    and *when* to reach for each. The default recipe is on the first screen.
-
-    [:octicons-arrow-right-24: Method Zoo](../method-zoo/index.md)
-
--   :material-pencil-ruler:{ .lg .middle } __Write your own model__
-
-    ---
-
-    Declare states, equilibrium residuals, transition, calibration — as data.
-    The `ModelSpec` contract is the whole surface.
-
-    [:octicons-arrow-right-24: Implementing a model](../models/implementing.md)
-
-</div>
-
-??? abstract "Resume a checkpoint — and the Adam → Newton-style polish"
-    Any checkpoint resumes, including with a **different optimizer**. The
-    legitimate use is the pipeline the [Method Zoo](../method-zoo/index.md)
-    routes you to when a first-order run *plateaus*: rough exploration with
-    `adam`, then a **Newton-style polish** — the same quasi-Newton / Gauss-Newton
-    machinery you know from GMM / MLE estimation, applied to the equilibrium
-    residuals for quadratic convergence *near* a solution.
+??? abstract "Resuming a checkpoint, and polishing with a Newton-type method"
+    Any checkpoint can be resumed, including with a different optimizer. The
+    intended use is the pipeline the [Method Zoo](../method-zoo/index.md)
+    recommends when a first-order run plateaus: explore with `adam`, then
+    polish with a Newton-type method. These are the quasi-Newton and
+    Gauss-Newton methods familiar from GMM and MLE estimation, applied to the
+    equilibrium residuals for quadratic convergence near a solution.
 
     ```bash
     # Rough exploration with Adam (the validated first-order method)
@@ -172,37 +148,36 @@ evidence, not a promise.
         --checkpoint-dir checkpoints/brock_mirman
     ```
 
-    The trainer detects the optimizer change, re-initializes optimizer state for
-    the new method, and keeps the network weights; the original config is read
-    from `<checkpoint_dir>/config.yaml` to reconstruct the pytree template.
-    `gn` / `lm` (Gauss-Newton, Levenberg-Marquardt) are the other Newton-style
-    members. These are experimental polish steps — `adam` remains the validated
-    workhorse, and a stall is more often a *network* fix (`linear_plus_mlp`, the
-    Blanchard-Kahn-anchored basis) than an optimizer one.
+    The trainer detects the optimizer change, re-initializes the optimizer
+    state for the new method and keeps the network weights. The original
+    config is read from `<checkpoint_dir>/config.yaml` to rebuild the pytree
+    template. `gn` and `lm` (Gauss-Newton, Levenberg-Marquardt) are the other
+    Newton-type options. These polish steps are experimental; `adam` is the
+    validated optimizer. When a run stalls, changing the network
+    (`linear_plus_mlp`, the Blanchard-Kahn-anchored basis) helps more often
+    than changing the optimizer.
 
-??? warning "The disaster model is experimental — under validation"
+??? warning "The disaster model is experimental"
     `disaster` (CMR-style NK-DSGE, 13 states / 11 policies, numerical steady
-    state) is the stress test, **not** part of the validated stack. The baseline
-    block converges, but the disaster/financial-frictions block is still under
-    validation, and the recipe it leans on — `LinearPlusMLP` plus the
-    **composite loss** (anchor + Jacobian-match + barrier + Newton auxiliary
-    terms) — is itself experimental. Treat it as a research example, not a
-    turnkey result.
+    state) is a stress test and not part of the validated configuration. The
+    baseline block converges, but the disaster and financial-frictions block
+    is still being validated. Its recipe, `LinearPlusMLP` plus the composite
+    loss (anchor + Jacobian-match + barrier + Newton auxiliary terms), is also
+    experimental. Treat its output as a research example.
 
     ```bash
     uv run deqn-jax train --config configs/disaster.yaml   # experimental
     ```
 
-    See the [gallery landing](../gallery/index.md) and the
-    [composite loss](../training/composite_loss.md) note before trusting any
+    Read the [gallery landing page](../gallery/index.md) and the
+    [composite loss](../training/composite_loss.md) page before relying on any
     number it produces.
 
-!!! warning "Two honest limits — stated here, not buried"
-    - **A low residual does not pin down the right equilibrium.** Like any
-      nonlinear *global* solver, DEQN can settle on the wrong **branch**, and
-      nothing here enforces equilibrium *selection*. There is no global analogue
-      of the *local* Blanchard-Kahn saddle-path condition — BK is a linear/local
-      determinacy criterion, not a global one.
-    - **No certified error bounds.** Accuracy is **measured** (the errREE
-      distribution), not proven by a theorem. Quote the number; don't assume it.
-
+!!! warning "Limits"
+    - A low residual does not identify the right equilibrium. Like any
+      nonlinear global solver, DEQN can converge to the wrong branch, and the
+      framework does not enforce equilibrium selection. There is no global
+      analogue of the local Blanchard-Kahn saddle-path condition; BK is a
+      linear, local determinacy criterion.
+    - No certified error bounds. Accuracy is measured (the errREE
+      distribution), not proven. Report the number you measured.

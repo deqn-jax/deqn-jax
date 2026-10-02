@@ -1,8 +1,8 @@
 # Implementing a Model
 
-This document walks through porting a new economic model to DEQN-JAX, end to end. Stochastic Brock-Mirman (one Euler equation, two states, one shock) is the running example — it is small enough to read in one sitting but has every moving part a larger model has. All code below matches what lives in `src/deqn_jax/models/brock_mirman/`.
+This page ports a model to DEQN-JAX, using stochastic Brock-Mirman (one Euler equation, two states, one shock) as the example. It is small but has every part a larger model has. The code matches `src/deqn_jax/models/brock_mirman/`.
 
-Audience: someone who already knows what DEQN is and has a paper-or-notes description of the model they want to train. If you are new to DEQN itself, read the reference pedagogical notebooks (Geneva Day 2) first.
+It assumes you know what DEQN is and have the model written down. If DEQN is new to you, read the reference pedagogical notebooks (Geneva Day 2) first.
 
 ---
 
@@ -10,20 +10,20 @@ Audience: someone who already knows what DEQN is and has a paper-or-notes descri
 
 You need, on paper:
 
-- **State variables** and their interpretation — capital, TFP, debt, whatever. Decide whether each is in levels or logs.
-- **Policy variables** and their bounds — savings rate in (0, 1), labour supply in (0, ∞), etc. Bounds will be enforced by the network's output activation.
-- **Equilibrium equations** written in residual form (LHS − RHS = 0 per equation). One policy variable per equation, typically.
-- **Transition dynamics** — next-period state as a function of current state, policy, and exogenous shocks.
-- **Calibration** — all constants the equations and dynamics depend on.
-- **A sanity check** — closed-form solution, linearization, or a published solution you can diff against. Essential for validating the port.
+- State variables and their interpretation (capital, TFP, debt, and so on). Decide whether each is in levels or logs.
+- Policy variables and their bounds, for example a savings rate in (0, 1) or labour supply in (0, ∞). The network's output activation enforces the bounds.
+- Equilibrium equations in residual form (LHS − RHS = 0 per equation), typically one policy variable per equation.
+- Transition dynamics: next-period state as a function of current state, policy and exogenous shocks.
+- Calibration: every constant the equations and dynamics depend on.
+- Something to validate against: a closed-form solution, a linearization or a published solution.
 
-If your model is new and you are not sure the equations are right, port it anyway: the framework's ergodic residual table (`evaluate.print_euler_errors`) is an effective catch-net for algebra errors that make the FOCs unsolvable.
+If you are unsure the equations are right, port the model anyway: the ergodic residual table (`evaluate.print_euler_errors`) catches algebra errors that make the FOCs unsolvable.
 
 ---
 
 ## Directory layout
 
-Every model lives in `src/deqn_jax/models/<name>/` as a five-file subpackage:
+Each model lives in `src/deqn_jax/models/<name>/` as a five-file subpackage:
 
 ```
 models/
@@ -35,15 +35,15 @@ models/
     steady_state.py    # steady_state() and init_state_fn
 ```
 
-The split is pedagogical — nothing enforces it. What matters is that `__init__.py` exports a `MODEL` constant of type `ModelSpec`, and `models/__init__.py` registers it.
+The split is a convention; nothing enforces it. What matters is that `__init__.py` exports a `MODEL` constant of type `ModelSpec` and that `models/__init__.py` registers it.
 
-Naming tip: pick a short lowercase identifier. It becomes the `model:` field in YAML configs and the CLI argument to `deqn-jax train`. Dashes are fine; avoid spaces.
+Pick a short lowercase identifier as the name. It becomes the `model:` field in YAML configs and the CLI argument to `deqn-jax train`. Dashes are fine; avoid spaces.
 
 ---
 
-## 1. `variables.py` — what the model is made of
+## 1. `variables.py`: what the model is made of
 
-This file declares the static metadata the framework needs to wire shapes and output activations.
+Static metadata that sets shapes and output activations.
 
 ```python
 import jax.numpy as jnp
@@ -72,48 +72,48 @@ DESCRIPTION = "Brock-Mirman (1972) optimal growth model"
 
 ### `SPEC: VariableSpec`
 
-`VariableSpec.unpack_state(state_array)` and `SPEC.unpack_policy(policy_array)` give named attribute access (`s.k`, `p.sav_rate`) — cleaner than `state[:, 0]` everywhere. Both methods work on both batched `[batch, n]` and unbatched `[n]` arrays, so you write your equations once and they trace through `jax.vmap` unchanged.
+`VariableSpec.unpack_state(state_array)` and `SPEC.unpack_policy(policy_array)` give named attribute access (`s.k`, `p.sav_rate`) instead of `state[:, 0]`. Both accept batched `[batch, n]` and unbatched `[n]` arrays, so the same equations trace through `jax.vmap` unchanged.
 
-Name your variables in the order you want them to appear in the state/policy vector. Keep the order consistent across the whole subpackage: if `SPEC.state_names = ("k", "z")`, then `step()` must return `[k_next, z_next]` stacked in that order, and `init_state_fn` must emit columns in that order.
+List variables in the order you want in the state and policy vectors, and keep that order across the subpackage. If `SPEC.state_names = ("k", "z")`, then `step()` must return `[k_next, z_next]` stacked in that order, and `init_state_fn` must emit columns in that order.
 
 ### `CONSTANTS: dict[str, float]`
 
-Every scalar the model uses. The framework passes this dict to every equation/dynamics/steady-state function. Do not hardcode constants inside those functions — putting them in `CONSTANTS` is what lets YAML configs override them for calibration sweeps.
+Every scalar the model uses, passed to every equation, dynamics and steady-state function. Do not hardcode constants in those functions; YAML configs override `CONSTANTS` for calibration sweeps.
 
 ### `POLICY_LOWER`, `POLICY_UPPER`
 
-One-dimensional `jax.numpy.array`s of length `n_policies`. The MLP output activation is chosen **per dimension** based on the upper bound:
+One-dimensional `jax.numpy.array`s of length `n_policies`. The MLP output activation is chosen per dimension from the upper bound:
 
-- Finite `POLICY_UPPER[i]` → sigmoid, rescaled to `[lower, upper]`. Hard constraint.
-- `POLICY_UPPER[i] = jnp.inf` → softplus(x) + `lower`. Lower bound enforced, upper unbounded.
+- Finite `POLICY_UPPER[i]`: sigmoid, rescaled to `[lower, upper]`. A hard constraint.
+- `POLICY_UPPER[i] = jnp.inf`: softplus(x) + `lower`. The lower bound is enforced; the upper is unbounded.
 
-So for `bm_labor` with savings rate in `(0, 1)` and labor supply in `(0, ∞)`:
+For `bm_labor`, with the savings rate in `(0, 1)` and labor supply in `(0, ∞)`:
 
 ```python
 POLICY_LOWER = jnp.array([1e-6, 1e-6])
 POLICY_UPPER = jnp.array([1 - 1e-6, jnp.inf])   # sigmoid on sav_rate, softplus on L
 ```
 
-These are hard constraints enforced at the network output, not soft penalties. Use the declarative `state_bounds` / `definition_bounds` for soft penalties on derived quantities (consumption positivity, etc.).
+These are hard constraints at the network output. For soft penalties on derived quantities (such as positive consumption), use `state_bounds` / `definition_bounds`.
 
 ### `N_SHOCKS`
 
-Number of independent exogenous shocks. The framework draws `eps ~ N(0, I_{N_SHOCKS})` and passes them to `step()`. For deterministic models, set `N_SHOCKS = 0` — shock arrays will be `[batch, 0]`, and `step()` should ignore them.
+The number of independent exogenous shocks. The framework draws `eps ~ N(0, I_{N_SHOCKS})` and passes them to `step()`. For deterministic models set `N_SHOCKS = 0`; shock arrays are then `[batch, 0]` and `step()` should ignore them.
 
 ---
 
-## 2. `equations.py` — the equilibrium conditions
+## 2. `equations.py`: the equilibrium conditions
 
-Two functions. `definitions()` computes everything derived from state and policy; `equations()` computes the residuals the network is trained to zero.
+`definitions()` computes quantities derived from state and policy; `equations()` computes the residuals the network is trained to zero.
 
 ### `definitions(state, policy, constants) -> dict[str, Array]`
 
-Any quantity used in more than one place, or that you want logged. The returned dict is available:
+Any quantity used in more than one place or worth logging. The returned dict is used:
 
-- inside `equations()` (share computation between period `t` and `t+1`),
-- to the trainer (histogram logging at each cycle),
-- to the composite-loss path (Jacobians, barriers),
-- to post-training diagnostics (`irf.run_irf` records every definition along the impulse path).
+- inside `equations()`, to share computation between periods `t` and `t+1`;
+- by the trainer, for histogram logging at each cycle;
+- by the composite loss (Jacobians, barriers);
+- by post-training diagnostics (`irf.run_irf` records every definition along the impulse path).
 
 ```python
 def definitions(state, policy, constants):
@@ -132,11 +132,11 @@ def definitions(state, policy, constants):
     return {"Z": Z, "y": y, "mpk": mpk, "c": c, "s": sav, "u_c": u_c}
 ```
 
-Shape contract: every value in the returned dict is either a scalar (for state-independent constants) or a `[batch]`-shaped array. **Never return `[batch, 1]`** — that interacts badly with downstream broadcasting in `plots.*` and `evaluate.*`.
+Shape contract: every value in the returned dict is a scalar (for state-independent constants) or a `[batch]` array. Do not return `[batch, 1]`; it breaks downstream broadcasting in `plots.*` and `evaluate.*`.
 
 ### `equations(state, policy, next_state, next_policy, constants) -> dict[str, Array]`
 
-Returns a residual per equilibrium equation. Each residual is `[batch]`. The framework takes the weighted mean of residuals across shocks (Monte Carlo or quadrature), then squares, then means across the batch. At an equilibrium, `E[residual] = 0` — that is the contract.
+Returns one `[batch]` residual per equilibrium equation. The framework takes the weighted mean of each residual across shocks (Monte Carlo or quadrature), squares it, then averages across the batch. The contract is `E[residual] = 0` at an equilibrium.
 
 ```python
 EQUATION_NAMES = ("euler",)
@@ -155,30 +155,28 @@ def equations(state, policy, next_state, next_policy, constants):
     return {"euler": euler}
 ```
 
-`EQUATION_NAMES` is the ordered tuple used for logging, reweighting, and the per-equation diagnostic tables. Keep it in sync with the dict keys in the returned residuals.
+`EQUATION_NAMES` is the ordered tuple used for logging, reweighting and the per-equation diagnostic tables. Keep it in sync with the keys of the returned dict.
 
-### Choosing the right residual form — this is a trap
+### Choosing the residual form
 
-The same FOC can be written many algebraically-equivalent ways. **Under Monte Carlo sampling, they are not equivalent as loss functions.**
+Algebraically equivalent forms of a FOC are not equivalent as loss functions under Monte Carlo sampling. Per batch element the framework computes `E_shock[residual_shock]^2`: the expectation of the per-shock residual, then the square. Three common forms for a generic Euler FOC `u'(c) = β E[u'(c') (1 + r' − δ)]`:
 
-The framework computes, per batch element, `E_shock[residual_shock]^2`. "Expectation of the per-shock residual, then square." Three canonical forms for a generic Euler FOC `u'(c) = β E[u'(c') (1 + r' − δ)]`:
+1. Raw: `resid = u'(c) − β u'(c') (1 + r' − δ)`.
+   Linear in the shock-dependent quantity `u'(c')(1 + r' − δ)`, so it is MC-safe: `E[resid] = u'(c) − β E[u'(c')(1+r'−δ)] = 0` at equilibrium. Its scale varies across states (it moves with `u'(c)`), which the mean-squared aggregation handles.
 
-1. **Raw**: `resid = u'(c) − β u'(c') (1 + r' − δ)`.
-   Linear in the shock-dependent quantity `u'(c')(1 + r' − δ)`. MC-safe: `E[resid] = u'(c) − β E[u'(c')(1+r'−δ)] = 0` at equilibrium. Scale varies across states (goes like `u'(c)`) but that is handled by the mean-squared aggregation.
+2. LHS-normalized, dimensionless: `resid = 1 − β u'(c') (1 + r' − δ) / u'(c)`.
+   Still MC-safe, because it divides by the shock-independent `u'(c)`, and it reads well in tables. It is bad for optimization: at policies that drive `c → 0`, `u'(c)` explodes, so the residual shrinks exactly where the policy needs gradient pressure to move back. Training gets stuck in low-consumption local minima.
 
-2. **LHS-normalized dimensionless**: `resid = 1 − β u'(c') (1 + r' − δ) / u'(c)`.
-   Still MC-safe (dividing by the shock-independent `u'(c)`), and reads well in tables. **But optimization-hostile**: at bad policies that drive `c → 0`, `u'(c)` explodes, so the dimensionless residual *shrinks* exactly where you need gradient pressure to push the policy back. Training gets stuck in low-consumption local minima.
+3. RHS-normalized, dimensionless (Scheidegger's form): `resid = 1 − u'(c) / (β E[u'(c') (1 + r' − δ)])`.
+   Clean at equilibrium, but not compatible with MC. The per-shock form `1 − u'(c) / (β u'(c'_ω)(1 + r'_ω − δ))` would need `E[1/X] = 1/E[X]`, which Jensen's inequality rules out for non-degenerate shocks. It is safe when Gauss-Hermite computes the expectation inside the residual, and wrong under per-shock averaging.
 
-3. **RHS-normalized dimensionless (Simon's form)**: `resid = 1 − u'(c) / (β E[u'(c') (1 + r' − δ)])`.
-   Clean at equilibrium. **Not MC-compatible**: the per-shock form `1 − u'(c) / (β u'(c'_ω)(1 + r'_ω − δ))` requires `E[1/X] = 1/E[X]`, which is Jensen-false for non-degenerate shocks. Safe when the expectation is computed *inside* the residual by Gauss-Hermite; broken under our per-shock averaging.
+Use form (1) by default. Report accuracy after training in form (2) with `evaluate.print_euler_errors` and a dimensionless table (`examples/brock_mirman.ipynb` section 8 shows the pattern). Form (3) assumes the expectation is taken by quadrature inside the residual. If you need it, either switch to quadrature (`quad_nodes`/`quad_weights` in `compute_loss`) or go back to form (1).
 
-**Default to form (1).** Report accuracy post-training in form (2) via `evaluate.print_euler_errors` plus a dimensionless table (see `examples/brock_mirman.ipynb` section 8 for the pattern). If you find yourself reaching for form (3), you are building against an MC framework with a GH-framework mental model — either switch to quadrature (`quad_nodes`/`quad_weights` in `compute_loss`) or switch back to form (1).
-
-The `brock_mirman` subpackage docstring in `equations.py` documents this trap inline; keep a similar note in any new model that has an Euler-like FOC.
+The docstring of `brock_mirman/equations.py` records this; keep a similar note in any model with an Euler-like FOC.
 
 ---
 
-## 3. `dynamics.py` — the state transition
+## 3. `dynamics.py`: the state transition
 
 ```python
 def step(state, policy, shock, constants):
@@ -199,20 +197,20 @@ Signature: `step(state, policy, shock, constants) -> next_state`. Shapes:
 
 - `state`: `[batch, n_states]`
 - `policy`: `[batch, n_policies]`
-- `shock`: `[batch, n_shocks]` (scalar batch dim is allowed — the framework's shock sampler always produces 2-D arrays, but traces that pass `shock` through a single-sample path may produce 1-D).
-- Return: `[batch, n_states]`, column order matching `SPEC.state_names`.
+- `shock`: `[batch, n_shocks]`. A 1-D shock is also possible: the framework's shock sampler always produces 2-D arrays, but code paths that pass a single sample may produce 1-D.
+- Return: `[batch, n_states]`, columns in the order of `SPEC.state_names`.
 
-**Handle both 1-D and 2-D shock.** The idiom above (`shock[:, 0] if shock.ndim > 1 else shock`) is standard across models. Do not assume batched shape.
+Handle both 1-D and 2-D shocks with the idiom above (`shock[:, 0] if shock.ndim > 1 else shock`), as the other models do.
 
-**Deterministic models.** For `N_SHOCKS = 0`, `shock` is `[batch, 0]`; your `step()` should simply ignore it. No branching needed; the zero-width shock array never broadcasts into the state update.
+With `N_SHOCKS = 0`, `shock` is `[batch, 0]` and `step()` ignores it; no branching is needed.
 
-**Do not clip states inside `step`.** `step` is called every cycle during training and must be smooth. Clipping belongs in `clip_state_fn` (optional; used only by evaluation/IRF paths).
+Do not clip states inside `step`: it runs every training cycle and must be smooth. Clipping belongs in the optional `clip_state_fn`, used only by evaluation and IRFs.
 
 ---
 
-## 4. `steady_state.py` — the starting point and the sampler
+## 4. `steady_state.py`: the starting point and the sampler
 
-Two responsibilities: (a) compute a steady state (for warm-start and IRF), (b) sample initial training states.
+This file computes a steady state (for warm start and IRFs) and samples initial training states.
 
 ### Steady state
 
@@ -228,13 +226,13 @@ def steady_state(constants):
     return jnp.array([k_ss, z_ss]), jnp.array([sav_rate_ss])
 ```
 
-Signature: `steady_state(constants) -> (ss_state, ss_policy)` where both are 1-D arrays of length `n_states` / `n_policies`.
+Signature: `steady_state(constants) -> (ss_state, ss_policy)`, both 1-D arrays of length `n_states` / `n_policies`.
 
-If your model has no closed-form steady state, solve numerically using `deqn_jax.training.steady_state.solve_steady_state` (which is a thin wrapper over `optax.lbfgs`). See `src/deqn_jax/models/disaster/steady_state.py` for an example.
+Without a closed form, solve numerically, for example with `deqn_jax.training.steady_state.solve_steady_state`, a thin wrapper over `optax.lbfgs`. `src/deqn_jax/models/disaster/steady_state.py` is a numerical example; it uses `scipy.optimize.root` (`method="hybr"`).
 
 ### Initial state sampler
 
-Use `make_init_state_fn` to build the sampler declaratively:
+Build the sampler declaratively with `make_init_state_fn`:
 
 ```python
 from deqn_jax.models.variable_spec import make_init_state_fn
@@ -247,23 +245,23 @@ INIT_SPECS = {
 init_state = make_init_state_fn(SPEC.state_names, INIT_SPECS)
 ```
 
-Supported distributions: `uniform`, `normal`, `lognormal`, `truncated_normal`, `constant`. States without an entry default to zero. Unknown distributions raise `ValueError` at build time — typos fail fast, before training starts.
+Supported distributions: `uniform`, `normal`, `lognormal`, `truncated_normal`, `constant`. States without an entry default to zero. An unknown distribution raises `ValueError` when the sampler is built, so typos fail before training starts.
 
-Hand-written samplers are still supported for cases where per-variable specs aren't expressive enough (correlated draws, conditional sampling). Just define `def init_state(key, batch_size, constants) -> [batch, n_states]` directly.
+For what per-variable specs cannot express (correlated draws, conditional sampling), write `def init_state(key, batch_size, constants) -> [batch, n_states]` by hand.
 
-### Rect bounds: where do they come from?
+### Where the rectangle bounds come from
 
-The rect you sample from is a **training-time decision**, not an economic one. Choices:
+The sampling rectangle is a training choice. Options:
 
-- **Wide rect around the ergodic support** (default): sample uniformly on a rectangle that covers roughly ±3σ of each state's unconditional distribution. Works for most models.
-- **Rect matching the reference implementation** for direct comparison against a published solution.
-- **Rollout-based** (no rect): set `initialize_each_episode=False` in the config and let trajectories drift into the ergodic set. Riskier — the training distribution concentrates, and the network can overfit to the attractor.
+- A wide rectangle around the ergodic support (the default), covering roughly ±3σ of each state's unconditional distribution. This works for most models.
+- The reference implementation's rectangle, for direct comparison with a published solution.
+- Rollouts with no rectangle: set `initialize_each_episode=False` and let trajectories drift into the ergodic set. This is riskier, since the training distribution concentrates and the network can overfit to the attractor.
 
-Brock-Mirman uses the reference's exact rect because the whole point of the notebook is side-by-side comparability.
+Brock-Mirman uses the reference's exact rectangle because its notebook is a side-by-side comparison.
 
 ---
 
-## 5. `__init__.py` — assembly
+## 5. `__init__.py`: assembly
 
 ```python
 from deqn_jax.types import ModelSpec
@@ -294,27 +292,27 @@ MODEL = ModelSpec(
 )
 ```
 
-Required fields: `name`, `n_states`, `n_policies`, `n_shocks`, `constants`, `equations_fn`, `step_fn`. Everything else is optional but almost always useful; see `src/deqn_jax/types.py` for the complete list with docstrings.
+Required fields: `name`, `n_states`, `n_policies`, `n_shocks`, `constants`, `equations_fn`, `step_fn`. `src/deqn_jax/types.py` documents the optional ones.
 
-Always supply `state_names`, `policy_names`, `equation_names`, `shock_names`. Without them, diagnostic output uses index labels (`state_0`, `policy_0`) and the IRF path `run_irf(shock_name="...")` has no way to address a specific shock by name.
+Always supply `state_names`, `policy_names`, `equation_names` and `shock_names`. Without them diagnostics use index labels (`state_0`, `policy_0`) and `run_irf(shock_name="...")` cannot select a shock by name.
 
-### Optional `ModelSpec` fields worth knowing
+### Optional `ModelSpec` fields
 
-- **`shock_names: tuple[str, ...]`** — labels for shocks. Used by `irf.run_irf(shock_name=...)` to select which shock to hit. Do not omit for stochastic models.
-- **`cycle_hook: Callable[[TrainState, ModelSpec, int], None]`** — called every `log_every` episodes. Side-effect only (saves convergence snapshots to disk, logs to TB, etc.). See `models/bm_deterministic/hooks.py` for the convention.
-- **`state_bounds`, `definition_bounds: dict[str, dict[str, float]]`** — soft penalties added to the training loss. Format:
+- `shock_names: tuple[str, ...]`: shock labels, used by `irf.run_irf(shock_name=...)`. Do not omit them for stochastic models.
+- `cycle_hook: Callable[[TrainState, ModelSpec, int], None]`: called every `log_every` episodes, for side effects only (saving convergence snapshots, logging to TensorBoard). `models/bm_deterministic/hooks.py` shows the convention.
+- `state_bounds`, `definition_bounds: dict[str, dict[str, float]]`: soft penalties added to the training loss. Format:
   ```python
   {"c": {"lower": 0.0, "penalty_lower": 1.0}}
   ```
-  Penalty is `coef * mean(max(0, lower − value)^2)` for the lower side; analogous for upper. Missing penalty coefficients default to `1/bound^2`. Use `state_bounds` for raw state variables and `definition_bounds` for anything from the `definitions()` dict. Hard constraints on policies use `policy_lower`/`policy_upper`; these are the soft complement for derived quantities.
-- **`clip_state_fn: Callable[[state], state]`** — simulation-safety clip used by `evaluate` and `irf` paths only. **Never applied during training** — that would break differentiability of `step`.
-- **`state_barrier_fn: Callable[[state], [batch]]`** — legacy soft barrier; prefer `state_bounds` for new models.
+  The lower-side penalty is `coef * mean(max(0, lower − value)^2)`; the upper side is analogous. Missing penalty coefficients default to `1/bound^2`. Use `state_bounds` for raw states and `definition_bounds` for entries of the `definitions()` dict. Hard constraints on policies go through `policy_lower`/`policy_upper`; these fields are the soft counterpart for derived quantities.
+- `clip_state_fn: Callable[[state], state]`: a safety clip used only by `evaluate` and `irf`. Never applied in training, where it would break the differentiability of `step`.
+- `state_barrier_fn: Callable[[state], [batch]]`: a legacy soft barrier. Use `state_bounds` in new models.
 
 ---
 
 ## 6. Register the model
 
-Add one line in `src/deqn_jax/models/__init__.py`:
+Add one entry in `src/deqn_jax/models/__init__.py`:
 
 ```python
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
@@ -325,10 +323,10 @@ _MODELS = {
 }
 ```
 
-`_MODELS` is the only dict to edit. The one-line blurb `deqn-jax list`
-prints is read from your package's `variables.py::DESCRIPTION` — there is
-no second copy in `models/__init__.py` to keep in sync, and a package
-without a `DESCRIPTION` fails at import.
+`_MODELS` is the only dict to edit. The one-line description `deqn-jax list`
+prints comes from your package's `variables.py::DESCRIPTION`; there is no
+second copy in `models/__init__.py`, and a package without a `DESCRIPTION`
+fails at import.
 
 After this, `load_model("brock_mirman")` and `deqn-jax train brock_mirman ...` both work.
 
@@ -336,7 +334,7 @@ After this, `load_model("brock_mirman")` and `deqn-jax train brock_mirman ...` b
 
 ## 7. Write a YAML config
 
-`configs/<name>.yaml` pins a training recipe for your model. The minimum you need:
+`configs/<name>.yaml` fixes a training recipe. The minimum:
 
 ```yaml
 model: brock_mirman
@@ -365,21 +363,22 @@ warm_start: false
 log_every: 1000
 ```
 
-Key decisions:
+The main choices:
 
-- **`episode_length: 1` + `initialize_each_episode: true`** gives exogenous-rect sampling (Simon's phase-1 recipe). `episode_length: N` + `initialize_each_episode: false` gives rollout sampling (ergodic / phase-2).
-- **`mc_samples`**: number of shock draws for the expectation. 5 is a reasonable starting point; more gives lower-variance loss at linear cost. For deterministic models, set to 1.
-- **`warm_start: true`** runs an L-BFGS pre-fit of the network to the steady-state policy before gradient-based training. Speeds up early convergence but can mask bugs in the Euler equation (the network starts near a good answer regardless of whether the loss is correct).
+- `episode_length: 1` with `initialize_each_episode: true` samples from the exogenous rectangle (Scheidegger's phase-1 recipe). `episode_length: N` with `initialize_each_episode: false` samples from rollouts (ergodic, phase 2).
+- `mc_samples` is the number of shock draws per expectation. 5 is a reasonable start; more draws lower the loss variance at linear cost. For deterministic models set it to 1.
+- `warm_start: true` pre-fits the network to the steady-state policy with L-BFGS before gradient training. This speeds up early convergence but can hide Euler-equation bugs, because the network starts near a good answer even if the loss is wrong.
 
-See [Running experiments](../running_experiments.md) for the full CLI/config/checkpoint/logging reference.
+[Running experiments](../running_experiments.md) covers the CLI, config, checkpoints and logging in full.
 
 ---
 
 ## 8. Validate
 
-The framework won't tell you if your equations are subtly wrong. Validate in layers:
+The framework cannot detect subtly wrong equations. Validate in layers.
 
-**1. Unit test the equations at steady state.**
+### Unit-test the equations at the steady state
+
 ```python
 def test_euler_zero_at_ss():
     ss_state, ss_policy = steady_state(CONSTANTS)
@@ -392,41 +391,45 @@ def test_euler_zero_at_ss():
     assert jnp.abs(resid["euler"]).max() < 1e-6
 ```
 
-If this test fails, your equations are algebraically inconsistent with your steady state. Fix before anything else.
+If this fails, the equations and the steady state disagree. Fix that first.
 
-**2. Smoke train for a handful of episodes.**
+### Smoke-train for a few hundred episodes
+
 ```bash
 uv run deqn-jax train brock_mirman --config configs/brock_mirman.yaml -n 500
 ```
 
-Loss should decrease roughly monotonically (with noise). If it diverges or plateaus at the initial value, you almost certainly have the residual-form trap — check against the raw form in `equations.py`.
+The loss should fall roughly monotonically, with noise. If it diverges or stays flat, suspect the residual form and compare with the raw form in `equations.py`.
 
-**3. Check the trained policy against a known solution if you have one.**
-For Brock-Mirman under log utility / δ=1 the closed form is `s* = αβ` — trivial. For your model, compute an analytic steady-state policy, a linearized impulse response, or a dynare solve, and diff against the trained output on a grid.
+### Compare with a known solution
 
-**4. Run the ergodic diagnostic.**
+For Brock-Mirman with log utility and δ=1 the closed form is `s* = αβ`. For your model, compute an analytic steady-state policy, a linearized impulse response or a Dynare solution, and compare it with the trained output on a grid.
+
+### Run the ergodic diagnostic
+
 ```python
 from deqn_jax.evaluate import euler_equation_errors, print_euler_errors
 result = euler_equation_errors(policy_net, MODEL, n_periods=10_000)
 print_euler_errors(result, label="ergodic path")
 ```
 
-Target: mean log₁₀|resid/u'(c)| below −3 on a well-converged model. Above −2 means either undertrained or a real problem with the equations.
+Target: mean log₁₀|resid/u'(c)| below −3 for a well-converged model. Above −2 means the model is undertrained or the equations are wrong.
 
-**5. Ergodic moments sanity.**
-For the linearized AR(1)-driven-exogenous states, the unconditional mean should match the deterministic steady state and the unconditional std should match `σ/√(1 − ρ²)`. Large mismatches usually indicate the policy is extrapolating outside the training rect (ergodic distribution has concentrated somewhere the network never saw).
+### Check the ergodic moments
+
+For exogenous AR(1) states, the unconditional mean should match the deterministic steady state and the standard deviation should match `σ/√(1 − ρ²)`. Large mismatches usually mean the ergodic distribution sits where the network was never trained, so the policy is extrapolating outside the training rectangle.
 
 ---
 
 ## Common pitfalls
 
-- **Wrong residual form** — see section 2. Default to the raw form under MC; reach for dimensionless only in post-training diagnostics.
-- **State column order mismatch** — `SPEC.state_names = ("k", "z")` but `step()` returns `stack([z_next, k_next])`. Use `SPEC.unpack_state` / named access to avoid this class of bug entirely.
-- **Hardcoded constants** inside `equations` or `dynamics`. Always read from `constants`; calibration sweeps will fail silently otherwise.
-- **Clipping state inside `step`** — breaks differentiability. Put any clipping in `clip_state_fn` instead.
-- **Missing `shock_names`** — `irf.run_irf(shock_name="eps_z")` will raise with an unhelpful index error. Always supply `shock_names` for stochastic models.
-- **Ignoring `gamma = 1`** — `jnp.power(c, -1.0)` is slower than `1.0 / c` but the framework does not special-case. Small cost; not a bug.
-- **Training on an attractor-concentrated distribution** — `initialize_each_episode=false` with a strongly attracting system will starve the network of samples outside the attractor, and extrapolation breaks at IRF time. Use the rect sampler unless you have a reason not to.
+- Wrong residual form: see section 2. Use the raw form under MC; use dimensionless forms only in post-training diagnostics.
+- State column order mismatch: `SPEC.state_names = ("k", "z")` but `step()` returns `stack([z_next, k_next])`. Named access through `SPEC.unpack_state` avoids this.
+- Constants hardcoded inside `equations` or `dynamics`. Always read them from `constants`; otherwise calibration sweeps fail silently.
+- Clipping the state inside `step`, which breaks differentiability. Put clipping in `clip_state_fn`.
+- Missing `shock_names`: `irf.run_irf(shock_name="eps_z")` then raises an unhelpful index error. Always supply `shock_names` for stochastic models.
+- `gamma = 1`: `jnp.power(c, -1.0)` is slower than `1.0 / c` and the framework does not special-case it. A small cost, not a bug.
+- Training only near the attractor: `initialize_each_episode=false` with a strongly attracting system leaves no samples away from it, and extrapolation fails in IRFs. Use the rectangle sampler unless you have a reason not to.
 
 ---
 
@@ -435,12 +438,12 @@ For the linearized AR(1)-driven-exogenous states, the unconditional mean should 
 Before the first real training run:
 
 - [ ] `variables.py`: `SPEC`, `CONSTANTS`, `POLICY_LOWER/UPPER`, `N_SHOCKS`, `DESCRIPTION`
-- [ ] `equations.py`: `definitions()`, `equations()`, `EQUATION_NAMES`. Residual form deliberately chosen.
+- [ ] `equations.py`: `definitions()`, `equations()`, `EQUATION_NAMES`. Residual form chosen on purpose.
 - [ ] `dynamics.py`: `step()` handles 1-D and 2-D `shock`.
 - [ ] `steady_state.py`: `steady_state()` and `init_state` (declarative or hand-written).
 - [ ] `__init__.py`: `MODEL: ModelSpec` with `state_names`, `policy_names`, `equation_names`, `shock_names` all set.
-- [ ] `models/__init__.py`: new model registered in `_MODELS` and `_DESCRIPTIONS`.
-- [ ] `configs/<name>.yaml`: training recipe pinned.
+- [ ] `models/__init__.py`: new model registered in `_MODELS`.
+- [ ] `configs/<name>.yaml`: training recipe fixed.
 - [ ] Test: Euler residual = 0 at steady state.
 - [ ] Smoke train: 500 episodes, loss decreasing.
 - [ ] Ergodic diagnostic: log₁₀|resid/u'(c)| below −2 on a serious run.

@@ -1,7 +1,7 @@
 # Disaster (NK-DSGE with financial frictions)
 
-Christiano-Motto-Rostagno (CMR)-style New Keynesian DSGE with banking
-sector and an optional disaster block.
+A New Keynesian DSGE in the style of Christiano-Motto-Rostagno (CMR), with a
+banking sector and an optional disaster block.
 
 | Quantity        | Count |
 |-----------------|------:|
@@ -12,46 +12,44 @@ sector and an optional disaster block.
 | Steady state    | numerical |
 
 !!! note "Experimental research example"
-    The disaster model is included as an **experimental research target** for
-    reproduction and method development — not a validated or turnkey result.
-    Treat its outputs accordingly.
+    The disaster model is a research target for reproduction and method
+    development. It is not a validated result; treat its outputs accordingly.
 
 ## Calibrations
 
 ### Baseline (`p_disaster = 0`)
 
-Plain CMR — no disaster code path activates. Configured in
+Plain CMR; no disaster code path runs. Configured in
 [`configs/disaster.yaml`](https://github.com/deqn-jax/deqn-jax/blob/master/configs/disaster.yaml).
 
 ### Disaster risk (`p_disaster > 0`)
 
-Discrete mixture over disaster realisations:
+A discrete mixture over disaster realisations:
 
 $$
 \mathbb{E}_t[x'] = (1 - p)\,\mathbb{E}_t[x'\mid \text{no disaster}]
                  + p\,\mathbb{E}_t[x'\mid \text{disaster}]
 $$
 
-In disaster, capital is destroyed by factor $\exp(-\theta_{\text{disaster}})$.
+In a disaster, capital is destroyed by the factor $\exp(-\theta_{\text{disaster}})$.
 
-When `p_disaster > 0`, the trainer automatically swaps to the
-**risky steady state** (`risky_steady_state`) for composite-loss anchor
-and Blanchard-Kahn linearization. This uses a Gourio-style
-locally-flat policy approximation.
+When `p_disaster > 0`, the trainer switches to the risky steady state
+(`risky_steady_state`) for the composite-loss anchor and the Blanchard-Kahn
+linearization. The risky steady state uses a Gourio-style locally flat policy
+approximation.
 
 Example config: [`configs/disaster_pdis.yaml`](https://github.com/deqn-jax/deqn-jax/blob/master/configs/disaster_pdis.yaml).
 
 ## Training configuration
 
-The disaster model is sensitive to the network and loss choice. The
-configuration used here is:
+The model is sensitive to the network and loss. `configs/disaster.yaml` uses:
 
-- Network: `LinearPlusMLP` (residual over Blanchard-Kahn linearization)
+- Network: `disaster_policy_net`, the model's `LinearPlusMLP` variant (a residual over the Blanchard-Kahn linearization)
 - Loss: `composite` (anchor + Jacobian + barrier + Newton)
 - Expectations: Gauss-Hermite quadrature, 3 points per shock
-- Optimizer: Adam with cosine LR schedule
+- Optimizer: Adam with a cosine LR schedule
 
-See [Composite loss](../training/composite_loss.md) for why this matters.
+[Composite loss](../training/composite_loss.md) explains why these choices matter.
 
 ## Calvo validity edge
 
@@ -62,42 +60,40 @@ K_p^{inner} = \frac{1 - \xi_p (\pi_{\text{tilda}}/\pi)^{-5}}{1 - \xi_p}
 $$
 
 requires $\pi < \sim 1.1\,\pi_{\text{tilda}}$ for $K_p^{inner} > 0$.
-With `xi_p = 0.6` and `lambda_f = 1.2`, the policy `pi` upper bound
-is **pinned** at the Calvo validity edge — widening it triggers
-gradient explosions through the soft floor at 0.01.
+With `xi_p = 0.6` and `lambda_f = 1.2`, the upper bound on the policy `pi` is
+pinned at this Calvo validity edge. Widening it causes gradient explosions
+through the soft floor at 0.01.
 
-See `models/disaster/variables.py` for the bound spec and rationale.
+The bound and its rationale are in `models/disaster/variables.py`.
 
 ## Calibration coupling
 
-`xi_p = 0.6` is the price-stickiness value used here. Lowering it requires
-recalibrating the rest of the Phillips block at the same time, and the `pi`
-upper bound (above) is derived against this value — so any change to `xi_p`
-must re-derive the bound.
+The price-stickiness value is `xi_p = 0.6`. Lowering it requires recalibrating
+the rest of the Phillips block at the same time. The `pi` upper bound above is
+derived for this value, so any change to `xi_p` means deriving the bound again.
 
 ## Aggregator residuals: ratio form, not log form
 
-Residuals on the Calvo aggregator equations (`eq2b` and friends in
-`models/disaster/equations.py`) are written in **ratio** form:
+Residuals on the Calvo aggregator equations (`eq2b` and the related equations
+in `models/disaster/equations.py`) are written in ratio form:
 
 ```python
 residuals["eq2b"] = eq2_rhs / (p.K_p + eps) - 1.0
 ```
 
-…rather than the log form:
+and not in log form:
 
 ```python
 # DON'T DO THIS on aggregator equations
 residuals["eq2b"] = log(eq2_rhs) - log(p.K_p)
 ```
 
-Under stochastic averaging, the log form enforces the **geometric**
-mean of the aggregator (Jensen's inequality), not the arithmetic mean
-the equations actually call for. For small Gaussian shocks, the bias is
-tiny and you'd never notice. For disaster jumps it's huge and silently
-biases the solution.
+Under stochastic averaging, the log form enforces the geometric mean of the
+aggregator (Jensen's inequality) instead of the arithmetic mean the equations
+require. For small Gaussian shocks the bias is negligible. For disaster jumps
+it is large and biases the solution without any visible error.
 
-**Don't switch back to log-form residuals on aggregator equations
-without thinking through the Jensen implications.** The general principle
-of "ratio residuals on aggregators under non-Gaussian shocks" applies to
-any future model that mixes large jumps with multiplicative aggregation.
+Do not switch aggregator equations back to log-form residuals without working
+through the Jensen implications. The same rule (ratio residuals on aggregators
+under non-Gaussian shocks) applies to any future model that combines large
+jumps with multiplicative aggregation.

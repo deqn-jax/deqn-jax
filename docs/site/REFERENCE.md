@@ -1,18 +1,14 @@
 # DEQN-JAX Reference
 
-> The complete contract for building on top of DEQN-JAX, intended for
-> agentic workflows and external tooling. Type-signature-first; every
-> public entry point is documented in one place.
+Every public entry point of DEQN-JAX by type signature, for tools and agents
+built on the library; the counterpart of `docs/REFERENCE.md` in
+[BIS-DEQN-LAB](https://github.com/BIS-DEQN-LAB). To write a model by hand,
+read [Implementing a model](models/implementing.md). This page is for agent
+stacks that generate models from LaTeX, drive training, verify and report.
 
-This document is the deqn-jax-side equivalent of `docs/REFERENCE.md` in
-[BIS-DEQN-LAB](https://github.com/BIS-DEQN-LAB). If you're hand-writing a
-model, prefer the prose-first walkthrough in [Implementing a model](models/implementing.md).
-If you're building an agent stack on top of deqn-jax (codegen models from
-LaTeX, drive training, verify, report), this doc is the contract.
-
-**Stability:** everything in `deqn_jax.api` is the stable surface. Symbols
-imported from anywhere else (`deqn_jax.training.trainer`, `deqn_jax.networks.mlp`, etc.)
-are *internal* and may be refactored without notice. Use `deqn_jax.api`.
+Stability: `deqn_jax.api` is the stable surface. Symbols imported from
+anywhere else (`deqn_jax.training.trainer`, `deqn_jax.networks.mlp`, etc.)
+are internal and may be refactored without notice.
 
 ---
 
@@ -29,9 +25,9 @@ are *internal* and may be refactored without notice. Use `deqn_jax.api`.
 - [Optimizers](#optimizers)
 - [Loss](#loss)
 - [Shock expectations](#shock-expectations)
-- [Evaluation & verification gates](#evaluation--verification-gates)
-- [Impulse responses (IRF / GIRF)](#impulse-responses-irf--girf)
-- [Checkpointing & resume](#checkpointing--resume)
+- [Evaluation & verification gates](#evaluation-verification-gates)
+- [Impulse responses (IRF / GIRF)](#impulse-responses-irf-girf)
+- [Checkpointing & resume](#checkpointing-resume)
 - [CLI reference](#cli-reference)
 - [Discovery helpers](#discovery-helpers)
 - [Repository layout](#repository-layout)
@@ -83,7 +79,7 @@ uv run deqn-jax irf runs/disaster/checkpoint_best.eqx --shock eps_z --horizon 40
 
 ## The public API surface (`deqn_jax.api`)
 
-Everything below is re-exported from `deqn_jax.api`. Import from there.
+All of these are re-exported from `deqn_jax.api`; import them from there.
 
 | Group | Symbols |
 | --- | --- |
@@ -97,17 +93,17 @@ Everything below is re-exported from `deqn_jax.api`. Import from there.
 | **Steady state** | `solve_steady_state`, `verify_steady_state`, `euler_from_period_return` |
 | **Networks (advanced)** | `MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`, `create_mlp`, `create_lstm`, `create_transformer`, `create_linear_plus_mlp` |
 
-If you find yourself importing from `deqn_jax.training.*` or `deqn_jax.optimizers.*`
-directly, you've stepped past the stable surface. File an issue requesting that
-the symbol be re-exported, or accept that future refactors may move it.
+Imports from `deqn_jax.training.*` or `deqn_jax.optimizers.*` are outside the
+stable surface: ask for a re-export in an issue, or expect refactors to move
+them.
 
 ---
 
 ## The user contract: `ModelSpec`
 
 A `ModelSpec` (in `deqn_jax.types`, re-exported from `deqn_jax.api`) is a
-`NamedTuple` carrying everything the framework needs to train a model. It is
-the *only* contract between a model and the framework.
+`NamedTuple` holding everything the framework needs to train a model. It is
+the only interface between a model and the framework.
 
 ```python
 ModelSpec(
@@ -159,13 +155,13 @@ across batch and equations.
 - `next_policy`: `[batch, n_policies]`
 - `constants`: `dict[str, float]` (the same dict you put in `ModelSpec.constants`)
 
-**MC-safe residual form** is the agent's responsibility. Default to raw form
-`r = u'(c) − β u'(c')(1+r'−δ)` rather than dimensionless ratios; see the
-trap discussion in [implementing.md](models/implementing.md) §2.
+The model author must pick a residual form that is safe under Monte Carlo:
+use the raw form `r = u'(c) − β u'(c')(1+r'−δ)`, not a dimensionless ratio
+(see [implementing.md](models/implementing.md) §2).
 
 #### `step_fn(state, policy, shock, constants) -> next_state`
 
-State transition. Must be smooth (used inside the residual + JIT).
+State transition. Must be smooth (it runs inside the residual, under JIT).
 
 - `state`: `[batch, n_states]`
 - `policy`: `[batch, n_policies]`
@@ -173,13 +169,13 @@ State transition. Must be smooth (used inside the residual + JIT).
   `shock.ndim` defensively (`shock[:, 0] if shock.ndim > 1 else shock`).
 - Return: `[batch, n_states]`. Column order must match `state_names`.
 
-**Do not clip states inside `step_fn`** — that breaks differentiability. Clip
-in `clip_state_fn` (used only by `evaluate` / `irf`).
+Do not clip states inside `step_fn`; clipping breaks differentiability. Clip
+in `clip_state_fn`, which only `evaluate` and `irf` use.
 
 #### `definitions_fn(state, policy, constants) -> dict[str, Array]`
 
 Optional. Returns derived quantities (consumption, output, MPK, …). Each value
-must be **scalar** or **`[batch]`-shaped** — never `[batch, 1]`. Available to:
+must be a scalar or have shape `[batch]`, never `[batch, 1]`. It is used by:
 
 - `equations_fn` (share computation with `t+1`),
 - the trainer (histogram logging at every `log_every`),
@@ -188,9 +184,8 @@ must be **scalar** or **`[batch]`-shaped** — never `[batch, 1]`. Available to:
 
 #### `steady_state_fn(constants) -> (ss_state, ss_policy)`
 
-Optional. Returns 1-D arrays of length `n_states` and `n_policies` respectively.
-If you don't have a closed form, use the framework's numerical fallback
-`solve_steady_state` (described next).
+Optional. Returns 1-D arrays of length `n_states` and `n_policies`. Without a
+closed form, use the numerical fallback `solve_steady_state` described next.
 
 Used by:
 
@@ -201,10 +196,9 @@ Used by:
 
 #### `solve_steady_state(model, ...) -> (ss_state, ss_policy)`  *(numerical fallback)*
 
-When no analytical SS is available, build the rest of the model first
-(`equations_fn`, `step_fn`, etc.), then close the loop with this
-framework helper. It runs L-BFGS on the deterministic-residuals norm
-`Σ_eq r(s, π, s, π, c)²` at zero shock and returns the solution.
+Without an analytical SS, build the rest of the model (`equations_fn`,
+`step_fn`, etc.) and call this helper. It runs L-BFGS on the deterministic
+residual norm `Σ_eq r(s, π, s, π, c)²` at zero shock.
 
 ```python
 from deqn_jax.api import solve_steady_state, verify_steady_state, ModelSpec
@@ -230,72 +224,69 @@ solve_steady_state(
 ) -> Tuple[Array, Array]
 ```
 
-Behavior notes for codegen:
+Behavior notes for code generators:
 
-- If `model.steady_state_fn` is set and `force_numerical=False`, this
-  short-circuits to the analytical path. Codegen typically passes
-  `force_numerical=False` and lets the helper pick.
-- Solving is sensitive to the initial guess. For models far from the
-  unit-vector default, supply `init_state` / `init_policy` from a
-  back-of-envelope linearization or a hand-tuned guess.
-- Convergence isn't guaranteed; gate on `verify_steady_state` afterward
-  to refuse a model whose SS residuals exceed `tol`.
+- With `model.steady_state_fn` set and `force_numerical=False`, the helper
+  returns the analytical solution. Generators usually pass
+  `force_numerical=False` and let it choose.
+- The solve depends on the initial guess. For models far from the
+  unit-vector default, pass `init_state` / `init_policy` from a rough
+  linearization or a hand-tuned guess.
+- Convergence is not guaranteed: check with `verify_steady_state` and reject
+  a model whose SS residuals exceed `tol`.
 
 #### `verify_steady_state(model, ss_state, ss_policy, tol=1e-6) -> dict[str, float]`
 
-Returns the per-equation residual at a candidate steady state. Use this
-as the verification gate after either analytical or numerical SS
-solution — Path-A codegen should refuse to publish a model whose
+Returns the per-equation residual at a candidate steady state, analytical or
+numerical. Path-A code generation should reject a model whose
 `max(|residuals.values()|) > tol`.
 
 ### Optional `ModelSpec` hooks (full signatures)
 
-The eight `ModelSpec` fields below are listed in the field block above
-without signatures. Each is `None` by default; set them only when you need
-the behavior. All are called outside JIT *unless explicitly noted*.
+Signatures of the eight optional fields listed above. Each defaults to
+`None`. All are called outside JIT unless noted.
 
 #### `init_state_fn(key, batch_size, constants) -> Array`
 
-Initial-state sampler used at the start of each rollout (or every cycle
+Initial-state sampler, called at the start of each rollout (or every cycle
 if `initialize_each_episode=True`). Returns `[batch_size, n_states]`.
 Default: ergodic-like sampling around the steady state.
 
 #### `clip_state_fn(state) -> state`
 
-Used by `evaluate` and `irf` only — *never* in training (would break
-differentiability). Use it to keep simulation-time states in physically
-valid regions (e.g. capital ≥ ε). Same shape in/out.
+Used by `evaluate` and `irf` only; in training it would break
+differentiability. Keeps simulated states in valid regions (e.g. capital ≥ ε).
+Shape is preserved.
 
 #### `state_barrier_fn(state) -> Array`
 
-Legacy soft barrier. Returns `[batch]` per-element penalty, added to the
-loss multiplied by `TrainConfig.barrier_weight`. Prefer the declarative
+Legacy soft barrier. Returns a `[batch]` penalty, multiplied by
+`TrainConfig.barrier_weight` and added to the loss. Prefer the declarative
 `state_bounds` mechanism below.
 
 #### `cycle_hook(state, model, episode) -> None`
 
-Called every `log_every` episodes after scalar/histogram logging. Pure
-side effect (write plots, push to TB, etc.). Close over your output
-directory and logger at construction time. `state` is the current
-`TrainState`; `model` is the post-`setup_fn` `ModelSpec`.
+Called every `log_every` episodes after scalar and histogram logging, for
+side effects only (plots, TensorBoard, etc.). Close over the output directory
+and logger when building it. `state` is the current `TrainState`; `model` is
+the `ModelSpec` after `setup_fn`.
 
 #### `setup_fn(model, config) -> ModelSpec`
 
-Called once before training starts. Lets the model rewrite itself based
-on the resolved `TrainConfig` — e.g. `disaster` swaps `steady_state_fn`
-to its risky-SS variant when `constants["p_disaster"] > 0` and
-`config.use_risky_steady_state` allows it. Plain Python branching is
-fine. Return the (possibly modified) `ModelSpec` the trainer should use.
+Called once before training; returns the `ModelSpec` the trainer should
+use, rewritten from the resolved `TrainConfig` if needed (plain Python
+branching works). `disaster` uses it to switch `steady_state_fn` to its
+risky-SS variant when `constants["p_disaster"] > 0` and
+`config.use_risky_steady_state` allows it.
 
 #### `scalar_diagnostics_fn(model, policy_fn, states, policy_out, defs) -> dict[str, float]`
 
-Called every `log_every` cycles, returns scalar diagnostics that the
-trainer prepends to TB / W&B with the model's namespace prefix. Lets a
-model expose per-equation decompositions, ratio diagnostics, soft-floor
-saturation fractions, etc., without the framework knowing model
-internals. Failures are tolerated (warning + continue).
+Called every `log_every` cycles. The returned scalars are logged to
+TensorBoard / W&B under the model's namespace prefix: per-equation
+decompositions, ratio diagnostics, soft-floor saturation fractions and the
+like. If the hook raises, the trainer warns and continues.
 
-- `model`: the post-`setup_fn` `ModelSpec`
+- `model`: the `ModelSpec` after `setup_fn`
 - `policy_fn`: the trained Equinox module (or sequence-net wrapper)
 - `states`: `[batch, n_states]` from the current training minibatch
 - `policy_out`: `[batch, n_policies]` policy at `states`
@@ -303,12 +294,11 @@ internals. Failures are tolerated (warning + continue).
 
 #### `composite_aux_fn(model, defs, data, weights) -> (dict[str, Array], Array)`
 
-Active only when `loss_type="composite"`. Lets a model contribute extra
-`aux_*`-keyed losses without the framework knowing about model-specific
-definitions or solver internals. Called inside `make_composite_loss`'s
-closure after barrier losses.
+Active only when `loss_type="composite"`. Lets a model add model-specific
+losses keyed `aux_*`. Called inside the `make_composite_loss` closure, after
+the barrier losses.
 
-- `model`: the post-`setup_fn` `ModelSpec`
+- `model`: the `ModelSpec` after `setup_fn`
 - `defs`: batch-level `definitions_fn` output
 - `data`: `CompositeData` (linearization + steady state precomputed at
   setup time; see [training/composite_loss.md](training/composite_loss.md))
@@ -317,11 +307,11 @@ closure after barrier losses.
 
 Returns `(aux_entries, total_contribution)`:
 
-- `aux_entries`: merged into `eq_losses` so adaptive reweighting / logging
-  see the individual *unweighted* scalars under their `aux_*` keys.
-- `total_contribution`: scalar added directly to the running loss total
-  (the hook applies its own weighting). Used by `disaster` for
-  `aux_newton_cond`, `aux_newton_resid`.
+- `aux_entries`: merged into `eq_losses`, so reweighting and logging see
+  each unweighted scalar under its `aux_*` key.
+- `total_contribution`: scalar added directly to the loss total; the hook
+  applies its own weighting. `disaster` uses it for `aux_newton_cond` and
+  `aux_newton_resid`.
 
 #### `state_bounds` and `definition_bounds` (declarative soft bounds)
 
@@ -332,37 +322,37 @@ Both are `dict[str, dict[str, float]]` of the form
           "penalty_lower": float, "penalty_upper": float}}
 ```
 
-When set, the loss picks up a soft-penalty term
+When set, the loss gains a soft-penalty term
 
 ```text
 penalty_lower * mean(max(0, lower - value) ** 2)
 ```
 
-(and analogously for `upper`) for each bounded variable. Missing penalty
-coefficients default to `1 / bound**2` (DEQN-MAO upstream convention).
+and the analogous term for `upper`, for each bounded variable. A missing
+penalty coefficient defaults to `1 / bound**2` (the upstream DEQN-MAO
+convention).
 
 - `state_bounds` keys must match `state_names`.
 - `definition_bounds` keys must match keys returned by `definitions_fn`.
-- Hard policy bounds are *separate*: enforced via `policy_lower` /
-  `policy_upper` at the network output activation, not through this
-  soft mechanism.
+- Hard policy bounds are separate: `policy_lower` / `policy_upper`, enforced
+  at the network output activation.
 
 ### Shape and dtype invariants (what the framework guarantees)
 
 - All arrays passed to your functions are `jnp.ndarray` of `float32` (or
   `float64` if `TrainConfig.fp64=True`).
-- Batch dim is always axis 0.
+- The batch dimension is always axis 0.
 - `policy_lower` / `policy_upper`, when set, are 1-D arrays of length
-  `n_policies`. Use `jnp.inf` for unbounded sides; the framework picks
-  sigmoid (finite upper) or softplus (`+inf` upper) per dimension.
-- `definitions_fn` is called both inside JIT (during loss/training) and
-  outside (during diagnostics). It must therefore be JAX-compatible end to end.
+  `n_policies`. Use `jnp.inf` for an unbounded side; per dimension the
+  framework uses a sigmoid (finite upper) or softplus (`+inf` upper).
+- `definitions_fn` is called both inside JIT (loss, training) and outside it
+  (diagnostics), so it must be JAX-compatible throughout.
 
 ---
 
 ## Adding a model
 
-### Path A — In-tree (model ships with deqn-jax)
+### Path A: in-tree (model ships with deqn-jax)
 
 1. Create `src/deqn_jax/models/<name>/` with the five-file layout
    ([detailed walkthrough](models/implementing.md)):
@@ -376,15 +366,15 @@ coefficients default to `1 / bound**2` (DEQN-MAO upstream convention).
       steady_state.py    # steady_state(), init_state
     ```
 
-2. Add an import + an entry to `_MODELS` in
+2. Add an import and an entry to `_MODELS` in
    [`src/deqn_jax/models/__init__.py`](api/models.md). The `deqn-jax list`
-   blurb comes from your `variables.py::DESCRIPTION`; `_DESCRIPTIONS` is
-   derived from it, so there is nothing to add there.
-3. Done — `load_model("<name>")` and `deqn-jax train <name>` both work.
+   description comes from `variables.py::DESCRIPTION`; `_DESCRIPTIONS` is
+   derived from it, so nothing needs adding there.
+3. `load_model("<name>")` and `deqn-jax train <name>` now work.
 
-### Path B — Programmatic (codegen / plugin)
+### Path B: programmatic (codegen / plugin)
 
-For agent-codegen'd models, notebook prototyping, or external plugin packages:
+For generated models, notebook prototypes, or external plugin packages:
 
 ```python
 from deqn_jax.api import ModelSpec, register_model
@@ -418,39 +408,39 @@ params, history = train_from_config(cfg)   # params is the trained Equinox polic
 
 `register_model` semantics:
 
-- Idempotent calls **fail by default**: re-registering an existing name
-  raises `ValueError`. Pass `overwrite=True` to replace deliberately.
-- Both paths land in the same dict; `list_models()` sees them identically.
-- Use `unregister_model(name)` in tests to clean up between cases.
+- Registering a name twice raises `ValueError` by default. Pass
+  `overwrite=True` to replace a model on purpose.
+- Both paths write to the same dict, and `list_models()` shows them alike.
+- In tests, clean up between cases with `unregister_model(name)` (from
+  `deqn_jax.models`).
 
-The two paths are orthogonal: a deployed agent stack typically uses Path B
-to register codegen'd models at import time, while in-tree shipped models
-(brock_mirman, disaster, …) live in Path A so they stay version-controlled
-under deqn-jax.
+An agent stack usually registers generated models through Path B at import
+time. Models shipped in the tree (brock_mirman, disaster, …) use Path A and
+are versioned with deqn-jax.
 
 ### Validation gates a new model should pass
 
-Before training seriously, verify in this order (corresponds to
-implementing.md §8):
+Before a long run, check these in order (they follow implementing.md §8):
 
-1. **Steady-state Euler residual ≈ 0**. Build `(state=ss, policy=ss, shock=0)`,
-   call `equations_fn`, assert `max(|residual|) < 1e-6`. If this fails, your
-   equations are algebraically inconsistent with your steady state.
-2. **Smoke training**: 500 episodes with hidden=(16,), batch=16, mc_samples=2.
-   Loss must decrease roughly monotonically. If it diverges or plateaus at the
-   initial value, you almost certainly have the residual-form trap.
-3. **Ergodic Euler errors**: after a serious run, `euler_equation_errors(...)`
-   reports `mean log10(|resid/u'(c)|) < -3`. Above `-2` means undertrained or
-   real model bug.
-4. **Sanity vs reference**: closed form, linearization, or published solution.
+1. Steady-state Euler residual ≈ 0. Build `(state=ss, policy=ss, shock=0)`,
+   call `equations_fn`, and assert `max(|residual|) < 1e-6`. A failure means
+   the equations are algebraically inconsistent with the steady state.
+2. Smoke training: 500 episodes with hidden=(16,), batch=16, mc_samples=2.
+   The loss should fall roughly monotonically. If it diverges or stays at its
+   initial value, the residual form is the likely cause (implementing.md §2).
+3. Ergodic Euler errors: after a full run, `euler_equation_errors(...)`
+   should report `mean log10(|resid/u'(c)|) < -3`. Above `-2` means the policy
+   is undertrained or the model has a bug.
+4. Comparison with a reference: closed form, linearization, or a published
+   solution.
 
 ---
 
 ## Configuration schema
 
-`TrainConfig` is a Pydantic v2 model. Validation runs at construction; passing
-unknown keys (typos) raises `ValueError` with did-you-mean suggestions. Sub-configs
-are constructed via `default_factory` — omitting a sub-block is safe.
+`TrainConfig` is a Pydantic v2 model and validates on construction. Unknown
+keys (typos) raise `ValueError` with did-you-mean suggestions. Sub-configs use
+`default_factory`, so a sub-block can be omitted.
 
 ### `TrainConfig` (top-level)
 
@@ -559,14 +549,14 @@ Active only when `TrainConfig.loss_type == "composite"`. See
 
 ### `ReplayBufferConfig`
 
-Prioritized state-replay buffer. Off by default. When enabled, each cycle's
-just-rolled-out trajectory states are written to a fixed-shape ring buffer
-with per-state priorities (= sum-of-squared equilibrium residuals at write
-time). Each gradient minibatch then mixes `mix_ratio` fraction of
-priority-weighted buffered samples in with the current trajectory.
+Prioritized state-replay buffer, off by default. When enabled, each cycle
+writes its trajectory states to a fixed-shape ring buffer, with priority equal
+to the sum of squared equilibrium residuals at write time. A `mix_ratio`
+fraction of each gradient minibatch is then drawn from the buffer by
+priority.
 
-Sequence networks (`network.history_len > 1`) are not supported in v1 and
-raise `NotImplementedError` if enabled together.
+Sequence networks (`network.history_len > 1`) are not supported in v1;
+enabling both raises `NotImplementedError`.
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
@@ -580,11 +570,11 @@ raise `NotImplementedError` if enabled together.
 
 ### `MomentMatchingConfig`
 
-Aux loss that penalizes ergodic-moment deviation from a Dynare reference.
-Composes with any base loss (residual MSE, composite, etc.). Uses
-per-minibatch policy-output moments as the estimator; the gradient flows
-through `policy(s)` only, with states `stop_gradient`-ed (they came from
-a separate rollout).
+Auxiliary loss on the deviation of ergodic moments from a Dynare reference,
+added to any base loss (residual MSE, composite, etc.). It estimates moments
+from the policy outputs on each minibatch. The gradient flows through
+`policy(s)` only; the states come from a separate rollout and are under
+`stop_gradient`.
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
@@ -597,7 +587,7 @@ a separate rollout).
 
 ### YAML loading
 
-Every config is YAML-roundtrippable:
+Every config round-trips through YAML:
 
 ```python
 from deqn_jax.api import TrainConfig, load_config
@@ -607,16 +597,15 @@ cfg = load_config("configs/disaster.yaml", overrides={"optimizer.learning_rate":
 cfg.to_yaml("/tmp/copy.yaml")
 ```
 
-`--set` overrides on the CLI use dot notation: `--set optimizer.learning_rate=0.01`.
+CLI `--set` overrides use dot notation: `--set optimizer.learning_rate=0.01`.
 
 ---
 
 ## Runtime types: `TrainState` and `Metrics`
 
-Both are JAX-pytree-compatible `NamedTuple`s in `deqn_jax.types`,
-re-exported from `deqn_jax.api`. Agents normally don't need to construct
-either — the trainer builds them — but you may need to read fields
-when driving the low-level `make_train_step` loop.
+JAX-pytree-compatible `NamedTuple`s in `deqn_jax.types`, re-exported from
+`deqn_jax.api`. The trainer builds both; you read their fields when driving
+the low-level `make_train_step` loop.
 
 ### `TrainState`
 
@@ -638,9 +627,8 @@ when driving the low-level `make_train_step` loop.
 
 ### `Metrics`
 
-Returned by every `train_step` invocation. All three fields are JAX
-arrays at runtime (not Python scalars); cast explicitly when needed:
-`float(metrics.loss)`.
+Returned by every `train_step` call. At runtime the fields are JAX arrays,
+not Python scalars; cast explicitly when needed, e.g. `float(metrics.loss)`.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -650,19 +638,17 @@ arrays at runtime (not Python scalars); cast explicitly when needed:
 
 ### `history` dict (returned by `train_from_config`)
 
-The `history` dict has **exactly two keys**, each a `list[float]` of
-length equal to the cycles actually run (≤ `episodes`, less if
-early-stopped):
+The `history` dict has exactly two keys. Each holds a `list[float]` with one
+entry per cycle run (`episodes`, or fewer after early stopping):
 
 | Key | What it holds |
 | --- | --- |
 | `"loss"` | Per-cycle total loss (the same scalar `Metrics.loss` casts to) |
 | `"grad_norm"` | Per-cycle pre-clip gradient norm |
 
-Per-equation losses, learning-rate history, residual histograms, replay
-metrics, etc. are written to TensorBoard / W&B (when configured) — they
-are *not* in `history`. Don't rely on extra keys that may have appeared
-in older versions of this doc.
+Per-equation losses, learning rates, residual histograms and replay metrics
+go to TensorBoard / W&B when configured, not to `history`. Older versions of
+this page listed other keys; they do not exist.
 
 ---
 
@@ -670,7 +656,7 @@ in older versions of this doc.
 
 ### `train_from_config(config) -> (params, history)`
 
-The high-level entry point. Everything in `TrainConfig` is honored.
+The high-level entry point; it honors every `TrainConfig` field.
 
 ```python
 from deqn_jax.api import TrainConfig, train_from_config
@@ -687,22 +673,21 @@ params, history = train_from_config(cfg)
 #          this dict. To read them post-hoc, parse the TB log dir.
 ```
 
-Checkpointing, TensorBoard / W&B logging, early stopping, optimizer switching,
-warm start, replay buffer — all driven by `cfg`. The final `TrainState`
-(opt_state, episode_state, PRNG key, replay buffer, …) is *not* returned;
-if you need it, use the lower-level `create_train_state` + `make_train_step`
-path described below or load a checkpoint via `load_policy_from_checkpoint`.
+`cfg` controls checkpointing, TensorBoard / W&B logging, early stopping,
+optimizer switching, warm start and the replay buffer. The final
+`TrainState` (opt_state, episode_state, PRNG key, replay buffer, …) is not
+returned; for it, use the lower-level path below or load a checkpoint with
+`load_policy_from_checkpoint`.
 
 ### `train(model_name, episodes, ...)` (legacy wrapper)
 
-Backward-compatible thin wrapper over `train_from_config`. Prefer
-`train_from_config(TrainConfig(...))` for new code.
+Thin backward-compatible wrapper over `train_from_config`. New code should
+call `train_from_config(TrainConfig(...))`.
 
 ### `create_train_state(...)` and `make_train_step(...)` (low-level)
 
-Use these only when you need to drive the training loop yourself
-(custom outer loops, distributed training, hand-coded learning rate
-schedules, …).
+Use these only to drive the training loop yourself (custom outer loops,
+distributed training, hand-coded learning-rate schedules, …).
 
 ```python
 from deqn_jax.api import (
@@ -728,8 +713,8 @@ for ep in range(1000):
     # metrics: Metrics(loss, residuals, grad_norm)
 ```
 
-`train_step` is a single `@jax.jit`-compiled function — the full rollout +
-minibatch sweep + gradient updates fuse into one JIT region per cycle.
+Each `train_step` call runs one cycle across two JIT boundaries: a compiled
+rollout, then a minibatch sweep of compiled gradient steps.
 
 ---
 
@@ -742,24 +727,24 @@ minibatch sweep + gradient updates fuse into one JIT region per cycle.
 | `transformer` | Multi-head attention over a history window | Same | `networks.transformer.TransformerPolicy` |
 | `linear_plus_mlp` | `policy = linear(state) + mlp(state)`; init at the BK linearization | Models with a known good local solution | `networks.linear_plus_mlp.LinearPlusMLP` |
 
-Output bounds (per policy dimension) are enforced **at the network output**:
+Output bounds are enforced per policy dimension at the network output:
 
-- Finite `policy_upper[i]` → sigmoid scaled to `[lower, upper]`.
-- `policy_upper[i] = jnp.inf` → `softplus(x) + lower`.
+- Finite `policy_upper[i]`: sigmoid scaled to `[lower, upper]`.
+- `policy_upper[i] = jnp.inf`: `softplus(x) + lower`.
 
 ### Adding a network
 
-See [Adding a network](networks/adding.md). Minimum: write an Equinox
+See [Adding a network](networks/adding.md). At minimum: write an Equinox
 `eqx.Module` with `__call__(state) -> policy`, register a factory in
-`networks/__init__.py`, add the type name to
-`NetworkConfig.VALID_TYPES`, and dispatch in `networks/factory.py:build_policy_net`.
+`networks/__init__.py`, add the type name to `NetworkConfig.VALID_TYPES`,
+and dispatch on it in `networks/factory.py:build_policy_net`.
 
 ---
 
 ## Optimizers
 
-13 built-in. List them with `list_optimizers()`. Five families dispatched
-at construction time (before JIT):
+Nine are built in; `list_optimizers()` lists them. The train step is chosen
+from five families at construction time, before JIT:
 
 | Family | Names | Step shape |
 | --- | --- | --- |
@@ -769,16 +754,17 @@ at construction time (before JIT):
 | **LBFGS** | lbfgs | Optax LBFGS with line search |
 | **GN** | gn, ign, lm | Gauss-Newton / Levenberg-Marquardt: `Δθ = −(JᵀJ)⁻¹ Jᵀr` |
 
-Composite loss is currently rejected with MAO/GN/IGN/LM/LBFGS and PCGrad
-(the optimizer's update path doesn't see the auxiliary terms).
-`TrainConfig._validate_ranges` enforces this.
+Composite loss is rejected with MAO, GN, IGN and LM: their updates
+differentiate only the base residuals and miss the auxiliary terms. It works
+with the STANDARD family (with or without PCGrad) and with L-BFGS.
+`training/state_init.py:_validate_train_config` enforces this.
 
 ### Adding an optimizer
 
-See [Adding an optimizer](optimizers/adding.md). Minimum: write the
-optax-style transform, register with `@register_optimizer(name, kind)`
-in your module, and import it in `optimizers/__init__.py` to trigger
-registration. STANDARD-family optimizers compose with the existing
+See [Adding an optimizer](optimizers/adding.md). At minimum: write the
+optax-style transform, register it with `@register_optimizer(name, kind)`
+in its module, and import that module in `optimizers/__init__.py` so the
+registration runs. STANDARD-family optimizers reuse
 `make_grad_step_standard`; other kinds need their own grad-step factory.
 
 ---
@@ -787,37 +773,35 @@ registration. STANDARD-family optimizers compose with the existing
 
 ### Base MSE (default)
 
-`loss_type: "mse"`. The framework computes, per batch element:
+`loss_type: "mse"`. For each batch element the framework:
 
-1. **Per-shock residuals** via `equations_fn`.
-2. **Shock-expectation**: weighted mean across MC samples (uniform) or
-   GH nodes (Hermite weights).
-3. **Square the mean**: `(E_shock[r])²` per equation per batch element.
-4. **Aggregate across batch**: mean (or Huber, if `loss_choice="huber"`).
-5. **Aggregate across equations**: mean (DEQN-MAO convention).
+1. Computes per-shock residuals with `equations_fn`.
+2. Takes the shock expectation: a weighted mean over MC samples (uniform
+   weights) or GH nodes (Hermite weights).
+3. Squares the mean: `(E_shock[r])²` per equation per batch element.
+4. Aggregates over the batch: mean, or Huber if `loss_choice="huber"`.
+5. Aggregates over equations: mean (DEQN-MAO convention).
 
-Aux losses with keys prefixed `aux_*` are excluded from adaptive reweighting.
+Losses keyed with the `aux_` prefix are excluded from adaptive reweighting.
 
 ### Composite loss
 
-`loss_type: "composite"`. Adds anchor + Jacobian + barriers + Newton terms;
+`loss_type: "composite"`. Adds anchor, Jacobian, barrier and Newton terms;
 see [Composite loss](training/composite_loss.md).
 
 ### Custom loss
 
 Pass `compute_loss_fn` to `make_train_step` (advanced; not exposed in
-`TrainConfig`). Signature must match `compute_loss`:
+`TrainConfig`). Its signature must match `compute_loss`:
 `(model, policy_fn, states, key, mc_samples, weights, shock_scale,
 quad_nodes, quad_weights, target_policy_fn, loss_choice, huber_delta) -> (Array, dict)`.
 
 ### Path-A autodiff helper: `euler_from_period_return`
 
-The framework provides one helper to synthesize `equations_fn` from a
-scalar period-return function via `jax.grad`. This is the natural
-backbone for any "Path A" codegen path (planner / autodiff): the model
-author (or generator) writes a single per-period return Π and the
-helper produces both the capital Euler residual (envelope theorem) and
-optional intratemporal FOCs (∂Π/∂policy[j] = 0).
+Builds `equations_fn` from a scalar period return Π with `jax.grad`, for
+"Path A" (planner / autodiff) code generation. From Π the helper derives the
+capital Euler residual (envelope theorem) and, optionally, intratemporal FOCs
+(∂Π/∂policy[j] = 0).
 
 ```python
 from deqn_jax.api import euler_from_period_return
@@ -841,48 +825,53 @@ equations_fn = euler_from_period_return(
 )
 ```
 
-Returns an `equations_fn(state, policy, next_state, next_policy, constants)`
-matching the standard `ModelSpec.equations_fn` contract. Three in-tree
-models build their `equations_fn` this way: `brock_mirman_autodiff`,
-`bm_labor_autodiff`, `irbc`.
+It returns an `equations_fn(state, policy, next_state, next_policy, constants)`
+with the standard `ModelSpec.equations_fn` signature. Two in-tree models
+build their `equations_fn` this way: `brock_mirman_autodiff` and
+`bm_labor_autodiff`. `irbc` writes its own equations but follows the same
+zero-shock `step_fn` pattern for `k_{t+2}`.
 
-Current scope: single intertemporal state dimension, arbitrary exogenous
-state dimensions, arbitrary intratemporal-FOC equations. Out of scope
-(may land in a follow-up): multi-agent OLG-style Euler, Lagrangian-with-
-multipliers KKT, Fischer-Burmeister.
+Supported: one intertemporal state dimension, any number of exogenous state
+dimensions, any number of intratemporal FOCs, and multi-agent OLG-style Euler
+equations through `capital_indices` and `equation_names` (tested on a toy
+OLG; no registered model uses it yet). Not yet supported: KKT systems with
+Lagrange multipliers, Fischer-Burmeister.
 
-This helper is part of the **stable surface** — three in-tree models
-depend on it; the signature is committed.
+The helper and its signature are part of the stable surface.
 
 ---
 
 ## Shock expectations
 
-Two paths, set via `expectation_type`:
+`expectation_type` selects one of two methods:
 
 | Mode | `expectation_type` | Used as |
 | --- | --- | --- |
 | **Antithetic Monte Carlo** (default) | `"mc"` | `mc_samples` antithetic Gaussian draws per batch element |
 | **Gauss-Hermite quadrature** | `"quadrature"`, `"gh"`, `"gauss_hermite"` | Tensor-product GH grid, `n_quadrature_points^n_shocks` total nodes |
 
-MC has constant cost in shock dim; quadrature scales exponentially. Switch to
-quadrature when residuals are highly nonlinear in shocks and `n_shocks ≤ 3`.
+MC cost does not grow with the number of shocks; quadrature cost grows
+exponentially. Use quadrature when residuals are strongly nonlinear in the
+shocks and `n_shocks ≤ 3`.
 
-`shock_scale` multiplies all shocks (curriculum ramping); `shock_mask` zeroes
-specific shock dimensions (ablations). Both apply to MC and quadrature
-identically and to both the loss path and the rollout path.
+`shock_scale` multiplies all shocks (used for curriculum ramping);
+`shock_mask` zeroes chosen shock dimensions (used for ablations). Both act
+the same way under MC and quadrature, in the loss and in the rollout.
 
 ---
 
 ## Evaluation & verification gates
 
-The standard verification panel for a trained DEQN policy.
+The standard checks for a trained DEQN policy.
 
 ### `euler_equation_errors(policy_net, model, n_periods=10_000, seed=123, burn_in=None) -> dict`
 
-Simulates a long stochastic path under the trained policy, computes Euler
-residuals at every period, returns the `log10(|residual|)` distribution per
-equation. Gold standard for global accuracy (Azinovic et al. 2022).
+Simulates a long stochastic path under the trained policy and computes Euler
+residuals at every period; `print_euler_errors` reports their
+`log10(|residual|)` distribution per equation. This is the standard measure of
+global accuracy (Azinovic et al. 2022). Optional `expectation_type` and
+`n_quadrature_points` arguments set the expectation rule (default:
+Gauss-Hermite).
 
 ```python
 from deqn_jax.api import euler_equation_errors, print_euler_errors, load_model
@@ -891,33 +880,36 @@ diag = euler_equation_errors(params, load_model("brock_mirman"))
 print_euler_errors(diag)
 ```
 
-`diag` keys: `"residuals"` (raw `[n_periods, n_eq]`), `"log10_abs"` (per-eq
-distribution stats), `"states"`, `"policies"`. CLI exits with code 2 if
-configurable thresholds aren't met (see `evaluate.run_evaluate_cli`).
+`diag` keys: `"residuals"` (raw, `[n_periods - burn_in, n_eq]`),
+`"equation_names"`, `"states"`. `deqn-jax evaluate` prints the results and
+applies no accuracy threshold.
 
 ### `stability_check(policy_net, model, ...) -> dict[str, bool]`
 
-Cheap structural sanity panel. Booleans typically include
-`"trajectory_finite"`, `"policies_in_bounds"`, `"states_in_reasonable_range"`.
-Use this as a fast early-exit gate before the more expensive Euler test.
+A cheap structural check returning `"nan_free"`, `"bound_hit_pct"` (% of
+policy outputs within 1% of the bound span, counted only over policies with
+two finite bounds), `"max_ss_deviation_pct"` and
+`"stable"` (NaN-free, bound hits under 20%, state deviation under 500%). Run
+it before the more expensive Euler test.
 
 ### `simulated_moments(...)` / `print_moments(...)`
 
-Long-run mean/std/autocorrelation of states and definitions along the
-ergodic path. Compare against linearization-implied moments or Dynare
-reference moments via `compare_to_dynare_moments`.
+Long-run mean, standard deviation and autocorrelation of states and
+definitions along the ergodic path. Compare them with moments implied by a
+linearization, or with Dynare reference moments through
+`compare_to_dynare_moments` (in `deqn_jax.evaluate.dynare`).
 
 ### Suggested verification gates (for an outer loop)
 
 | Gate | Threshold | Disposition |
 | --- | --- | --- |
-| `stability_check` all True | hard | fail → restart with smaller LR |
+| `stability_check(...)["stable"]` True | hard | fail → restart with smaller LR |
 | `mean log10\|resid/u'(c)\|` per equation | `< -3` | pass; `[-3, -2]` warn; `> -2` fail |
 | `90th percentile log10\|resid/u'(c)\|` | `< -2` | pass |
 | `simulated_moments.std` vs reference | within 20% | pass; off by >2× → fail |
 
-These are conventions, not framework-enforced. Encode them in your agent's
-verifier; the data is in the dicts returned by the calls above.
+These are conventions; the framework does not enforce them. Encode them in
+your own verifier from the dicts the calls above return.
 
 ---
 
@@ -929,7 +921,7 @@ from deqn_jax.api import (
     save_irf_csv, print_irf_summary, load_model,
 )
 
-policy_net = load_policy_from_checkpoint("runs/disaster/checkpoint_best.eqx")
+policy_net, _ = load_policy_from_checkpoint("runs/disaster/checkpoint_best.eqx")
 model = load_model("disaster")
 
 # Plain IRF (path - SS):
@@ -942,11 +934,11 @@ print_irf_summary(girf, "eps_z")
 save_irf_csv(girf, "/tmp/eps_z.csv")
 ```
 
-Both return `dict[str, list[float]]` with keys: `"period"`, every state, every
-policy, every definition, every equation residual. `run_girf` is the safer
-default under risky-steady-state setups (the no-shock baseline drifts on its
-own under the disaster mixture, so plain IRF conflates that drift with the
-shock response).
+Both return `dict[str, list[float]]` with the keys `"period"`, every state,
+every policy, every definition and every equation residual. Prefer
+`run_girf` from a risky steady state: the no-shock baseline drifts on its own
+under the disaster mixture, and a plain IRF mixes that drift into the
+response.
 
 ---
 
@@ -970,13 +962,12 @@ cfg = cfg.model_copy(update={"resume": "runs/X/checkpoint_001000.eqx", "episodes
 params, history = train_from_config(cfg)
 ```
 
-The resume path reads the sibling `config.yaml` to rebuild the matching pytree
-template, then `eqx.tree_deserialise_leaves` restores params, opt state, and
-episode counter. Mid-training optimizer switches via `switch_optimizer` /
-`switch_episode` / `switch_lr` are also supported and discard the old
-optimizer state.
+Resume rebuilds the pytree template from the sibling `config.yaml`, then
+`eqx.tree_deserialise_leaves` restores params, optimizer state and episode
+counter. A mid-training optimizer switch (`switch_optimizer` /
+`switch_episode` / `switch_lr`) discards the old optimizer state.
 
-`max_checkpoints` retains only the N most recent periodic snapshots; the best
+`max_checkpoints` keeps only the N most recent periodic snapshots. The best
 snapshot is never deleted.
 
 ---
@@ -988,7 +979,7 @@ deqn-jax train MODEL [-n EPISODES] [--config YAML] [--set KEY=VALUE ...] [-q]
 deqn-jax list                       # all registered models
 deqn-jax optimizers                 # all registered optimizers
 deqn-jax evaluate CKPT [opts]       # see evaluate.run_evaluate_cli
-deqn-jax irf CKPT --shock NAME [--horizon N] [--mode irf|girf]
+deqn-jax irf CKPT --shock NAME [--horizon N] [--girf]
 ```
 
 Common flags:
@@ -1002,9 +993,9 @@ Common flags:
 | `--checkpoint-dir <path>` | Sets `checkpoint_dir` |
 | `--resume <ckpt>` | Resume from a `.eqx` checkpoint |
 
-Exit codes: 0 = success, non-zero = config / training / verification failure.
-Use `deqn-jax evaluate` exit code as the integration gate for an autonomous
-outer loop.
+Exit codes: 0 on success, non-zero on an error (invalid config, failed
+training). `deqn-jax evaluate` exits 0 whatever the accuracy, so an outer loop
+should gate on the evaluation dicts from the Python API.
 
 ---
 
@@ -1018,7 +1009,7 @@ list_optimizers()   # [name, ...] sorted
 list_networks()     # [name, ...] sorted (NetworkConfig.VALID_TYPES)
 ```
 
-Both in-tree and runtime-registered models appear in `list_models()`.
+`list_models()` includes both in-tree and runtime-registered models.
 
 ---
 
@@ -1085,56 +1076,53 @@ docs/site/                  # mkdocs source (this directory)
 
 ## Versioning policy
 
-- `deqn_jax.api` is the **stable surface**. Anything imported from it is part
-  of the public contract; we only break these on a major version bump
-  (currently 0.x → 1.0).
+- `deqn_jax.api` is the stable surface. Everything imported from it is part
+  of the public contract and changes incompatibly only at a major version
+  bump (currently from 0.x to 1.0).
 - All other paths (`deqn_jax.training.trainer.create_train_state`,
-  `deqn_jax.networks.mlp.MLP`, etc.) are **internal**. They may move
-  between modules, gain or lose parameters, or be deleted between minor
-  versions. Most won't change in practice — but no promises.
-- `ModelSpec` field additions are **non-breaking** when they're optional
-  with a sensible default. New required fields are breaking.
-- `TrainConfig` field additions are non-breaking when they default to
-  current behavior. New validators that reject previously-valid configs
-  are breaking.
+  `deqn_jax.networks.mlp.MLP`, etc.) are internal and may move, change
+  parameters or disappear between minor versions.
+- Adding a `ModelSpec` field is non-breaking when the field is optional with
+  a sensible default. A new required field is breaking.
+- Adding a `TrainConfig` field is non-breaking when its default keeps the
+  current behavior. A new validator that rejects previously valid configs
+  is breaking.
 
-If you find an internal symbol you need on the stable surface, file an
-issue requesting that it be re-exported from `deqn_jax.api`.
+To get an internal symbol onto the stable surface, open an issue asking for
+it to be re-exported from `deqn_jax.api`.
 
 ---
 
 ## Limitations and out of scope
 
-- **No symbolic differentiation.** All residuals are hand-coded or
-  built via `jax.grad` from a scalar period payoff (see
-  [autodiff.md](autodiff.md)). There is no SymPy-driven KKT codegen
-  analogous to BIS-DEQN-LAB's Path B; that lives in the agent stack you
-  build on top.
-- **No LaTeX → ModelSpec parsing in this library.** Parsers / agents
-  that turn a paper into a `ModelSpec` are user-stack territory. The
-  contract here is just the `ModelSpec` shape — what an agent emits.
-- **No actor-critic, no value-function head.** That work currently lives
-  on the [`experimental/actor-critic`](https://github.com/deqn-jax/deqn-jax/tree/experimental/actor-critic)
-  branch and may land later as an isolated module that wraps stable APIs.
-- **No distributed training.** Single-device JAX. Multi-device support
-  via `pmap` is straightforward in principle but not wired.
-- **No GPU-vs-CPU portability layer.** Runs on whatever JAX picks up.
+- No symbolic differentiation. Residuals are hand-coded or built with
+  `jax.grad` from a scalar period payoff (see [autodiff.md](autodiff.md)).
+  There is no SymPy-driven KKT code generation like BIS-DEQN-LAB's Path B;
+  that belongs in an agent stack built on top.
+- No LaTeX-to-ModelSpec parsing. Parsers or agents that turn a paper into a
+  `ModelSpec` belong in the user's stack. This library only defines the
+  `ModelSpec` shape they must emit.
+- No actor-critic and no value-function head. That work is on the
+  [`experimental/actor-critic`](https://github.com/deqn-jax/deqn-jax/tree/experimental/actor-critic)
+  branch and may later land as a separate module built on the stable APIs.
+- No distributed training; JAX runs on a single device. Multi-device
+  support through `pmap` is possible but not wired.
+- No GPU/CPU portability layer; it runs on whatever device JAX picks.
   Set `JAX_PLATFORM_NAME=cpu` for reproducibility on small models.
 
 ---
 
 ## Further reading
 
-- [Implementing a model](models/implementing.md) — prose-first walkthrough,
-  for humans hand-writing a model.
-- [Reading guide](reading_guide.md) — code-level narrative for contributors.
-- [Architecture](architecture.md) — design decisions and JIT boundary
-  discussion.
-- [Composite loss](training/composite_loss.md) — the math behind
-  anchor + Jacobian + barrier + Newton terms.
-- [Adding a network](networks/adding.md) — how to plug a new architecture.
-- [Adding an optimizer](optimizers/adding.md) — how to plug a new
-  optimizer family.
+- [Implementing a model](models/implementing.md): walkthrough for writing a
+  model by hand.
+- [Reading guide](reading_guide.md): code walkthrough for contributors.
+- [Architecture](architecture.md): design decisions and the JIT boundaries.
+- [Composite loss](training/composite_loss.md): the math of the anchor,
+  Jacobian, barrier and Newton terms.
+- [Adding a network](networks/adding.md): how to add an architecture.
+- [Adding an optimizer](optimizers/adding.md): how to add an optimizer
+  family.
 - Per-module API reference: [config](api/config.md), [types](api/types.md),
   [models](api/models.md), [trainer](api/trainer.md), [loss](api/loss.md),
   [networks](api/networks.md), [optimizers](api/optimizers.md).

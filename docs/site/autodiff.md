@@ -1,83 +1,84 @@
 # Autodiff-synthesized equations (design note)
 
-> Vision: a researcher writes down a Lagrangian, the state variables, and the law of motion. The framework autodiffs out the equilibrium residuals, hands them to the DEQN trainer, and the model is solved. No hand-derivation of FOCs.
+> Goal: a researcher writes down a Lagrangian, the state variables and the law of motion. The framework derives the equilibrium residuals by automatic differentiation and passes them to the DEQN trainer, with no hand-derived FOCs.
 
-This document sketches how that path fits into DEQN-JAX today and where it's heading. A working proof of concept lives at `src/deqn_jax/models/brock_mirman_autodiff/` — same economics as `brock_mirman`, but the Euler residual is synthesized from a single scalar function rather than hand-derived.
+This note describes how that path works in DEQN-JAX today and what remains. The framework helper `euler_from_period_return` (`src/deqn_jax/training/autodiff.py`, exported from `deqn_jax.api`) builds the residuals. Two proof-of-concept models use it: `brock_mirman_autodiff` has the same economics as `brock_mirman`, and `bm_labor_autodiff` the same as `bm_labor`, but their residuals come from a single scalar function instead of being derived by hand.
 
 ## What the researcher writes
 
-For a representative-agent problem with capital `K` as the intertemporal state, the minimal input is one function:
+For a representative-agent problem with capital `K` as the intertemporal state, the minimal input is one function (simplified from `models/brock_mirman_autodiff/equations.py`):
 
 ```python
-def period_return(K, K_next, z, constants):
-    """Pi(K_t, K_{t+1}, z_t) = u(C_t)."""
+def period_return(K, K_next, z, policy, constants):
+    """Pi(K_t, K_{t+1}, z_t, policy_t) = u(C_t)."""
     alpha, delta, gamma = constants["alpha"], constants["delta"], constants["gamma"]
-    Z = jnp.exp(z)
+    Z = jnp.exp(z[0])
     y = Z * K ** alpha
     c = y - (K_next - (1 - delta) * K)          # budget constraint baked in
     return jnp.log(c) if gamma == 1.0 else (c ** (1 - gamma) - 1) / (1 - gamma)
 ```
 
-Everything else — production function, budget identity, utility form — is already in this single expression. The researcher never writes `u'(c) - β E[u'(c')(1 + r' - δ)]` anywhere.
+The production function, the budget identity and the utility form are all in this one expression. The researcher never writes `u'(c) - β E[u'(c')(1 + r' - δ)]`.
 
 ## What the framework synthesizes
 
-Differentiating `Π(K, K', z) = u(C(K, K', z))` via `jax.grad`:
+Differentiating `Π(K, K', z) = u(C(K, K', z))` with `jax.grad` gives:
 
-- `∂Π/∂K_{t+1}` evaluated at `(K_t, K_{t+1}, z_t)` — the cost today of investing one more unit.
-- `∂Π/∂K_t` evaluated at `(K_{t+1}, K_{t+2}, z_{t+1})` — the marginal benefit tomorrow of having that unit.
+- `∂Π/∂K_{t+1}` at `(K_t, K_{t+1}, z_t)`: the cost today of investing one more unit.
+- `∂Π/∂K_t` at `(K_{t+1}, K_{t+2}, z_{t+1})`: the benefit tomorrow of having that unit.
 
-The Euler condition is their sum (in expectation over `z_{t+1}`): `0 = ∂Π/∂K_{t+1} + β·E[∂Π/∂K_t]`. That's the residual the trainer gets. `K_{t+2}` is reconstructed from `next_state + next_policy` using the model's own capital-accumulation law — the one place the dynamics reappear inside the residual.
+The Euler condition is their sum, in expectation over `z_{t+1}`: `0 = ∂Π/∂K_{t+1} + β·E[∂Π/∂K_t]`. This is the residual the trainer receives. `K_{t+2}` is rebuilt from `next_state` and `next_policy` by the model's own `step_fn` at zero shock, the one place the dynamics reappear inside the residual. The expectation over shocks is handled by the loss module, as for any model.
 
-Check: with log utility + Cobb-Douglas production, this simplifies algebraically to `-u'(C_t) + β · u'(C_{t+1})·(1 + r_{t+1} − δ)`, which is the hand-derived form up to sign. The autodiff variant passes a parity test against `brock_mirman`'s hand-derived residuals to float32 noise on a random batch of policy-consistent transitions.
+Check: with log utility and Cobb-Douglas production this reduces algebraically to `-u'(C_t) + β · u'(C_{t+1})·(1 + r_{t+1} − δ)`, the hand-derived form up to sign. The autodiff models match the hand-derived residuals of `brock_mirman` and `bm_labor` to float32 noise on a random batch of policy-consistent transitions.
 
-## The eventual API shape
+## The helper
 
-The POC wires the autodiff directly into the model's `equations.py`. The next step is a framework-level helper — something like:
+The model's `equations.py` passes the period return and its own `step` function to the helper:
 
 ```python
 from deqn_jax.training.autodiff import euler_from_period_return
 
-MODEL = ModelSpec(
-    ...,
-    equations_fn=euler_from_period_return(
-        period_return_fn=period_return,
-        capital_state="K",              # which state dim is the intertemporal link
-        investment_law="lom",           # optional; defaults to inferring from step_fn
-    ),
+equations = euler_from_period_return(
+    period_return_fn=period_return,
+    step_fn=step,
+    capital_idx=0,  # state = (k, z); capital is dim 0
+    exog_idx=(1,),  # z is dim 1
+    n_shocks=1,
 )
 ```
 
-At that point, the `ModelSpec` declaration for a Brock-Mirman–class model becomes:
-- `variables.py` — SPEC, constants
-- `period_return.py` — the scalar Π function (the Lagrangian / objective)
-- `dynamics.py` — step function (the law of motion)
-- `__init__.py` — assembly; no explicit `equations_fn` needed
+The result is an ordinary `equations_fn`. For a Brock-Mirman-class model the subpackage then consists of:
 
-Three things have to be true before that helper lands:
+- `variables.py`: SPEC, constants
+- `equations.py`: the scalar Π function (the objective) and the one helper call above
+- `dynamics.py`: the step function (the law of motion)
+- `steady_state.py`, `__init__.py`: steady state and assembly, as for any model
 
-1. **Multi-policy models.** With labor or other intratemporal choices, there's a second FOC class (`∂Π/∂L = 0`) that needs its own autodiff path. Generalizes cleanly but the helper needs to know which policy dimensions are intratemporal vs state-determining.
-2. **Multi-shock / multi-state Euler.** OLG-style models have one Euler per savings-choosing agent. The helper needs to vmap over agents.
-3. **Non-separable constraints.** Borrowing constraints with Lagrange multipliers (KKT) don't come out of pure autodiff on Π — they need the full Lagrangian including the multiplier. Simon's OLG benchmark uses Fischer-Burmeister here. The generalized helper should support supplying additional constraint residuals alongside the autodiff-Euler.
+The helper covers three generalizations beyond the single-agent case:
 
-The POC covers case (0): single representative agent, single intertemporal state, single policy, utility-only objective. That's the easiest and most common. The rest is a progression of generality.
+1. Multi-policy models. With labor or other intratemporal choices there is a second class of FOC, `∂Π/∂L = 0`. Pass `intratemporal_policy_idx` (and optionally `intratemporal_equation_names`); each listed policy index gets a pointwise residual `−∂Π/∂policy[j]` with no expectation. `bm_labor_autodiff` uses this for its labor FOC.
+2. Multi-agent Euler. OLG-style models have one Euler equation per savings-choosing agent. Pass `capital_indices` and `equation_names` (one per agent); Π then takes an extra `agent_index` keyword, and the helper returns one Euler residual per agent. This mode is tested on a toy two-cohort OLG; no registered model uses it yet.
+3. Any number of exogenous state dimensions, through `exog_idx`.
 
-## Where Claude fits in
+Not supported: constraints that need explicit multipliers. Borrowing constraints with Lagrange multipliers (KKT) do not come out of autodiff on Π alone; they need the full Lagrangian including the multiplier. Simon Scheidegger's OLG benchmark uses Fischer-Burmeister residuals here. A generalized helper should accept extra constraint residuals alongside the autodiff Euler equations.
 
-Simon's framing: researcher writes down the Lagrangian in something close to paper notation, Claude (or any LLM) transcribes it into the framework's `period_return` + state schema + dynamics. The mechanical part — autodiff FOCs, neural architecture search, loss reweighting, curriculum — is then framework work with no per-paper plumbing.
+## Where an LLM fits in
 
-Concretely: a Claude-authored `bring_your_own_paper` tool would need
+Scheidegger's framing: the researcher writes the Lagrangian in something close to paper notation, and Claude (or any LLM) transcribes it into the framework's `period_return`, state schema and dynamics. The mechanical part (autodiff FOCs, architecture search, loss reweighting, curriculum) is then framework work with no per-paper plumbing.
 
-- a parse of the problem statement (state variables, controls, objective, constraints),
-- translation into `period_return_fn` + `step_fn` + variable/shock schema,
-- a round-trip check: autodiff residuals zero at a declared / solved steady state.
+A Claude-authored `bring_your_own_paper` tool would need:
 
-That last item is the "did I transcribe it right" gate. It's a cheap, automatic sanity check that catches most transcription errors without the user ever running training.
+- a parse of the problem statement (state variables, controls, objective, constraints);
+- a translation into `period_return_fn`, `step_fn` and the variable and shock schema;
+- a round-trip check that the autodiff residuals are zero at a declared or solved steady state.
+
+The last item checks the transcription. It is cheap, automatic, and catches most transcription errors before any training run.
 
 ## Current status
 
-- POC: `src/deqn_jax/models/brock_mirman_autodiff/` (model registered as `brock_mirman_autodiff`).
-- Parity tests: `tests/test_autodiff_equations.py` (residual match + SS zero + registration, 3 tests).
-- Still to build: the framework-level `euler_from_period_return` helper; extension to multi-policy (`bm_labor`) and multi-agent (`olg_analytic_6`); a Lagrangian path with explicit multipliers for KKT.
+- Helper: `euler_from_period_return` in `src/deqn_jax/training/autodiff.py`.
+- Models: `brock_mirman_autodiff` (`src/deqn_jax/models/brock_mirman_autodiff/`) and `bm_labor_autodiff` (`src/deqn_jax/models/bm_labor_autodiff/`).
+- Tests: `tests/test_autodiff_equations.py` (residual parity with the hand-derived models, zero residuals at the steady state, registration, envelope behaviour; 9 tests) and `tests/test_autodiff_multi_agent.py` (multi-agent mode; 5 tests).
+- Still to build: a registered multi-agent model (for example `olg_analytic_6`) on the helper, and a Lagrangian path with explicit multipliers for KKT constraints.
 
-See `docs/site/models/implementing.md` § 2 for the hand-derived path this is meant to eventually replace.
+Section 2 of `docs/site/models/implementing.md` describes the hand-derived path this is meant to replace eventually.

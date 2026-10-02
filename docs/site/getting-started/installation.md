@@ -10,7 +10,7 @@ cd deqn-jax
 uv sync
 ```
 
-For editable installs (hacking on the framework):
+For an editable install, when working on the framework itself:
 
 ```bash
 uv pip install -e .

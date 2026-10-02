@@ -1,8 +1,8 @@
 # Brock-Mirman
 
-The canonical RBC smoke test. Two states (capital, productivity), one
-policy (savings rate), one equilibrium equation (Euler), one shock.
-Analytical steady state.
+The standard RBC smoke test: two states (capital, productivity), one policy
+(savings rate), one equilibrium equation (Euler), one shock, and an analytical
+steady state.
 
 ## Use it
 
@@ -21,4 +21,4 @@ Or via YAML: see [`configs/brock_mirman.yaml`](https://github.com/deqn-jax/deqn-
 | `models/brock_mirman/dynamics.py`                  | State transition `step()`                     |
 | `models/brock_mirman/steady_state.py`              | Analytical SS solver                          |
 
-Use this as the template for new models — see [Implementing a model](implementing.md).
+[Implementing a model](implementing.md) uses this model as the template for new ones.

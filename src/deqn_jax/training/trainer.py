@@ -14,7 +14,7 @@ training/cycle.py). Five grad-step variants dispatched at construction time
 """
 
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -99,6 +99,9 @@ from deqn_jax.training.state_init import (
     create_train_state as create_train_state,  # re-export (not used internally)
 )
 from deqn_jax.types import ModelSpec, TrainState
+
+if TYPE_CHECKING:
+    from deqn_jax.config.train import TrainConfig
 
 # _log_episode / _print_episode_progress now live in training/reporting.py
 # (pure logging + console output); imported above under their previous
@@ -268,7 +271,7 @@ def _run_training_loop(
 # ---------------------------------------------------------------------------
 
 
-def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
+def train_from_config(config: "TrainConfig") -> Tuple[Any, Dict[str, list]]:
     """Train from a TrainConfig object.
 
     This is the primary entry point for config-driven training.
