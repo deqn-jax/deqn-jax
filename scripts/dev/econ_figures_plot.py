@@ -210,11 +210,13 @@ def irf(d, t):
 def euler_errors(d, t):
     fig, ax = plt.subplots(figsize=(6.8, 3.0))
     le = d["log_err"]
-    ax.hist(le, bins=70, color=t["accent"], alpha=0.85, lw=0)
-    for p, lab in ((0.5, "median"), (0.99, "99th pct.")):
+    lo = np.quantile(le, 0.001)
+    ax.hist(le[le >= lo], bins=60, color=t["accent"], alpha=0.85, lw=0)
+    for p, lab, ha in ((0.5, "median", "right"), (0.99, "99th percentile", "left")):
         v = np.quantile(le, p)
         ax.axvline(v, color=t["ink"], lw=0.8, ls=(0, (1, 2)))
-        ax.text(v, ax.get_ylim()[1], f" {lab} {v:.1f}", va="top", fontsize=9.5)
+        txt = f"{lab} {v:.1f} " if ha == "right" else f" {lab} {v:.1f}"
+        ax.text(v, ax.get_ylim()[1], txt, va="top", ha=ha, fontsize=9.5)
     ax.set_xlabel(r"$\log_{10}$ of the Euler-equation error (fraction of consumption)")
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)

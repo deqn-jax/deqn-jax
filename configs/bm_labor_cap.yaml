@@ -12,8 +12,9 @@ episodes: 20000
 batch_size: 64
 episode_length: 100
 # Expectation by quadrature: with mc_samples: 5 the squared mean of five draws
-# carries a variance term the rule can lower, and the same recipe stopped at a
-# median Euler error near 10^-2.1 (laptop run, 2026-10-02).
+# carries a variance term the rule can lower. Same recipe, laptop runs of
+# 2026-10-02, median Euler error on the ergodic path (16-node quadrature):
+# 10^-3.2 with mc_samples: 5, 10^-5.2 with the 8-node quadrature below.
 expectation_type: gauss_hermite
 n_quadrature_points: 8
 seed: 0

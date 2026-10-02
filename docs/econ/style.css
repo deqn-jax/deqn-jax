@@ -98,7 +98,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 figure {
   margin: 2rem 0;
 }
-figure.wide {
+figure.wide, .table-wrap.wide {
   --w: min(var(--wide), calc(100vw - 32px));
   width: var(--w);
   margin-left: calc((100% - var(--w)) / 2);

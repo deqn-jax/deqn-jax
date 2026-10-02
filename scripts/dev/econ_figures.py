@@ -41,6 +41,7 @@ from deqn_jax.api import (
     run_irf,
 )
 from deqn_jax.training.linearize import linearize_model
+from deqn_jax.training.loss import compute_residuals, gauss_hermite_nd
 
 N_PERIODS = 10_500
 BURN_IN = 500
@@ -73,6 +74,19 @@ def linear_labor_rule():
     return policy
 
 
+def expected_residuals(net, model, states, n_nodes=16):
+    """Equation residuals with E over next period's shock by Gauss-Hermite."""
+    nodes, weights = gauss_hermite_nd(n_nodes, model.n_shocks)
+    out = {}
+    for node, w in zip(nodes, weights):
+        shock = jnp.broadcast_to(
+            jnp.asarray(node)[None, :], (states.shape[0], model.n_shocks)
+        )
+        for k, v in compute_residuals(model, net, states, shock).items():
+            out[k] = out.get(k, 0.0) + w * v
+    return out
+
+
 def cap_results(checkpoint):
     net, model = load_run(checkpoint)
     c = model.constants
@@ -80,10 +94,14 @@ def cap_results(checkpoint):
     ee = euler_equation_errors(
         net, model, n_periods=N_PERIODS, burn_in=BURN_IN, n_quadrature_points=16
     )
+    # The evaluator only supplies the simulated path: its residuals are for one
+    # draw of next period's shock (graph @aleph/deqn, node #47). The conditional
+    # expectation is taken here by Gauss-Hermite quadrature.
     states = ee["states"]
     pol = net(states)
     defs = model.definitions_fn(states, pol, c)
-    e = ee["residuals"][:, 0]
+    res = expected_residuals(net, model, states)
+    e = res["euler"]
     # Consumption-equivalent Euler error: u'(c) - e = beta E[u'(c') R'], so the
     # consumption that would satisfy the Euler equation exactly is 1/(u'(c) - e).
     rel = np.asarray(e / (defs["u_c"] - e))
@@ -119,9 +137,7 @@ def cap_results(checkpoint):
         "euler_log10_max": float(log_err.max()),
         "euler_log10_median_at_cap": float(np.median(log_err[at_cap])),
         "euler_log10_median_interior": float(np.median(log_err[~at_cap])),
-        "labor_residual_abs_max": float(
-            np.abs(np.asarray(ee["residuals"][:, 1])).max()
-        ),
+        "labor_residual_abs_max": float(np.abs(np.asarray(res["labor_foc"])).max()),
         "linear_labor_max_on_path": float(np.asarray(lin(states)[:, 1]).max()),
         "linear_share_above_cap": float(
             (np.asarray(lin(states)[:, 1]) > c["L_max"]).mean()
