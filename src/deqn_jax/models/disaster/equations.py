@@ -206,7 +206,7 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Sharpness=500: the softplus wedge on R itself is ~2.5e-7 at SS, but
     # its EQUILIBRIUM effect on the solved pi_ss is -8e-5 in logs
     # (amplified x6.67 by interest smoothing and x2 by 1/(alpha_pi - 1);
-    # counterfactual re-solve, 2026-07 audit — docs/disaster_corrected.tex
+    # counterfactual re-solve, 2026-07 audit — docs/dev/disaster/disaster_corrected.tex
     # errata item 12).
     R_taylor = (
         c["R_ss"]

@@ -513,7 +513,8 @@ src/deqn_jax/
 configs/         # arm configs (disaster_gated_pcgrad_bkpin.yaml etc.); configs/archive/ is gitignored
 scripts/         # cert/ (SS probe, stress table, risky SS, GN polish), dgx/ (container sweeps), dev/ (plots, config reference, module graph); scripts/local/ is ignored scratch
 tests/           # smoke convention: 3 episodes, hidden=(16,), batch=16; conftest enables x64 before any import
-docs/dev/        # cert report, chronicle, library review (research state)
+docs/dev/        # research record: cert report, chronicle, library review; disaster/ (model spec, errata, LaTeX), audits/
+docs/README.md   # which docs folder serves which reader
 .claude/agents/  # reader / worker / verifier / reviewer role agents
 Makefile         # the gate
 ```

@@ -25,7 +25,7 @@
 # adopting this one should be decided jointly with the ELB treatment
 # (kink-aware anchor / ELB-targeted coverage — see
 # docs/dev/handoff_2026_07_06.md, spec-let 1, and
-# docs/disaster_corrected.tex errata item 12 + SS note).
+# docs/dev/disaster/disaster_corrected.tex errata item 12 + SS note).
 model: disaster
 episodes: 3000
 batch_size: 64
