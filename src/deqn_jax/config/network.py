@@ -85,7 +85,7 @@ class NetworkConfig(_ConfigBase):
 
     use_zlb_feature: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: prepend `(R_lag - R_lb)` as an extra MLP input feature.",
+        description="`disaster_policy_net` only: append `(R_lag - R_lb)` as an extra MLP input feature.",
     )
 
     bk_pin: bool = Field(
@@ -105,7 +105,7 @@ class NetworkConfig(_ConfigBase):
 
     reparam_q_as_m: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP. Eliminates the eq 7 sign-flip pathology by parameterization.",
+        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP (𝓑 floored at 1e-3 in the division). Aimed at the eq 7 sign-flip pathology; 𝓑(x) itself is not constrained.",
     )
 
     reparam_pi_as_kp_inner: bool = Field(

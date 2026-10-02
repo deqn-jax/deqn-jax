@@ -95,7 +95,7 @@ class TrainConfig(_ConfigBase):
 
     loss_choice: str = Field(
         default="mse",
-        description="Residual aggregation: `mse` (square the shock-mean residual), `huber` (Huber of the shock-mean; caps gradient at ±huber_delta when rare pathological states dominate), or `aio` (all-in-one, Maliar-Maliar-Winant 2021: product of two independent shock-group means -- unbiased for (E[r])², removing the Var(r̄)/N bias of `mse` under MC; requires expectation_type='mc' and mc_samples>=2; per-eq losses can be transiently negative, so prefer loss_reweight='none').",
+        description="Residual aggregation: `mse` (square the shock-mean residual), `huber` (Huber of the shock-mean; caps gradient at ±huber_delta when rare pathological states dominate), or `aio` (all-in-one, Maliar-Maliar-Winant 2021: product of two independent shock-group means -- unbiased for (E[r])², removing the Var(r̄)/N bias of `mse` under MC (on two-stage models the Jensen bias of a nonlinear `combine_fn` remains); requires expectation_type='mc' and mc_samples>=2; per-eq losses can be transiently negative, so prefer loss_reweight='none').",
     )
     huber_delta: float = Field(
         default=1.0,
@@ -303,8 +303,10 @@ class TrainConfig(_ConfigBase):
         description=(
             "Minibatch shuffle policy. False = IID shuffle across all "
             "(episode_length × sim_batch) samples. True = each minibatch is a "
-            "contiguous temporal slice of a single trajectory (RL-style); batch "
-            "order shuffled, intra-batch order preserved. MLP-only."
+            "contiguous slice of the trajectory-major data (RL-style), which "
+            "can span several trajectories when `episode_length` is not a multiple of "
+            "`batch_size`; batch order shuffled, intra-batch order preserved. "
+            "MLP-only."
         ),
     )
 
