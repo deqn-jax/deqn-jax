@@ -258,6 +258,7 @@ def _style(ax, title: str) -> None:
 
 
 def plot(ours: dict, ref: dict, pf: dict, n: int, out_dir: Path) -> None:
+    """Both paths (12 key series) and their distance to the perfect-foresight path."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -273,7 +274,8 @@ def plot(ours: dict, ref: dict, pf: dict, n: int, out_dir: Path) -> None:
         _style(ax, label)
     axes[0, 0].legend(frameon=False, fontsize=9)
     fig.suptitle(
-        "CDICE business as usual (multi-model mean), 2015-2100: deqn-jax vs reference",
+        "CDICE business as usual (multi-model mean), "
+        f"{FIRST_YEAR}-{FIRST_YEAR + n - 1}: deqn-jax vs reference",
         fontsize=11,
     )
     fig.tight_layout()
@@ -345,10 +347,10 @@ def main() -> None:
     ref = load_reference(ref_dir)
     n_path = len(ref["time"])  # the reference simulates 500 years
     n_window = args.last_year - FIRST_YEAR + 1
-    if not 1 <= n_window <= min(n_path, args.short_horizon):
+    if not 1 <= n_window <= args.short_horizon < n_path:
         raise ValueError(
-            f"--last-year {args.last_year} needs {n_window} years; the reference "
-            f"path has {n_path} and --short-horizon is {args.short_horizon}"
+            f"need 1 <= years to compare ({n_window}) <= --short-horizon "
+            f"({args.short_horizon}) < reference path ({n_path})"
         )
 
     states, policies, next_states, next_policies = simulate(net, model, n_path)

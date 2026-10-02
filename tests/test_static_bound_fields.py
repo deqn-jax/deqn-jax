@@ -155,12 +155,15 @@ def test_apply_bounds_neg_inf_lower_is_unbounded_passthrough():
 
 
 def test_apply_bounds_accepts_traced_finite_bounds():
-    """Bounds passed as traced arrays keep the softplus path (no inspection)."""
+    """Traced bound arrays give the same outputs as concrete ones, -inf included."""
     from deqn_jax.networks.common import _apply_bounds
 
     x = jnp.array([-2.0, 0.0, 3.0])
-    out = jax.jit(lambda a, lo: _apply_bounds(a, lo, None, None))(x, jnp.zeros(3))
-    assert bool(jnp.allclose(out, jax.nn.softplus(x)))
+    traced = jax.jit(lambda a, lo: _apply_bounds(a, lo, None, None))
+    assert bool(jnp.allclose(traced(x, jnp.zeros(3)), jax.nn.softplus(x)))
+    lo = jnp.array([0.0, -jnp.inf, 0.0])
+    assert bool(jnp.array_equal(traced(x, lo), _apply_bounds(x, lo, None, None)))
+    assert float(traced(x, lo)[1]) == 0.0
 
 
 def test_static_fields_are_not_pytree_reachable():
