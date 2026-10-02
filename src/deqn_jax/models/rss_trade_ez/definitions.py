@@ -62,7 +62,7 @@ def tariff_matrix(state: Array, layout: Layout) -> Array:
 
 
 def policy_blocks(
-    state: Array, policy: Array, cal: Dict[str, Array], constants, layout: Layout
+    policy: Array, cal: Dict[str, Array], constants, layout: Layout
 ) -> Dict[str, Array]:
     """Per-block ``[b, n]`` policy views (``q`` is ``[b, 1]``), plus the two
     names the shared economics reads: ``A`` (cleared next-period bond) and
@@ -79,7 +79,7 @@ def policy_blocks(
 def core(state: Array, policy: Array, constants, layout: Layout) -> Dict[str, Array]:
     """All definitions as ``[b, n]`` / ``[b, n, n]`` arrays."""
     cal = calibration(state, constants, layout)
-    p = policy_blocks(state, policy, cal, constants, layout)
+    p = policy_blocks(policy, cal, constants, layout)
     out = dict(p)
     out.update(
         economy(
@@ -111,7 +111,7 @@ def next_endogenous(state: Array, policy: Array, constants, layout: Layout):
     period and overflows within a 256-step episode, while the policy output
     is a bounded function of the state."""
     cal = calibration(state, constants, layout)
-    p = policy_blocks(state, policy, cal, constants, layout)
+    p = policy_blocks(policy, cal, constants, layout)
     return p["K_prime"], p["A"]
 
 
