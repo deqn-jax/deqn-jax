@@ -71,9 +71,8 @@ def write(state: ReplayState, samples: Array, priorities: Array) -> ReplayState:
         ``[write_idx, write_idx+1, ..., write_idx+N-1] mod capacity``.
         ``write_idx`` advances modulo capacity; ``n_filled`` is clamped at
         capacity. If ``N > capacity``, only the last ``capacity`` rows are
-        retained (the older rows in the input batch get overwritten by the
-        newer ones during the same write — same as if you'd called write
-        twice with halves).
+        retained and ``write_idx`` advances by ``capacity`` (so it does not
+        move), unlike ``N`` sequential single-row writes.
     """
     capacity = state.buffer.shape[0]
     n = samples.shape[0]

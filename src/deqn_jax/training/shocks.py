@@ -53,8 +53,9 @@ def draw_training_shocks(
     when provided, is a length-``n_shocks`` vector of 0/1 entries that
     zeros specific shock dimensions (used for shock ablations).
 
-    Both are multiplicative, so ``shock_scale=0`` freezes all rollouts
-    to deterministic dynamics.
+    Both are multiplicative, so ``shock_scale=0`` zeroes these Gaussian
+    shocks. Disaster indicators and discrete-chain draws do not go through
+    this function and are unaffected.
     """
     shock = jax.random.normal(key, (batch_size, n_shocks))
     shock = shock * jnp.asarray(shock_scale)

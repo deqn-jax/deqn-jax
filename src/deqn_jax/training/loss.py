@@ -341,8 +341,9 @@ def compute_loss(
     ``loss_choice='huber'`` applies the Huber function to the mean residual
     instead of squaring it; ``loss_choice='aio'`` takes the product of the
     means of two independent shock groups. The total is the weighted sum of
-    the per-equation losses divided by the number of equations; the
-    returned per-equation losses are unweighted.
+    the per-equation losses divided by the number of equations, plus the
+    undivided state-barrier and bound penalties; the returned per-equation
+    losses are unweighted.
 
     For MC:        shocks ~ N(0, shock_scale²), uniform weights 1/N
     For quadrature: shocks = nodes * shock_scale, deterministic rule weights
