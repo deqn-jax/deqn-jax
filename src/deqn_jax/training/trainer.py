@@ -427,7 +427,10 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     ):
         # Compute and report the effective schedule so users can see what
         # the trainer is actually doing per outer iteration.
-        ep_samples = config.episode_length * config.batch_size
+        n_paths = (
+            config.sim_batch if config.sim_batch is not None else config.batch_size
+        )
+        ep_samples = config.episode_length * n_paths
         mbs_avail = max(1, ep_samples // config.batch_size)
         mbs_this_epoch = (
             min(config.n_minibatches_per_epoch, mbs_avail)
@@ -436,7 +439,7 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         )
         updates_per_cycle = config.n_epochs_per_rollout * mbs_this_epoch
         print(
-            f"  Schedule: 1 rollout ({config.episode_length}×{config.batch_size}="
+            f"  Schedule: 1 rollout ({config.episode_length}×{n_paths}="
             f"{ep_samples} states) → {config.n_epochs_per_rollout} epoch(s) × "
             f"{mbs_this_epoch} minibatch(es) of {config.batch_size} "
             f"= {updates_per_cycle} grad updates/cycle "

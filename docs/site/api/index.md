@@ -117,10 +117,10 @@ registered* and *what to import*.
     ---
 
     `load_model(name)`, `list_models()`, and `register_model(spec)` — add a model
-    **programmatically**, no edit to the package source. Ten registered today:
-    the Brock–Mirman teaching family, the occasionally-binding trio
-    (`bm_labor_constrained`, `irbc`, `olg_lifecycle`), and the experimental
-    `disaster` NK-DSGE.
+    **programmatically**, no edit to the package source. `uv run deqn-jax list` prints the registered
+    models; among them the Brock–Mirman teaching family, the occasionally-binding
+    trio (`bm_labor_constrained`, `irbc`, `olg_lifecycle`), the non-stationary
+    climate-economy model `cdice_bau`, and the experimental `disaster` NK-DSGE.
 
     [:octicons-arrow-right-24: Models](models.md)
 
@@ -176,13 +176,14 @@ registered* and *what to import*.
     `create_train_state` / `make_train_step` path — most runs only ever set
     `NetworkConfig.type`.
 
-??? abstract "Ten registered models (`uv run deqn-jax list`)"
+??? abstract "Registered models (the full list: `uv run deqn-jax list`)"
     | Name | Tier | What it shows |
     |---|---|---|
     | `brock_mirman` (+ `bm_deterministic`, `bm_labor`, two `*_autodiff` POCs) | canonical / teaching | state `(k, z)`, one policy `sav_rate`, one Euler eq, analytical SS — the 5-minute smoke test |
     | `bm_labor_constrained` | example | smallest **occasionally-binding** demo (labor cap via Fischer–Burmeister) |
     | `irbc` | example | 2-country irreversibility (Fischer–Burmeister), Gauss–Hermite expectation |
     | `olg_lifecycle` (+ `olg_analytic_6` closed-form check) | example | 6-generation borrowing constraints, two-stage loss |
+    | `cdice_bau` | example | non-stationary climate-economy model (CDICE business as usual), time as a state, replication script against the published solution |
     | `disaster` | experimental | NK-DSGE / CMR, 13 states, 11 policies, numerical SS, under validation |
 
 ---

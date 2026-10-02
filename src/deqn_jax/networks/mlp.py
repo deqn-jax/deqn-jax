@@ -26,9 +26,11 @@ class MLP(eqx.Module):
         finite upper:   lower + (upper - lower) * sigmoid(raw)
         infinite upper: lower + softplus(raw)
         lower is None:  raw (no bounding at all)
+        lower = -inf:   raw for that output only
 
     The per-output choice is frozen at construction into the static
-    ``_has_upper`` mask, so a model may mix the two forms.
+    ``_has_upper`` mask and the static lower bounds, so a model may mix the
+    forms.
 
     Attributes:
         layers: List of linear layers

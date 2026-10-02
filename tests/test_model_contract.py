@@ -20,6 +20,7 @@ Tolerances: shipped models solve SS to ≤3e-5 (per the audit); we allow a
 roundoff.
 """
 
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -119,10 +120,16 @@ def test_equation_names_match_equation_keys(model):
     """
     if not model.equation_names:
         pytest.skip(f"{model.name} has no equation_names")
-    if model.steady_state_fn is None:
-        pytest.skip(f"{model.name} has no steady_state_fn to evaluate equations")
-    ss_state, ss_policy = model.steady_state_fn(model.constants)
-    s, p = _b(ss_state), _b(ss_policy)
+    if model.steady_state_fn is not None:
+        ss_state, ss_policy = model.steady_state_fn(model.constants)
+        s, p = _b(ss_state), _b(ss_policy)
+    elif model.init_state_fn is not None:
+        # Non-stationary / ergodic-only models: any admissible point will do,
+        # only the key order is checked here.
+        s = model.init_state_fn(jax.random.PRNGKey(0), 1, model.constants)
+        p = jnp.full((1, model.n_policies), 0.5)
+    else:
+        pytest.skip(f"{model.name} has no state to evaluate equations at")
     resid = model.equations_fn(s, p, s, p, model.constants)
     keys = tuple(k for k in resid.keys() if not k.startswith("aux_"))
     assert keys == tuple(model.equation_names), (

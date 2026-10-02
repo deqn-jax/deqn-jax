@@ -24,6 +24,7 @@ from deqn_jax.models.bm_labor_autodiff import MODEL as _bm_labor_autodiff
 from deqn_jax.models.bm_labor_constrained import MODEL as _bm_labor_constrained
 from deqn_jax.models.brock_mirman import MODEL as _brock_mirman
 from deqn_jax.models.brock_mirman_autodiff import MODEL as _brock_mirman_autodiff
+from deqn_jax.models.cdice_bau import MODEL as _cdice_bau
 from deqn_jax.models.disaster import MODEL as _disaster
 from deqn_jax.models.irbc import MODEL as _irbc
 from deqn_jax.models.olg_analytic_6 import MODEL as _olg_analytic_6
@@ -45,6 +46,7 @@ _MODELS = {
     "irbc": _irbc,
     "disaster": _disaster,
     "rss_trade_ez_ref": _rss_trade_ez_ref,
+    "cdice_bau": _cdice_bau,
 }
 
 # One source of truth for the blurbs: each model package's
