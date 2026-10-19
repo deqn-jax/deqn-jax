@@ -515,7 +515,8 @@ src/deqn_jax/
 configs/         # arm configs (disaster_gated_pcgrad_bkpin.yaml etc.); configs/archive/ is gitignored
 scripts/         # cert/ (SS probe, stress table, risky SS, GN polish), dgx/ (container sweeps), dev/ (plots, config reference, module graph); scripts/local/ is ignored scratch
 tests/           # smoke convention: 3 episodes, hidden=(16,), batch=16; conftest enables x64 before any import
-docs/dev/        # cert report, chronicle, library review (research state)
+docs/dev/        # research record: cert report, chronicle, library review; disaster/ (model spec, errata, LaTeX), audits/
+docs/README.md   # which docs folder serves which reader
 .claude/agents/  # reader / worker / verifier / reviewer role agents
 Makefile         # the gate
 ```
@@ -547,8 +548,8 @@ Makefile         # the gate
 - Two JIT boundaries per cycle (rollout + grad-step sweep); everything
   runtime-variable resolves at construction time, before tracing (graph #42).
 - Five train-step variants (STANDARD/PCGRAD/MAO/LBFGS/GN) dispatched by
-  `OptimizerKind` (resolve the kind through `optimizers.registry.get_optimizer_kind`,
-  never a name list); when adding a loss feature, extend
+  `OptimizerKind` (the kind comes back from `optimizers.registry.create_optimizer`,
+  which reads it from the registry; never a name list); when adding a loss feature, extend
   `state_init._validate_train_config` so combos that would silently drop it from the
   gradient are rejected, not ignored.
 - Loss-dict keys prefixed `aux_` are excluded from reweighting and gradient surgery

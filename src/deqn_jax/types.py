@@ -162,9 +162,10 @@ class ModelSpec(NamedTuple):
     setup_fn: Optional[Callable[..., "ModelSpec"]] = None
 
     # Optional: called every ``log_every`` cycles in the Python-level
-    # logging path, given the model and current training-batch quantities,
-    # to return a dict of scalar diagnostics that the trainer prepends
-    # to TensorBoard / W&B with the model's namespace prefix. Lets a
+    # logging path (only when ``definitions_fn`` is also set), given the
+    # model and current training-batch quantities, to return a dict of
+    # scalar diagnostics that the trainer logs to TensorBoard / W&B under
+    # the keys the hook returns. Lets a
     # model expose its own per-equation decompositions, ratio
     # diagnostics, soft-floor saturation fractions, etc. without the
     # framework knowing about the model's internals. Failure is
@@ -185,7 +186,7 @@ class ModelSpec(NamedTuple):
     # (``loss_type='composite'``). Lets a model contribute extra
     # ``aux_*``-keyed losses without the framework knowing about that
     # model's definitions or solver internals. Called inside
-    # ``make_composite_loss``'s closure after barrier losses, with the
+    # ``make_composite_loss``'s closure after the generic terms, with the
     # batch-level ``defs`` dict and a kwargs dict of relevant
     # ``CompositeLossConfig`` weights. Returns ``(aux_entries,
     # total_contribution)``: ``aux_entries`` is merged into
@@ -362,12 +363,10 @@ class EpisodeState(NamedTuple):
 class Metrics(NamedTuple):
     """Training metrics from a single step/episode.
 
-    All three fields hold scalar JAX Arrays at runtime (built inside
-    JIT'd grad steps). They were previously annotated as plain Python
-    ``float`` / ``Dict[str, float]``, which produced ~70 spurious
-    ``reportArgumentType`` errors at every Metrics(...) call site --
-    consumers cast to ``float`` explicitly when they need a Python
-    scalar (``float(metrics.loss)``).
+    ``loss`` and ``grad_norm`` hold scalar JAX Arrays at runtime (built
+    inside JIT'd grad steps) and ``residuals`` a dict of them; consumers
+    cast to ``float`` explicitly when they need a Python scalar
+    (``float(metrics.loss)``).
     """
 
     loss: Array

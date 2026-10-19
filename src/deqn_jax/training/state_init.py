@@ -5,13 +5,14 @@ the orchestrator stays readable:
 
 - ``create_train_state`` : policy net + optimizer + initial TrainState
 - ``make_train_step``    : builds the Python-level cycle step (one JIT'd
-  rollout + a JIT'd per-minibatch grad step, 5 variants by OptimizerKind)
+  rollout + a JIT'd per-minibatch grad step; 5 variants, chosen by
+  OptimizerKind and ``gradient_surgery``)
 - ``_validate_train_config`` / ``_resolve_model_for_training`` : config + model
   validation that doesn't / does depend on the loaded model
 - ``_build_initial_state`` : resume-or-build-fresh + optional warm start
 
-Pure move (no logic changes); trainer.py re-imports these under the same names
-so ``from deqn_jax.training.trainer import create_train_state`` etc. keep working.
+trainer.py re-imports these under the same names, so
+``from deqn_jax.training.trainer import create_train_state`` etc. work.
 """
 
 import os
@@ -299,8 +300,12 @@ def make_train_step(
 def _validate_train_config(config) -> None:
     """Validate config invariants that don't depend on the loaded model.
 
-    Currently: fp64 toggle + composite-loss/optimizer-combo gate +
-    episode_length=1 / initialize_each_episode requirement.
+    Also turns on JAX x64 when ``config.fp64`` is set. Rejects
+    combinations whose settings would be silently dropped from the
+    gradient (optimizer, gradient surgery, composite loss, coverage,
+    replay and grad_clip combinations), the residual-Sobolev term without
+    quadrature, and ``episode_length=1`` without
+    ``initialize_each_episode``.
     """
     if config.fp64 and not jax.config.read("jax_enable_x64"):
         jax.config.update("jax_enable_x64", True)

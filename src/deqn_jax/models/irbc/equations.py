@@ -22,8 +22,9 @@ Economic structure:
 
 Residual forms (all raw; no LHS/RHS ratios, so MC-safe):
 
-    euler_j = mu_j + beta * E[lambda' * mpk_j' - (1 - delta) * mu_j']
+    euler_j = mu_j + beta * E[lambda' * M_j' - (1 - delta) * mu_j']
               - lambda * (1 + d_adj_cost_dk_next_j)
+    M_j'    = 1 - delta + mpk_j' - d_adj_cost_dk_j'   (at k_j', k_j'')
     arc     = sum_j (y_j + (1-delta) k_j - k_j_next - adj_cost_j - c_j)
     fb_j    = mu_j + i_j - sqrt(mu_j^2 + i_j^2 + fb_eps)
 
@@ -189,9 +190,9 @@ def equations(
     out["arc"] = arc
 
     # Fischer-Burmeister complementarity: fb(a,b) = a + b - sqrt(a^2 + b^2 + eps).
-    # fb(mu_j, i_j) = 0 iff mu_j >= 0, i_j >= 0, mu_j * i_j = 0. The eps
-    # keeps the sqrt smooth at (0,0); 1e-8 is a standard choice that leaves
-    # the equilibrium zero in place.
+    # With eps = 0, fb(mu_j, i_j) = 0 iff mu_j >= 0, i_j >= 0, mu_j * i_j = 0.
+    # The eps keeps the sqrt smooth at (0,0) and moves the zero to
+    # mu_j * i_j = eps / 2, a negligible relaxation at eps = 1e-8.
     for j in range(N_COUNTRIES):
         i_j = defs[f"i_{j}"]
         out[f"fb_{j}"] = mus[j] + i_j - jnp.sqrt(mus[j] * mus[j] + i_j * i_j + fb_eps)

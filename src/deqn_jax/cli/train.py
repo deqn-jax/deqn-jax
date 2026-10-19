@@ -138,7 +138,8 @@ def add_parser(subparsers):
         "--reweight-alpha",
         type=float,
         default=None,
-        help="EMA decay for adaptive reweighting (default: 0.9)",
+        help="Reweighting coefficient: EMA decay for lr_annealing, mixing weight "
+        "for relobralo (default: 0.9)",
     )
     train_parser.add_argument(
         "--tensorboard",
@@ -208,7 +209,7 @@ def add_parser(subparsers):
         "--lr-warmup",
         type=int,
         default=None,
-        help="Warmup episodes before LR decay (default: 0)",
+        help="Linear warmup episodes at the start of the cosine schedule (default: 0)",
     )
     train_parser.add_argument(
         "--lr-min-factor",

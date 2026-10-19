@@ -1,7 +1,7 @@
 """Multi-Adaptive Optimizer (MAO) for per-equation optimization.
 
-MAO maintains separate Adam-style moment estimates for each equation,
-then combines updates via per-task adaptive learning rates.
+MAO maintains separate Adam-style moment estimates for each equation and
+averages the per-equation Adam-normalized updates.
 
 This is NOT an optax.GradientTransformation -- it has a custom interface
 because it receives per-equation Jacobians instead of standard gradients.
@@ -97,7 +97,7 @@ class MAOTransform:
         bc1 = 1.0 - b1**count
         bc2 = 1.0 - b2**count
 
-        # Per-equation Adam updates, then sum across equations
+        # Per-equation Adam updates, then average across equations
         def compute_update(m_leaf, v_leaf):
             # m_leaf: [n_eq, *shape], v_leaf: [n_eq, *shape]
             m_hat = m_leaf / bc1

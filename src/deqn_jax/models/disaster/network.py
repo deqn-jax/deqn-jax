@@ -8,19 +8,21 @@ bracket, sign flips in the investment Euler, sharp kinks at the ELB). Those
 encodings are model-specific and live here, not in the generic library
 module.
 
-Shape priors and selection devices, each independently toggleable
-(forward-pass order in ``DisasterPolicyNet._forward_single``):
+Shape priors and selection devices, each independently toggleable (the
+order in which ``DisasterPolicyNet._forward_single`` applies them is listed in
+the class docstring):
 
 1. **K/F restriction** (``kf_names``, ON by default). Zeros the MLP delta at
    the named policy positions so those outputs stay exactly equal to the BK
    linear policy: the four Calvo recursive aggregates ``F_p, K_p, F_w, K_w``
-   are linear forever. This is a restriction that selects a basin, not a gauge
+   are linear forever (unless a Calvo reparam below overwrites ``K_p`` /
+   ``K_w``). This is a restriction that selects a basin, not a gauge
    fix: the Calvo recursions are affine with a current-period source, so a
    common rescaling of K/F is not a symmetry of the equilibrium system
    (measured 2026-09-10; graph @aleph/deqn, node #34). Its cost is unmeasured.
 
 2. **ELB feature augmentation** (``use_zlb_feature`` + ``zlb_feature_kind``).
-   Prepends ``R_lag - R_lb`` (raw) or ``max(R_lag - R_lb, 0)`` (kink) to
+   Appends ``R_lag - R_lb`` (raw) or ``max(R_lag - R_lb, 0)`` (kink) to
    the MLP's input so the network has explicit access to ELB-regime
    information without needing tanh layers to learn the kink shape.
 
@@ -39,8 +41,9 @@ Shape priors and selection devices, each independently toggleable
    §3.1/§3.1'). The ``pi`` / ``w_tilda`` output slots are read as the Calvo
    inner terms ``K_p_inner`` / ``K_w_inner`` (bounds overridden to their
    domain); ``pi``, ``w_tilda`` and ``K_p`` / ``K_w`` are recovered post-clip
-   so eqs 2a / 4a hold as identities. Experimental: `configs/archive/disaster_calvo`
-   only.
+   so eqs 2a / 4a hold as identities up to the soft-floor wedge that
+   ``definitions()`` applies to the inner terms. Experimental:
+   `configs/archive/disaster_calvo` only.
 
 6. **Per-policy output links** (``output_links``): ``linear`` (additive) or
    ``log`` (multiplicative around SS); reparam slots must be linear.
@@ -71,17 +74,19 @@ class DisasterPolicyNet(eqx.Module):
 
     Forward pass (each step optional, controlled by configuration):
 
-      1. ``mlp_input = augment_with_zlb_feature(state)``     (if use_zlb_feature)
-      2. ``linear = π_BK(state)``                              (always)
-      3. ``M_BK = transform_q_to_m(linear)``                  (if reparam_q_as_m)
-      4. ``δ = mlp(mlp_input)``                                (always)
-      5. ``δ = mask_kf(δ)``                                   (if kf_indices)
-      6. ``raw = linear + δ``                                  (always)
+      1. ``bk = P @ (state - ss_state)``                        (always)
+      2. replace the BK term at the ``pi`` / ``w_tilda`` / ``q`` slots by
+         its K_p_inner / K_w_inner / M value     (if the matching reparam)
+      3. ``δ = mlp(augment_with_zlb_feature(state))``  (feature if use_zlb_feature)
+      4. ``δ = mask_kf(δ)``                                    (if kf_indices)
+      5. ``δ = δ - δ(ss_state) - Jδ(ss_state) (state - ss_state)``  (if bk_pin)
+      6. ``raw = combine(ss_policy, bk, δ)`` per output link  (always)
       7. ``raw = recover_q_from_m(raw, state)``               (if reparam_q_as_m)
       8. ``policy = clip(raw, lower, upper)``                  (always)
+      9. recover ``pi`` / ``K_p`` and ``w_tilda`` / ``K_w`` from the clipped
+         K_p_inner / K_w_inner                  (if the matching reparam)
 
-    Each step is a thin transformation; the core residual ansatz is
-    the same as in the generic LinearPlusMLP.
+    With no prior enabled, the result is the generic LinearPlusMLP ansatz.
     """
 
     # Generic ansatz components (mirror LinearPlusMLP)
@@ -121,7 +126,7 @@ class DisasterPolicyNet(eqx.Module):
     # treat the network's `π` output slot as K_p_inner_t ∈ (0, 1/(1−ξ_p))
     # via repurposed bounds; derive π_t from the inverse map post-clip,
     # AND override raw[K_p_idx] with K_p = F_p · K_p_inner^{1−λ_f} so eq 2a
-    # becomes an identity (no residual). Encodes the Calvo asymptote in
+    # holds up to the soft-floor wedge of definitions(). Encodes the Calvo asymptote in
     # the parameterization so the MLP only has to learn smooth K_p_inner.
     reparam_pi_as_kp_inner: bool = eqx.field(static=True)
     pi_idx: int = eqx.field(static=True)
@@ -137,7 +142,8 @@ class DisasterPolicyNet(eqx.Module):
     # treat the network's `w_tilda` output slot as K_w_inner_t. Derive
     # w_tilda from the inverse eq 4a formula post-clip:
     #     w_tilda = ψ_L · K_w / (F_w · K_w_inner^{1−λ_w(1+σ_L)})
-    # which makes eq 4a an identity by construction. Encodes the wage-side
+    # which makes eq 4a hold up to the soft-floor wedge of definitions().
+    # Encodes the wage-side
     # Calvo asymptote symmetrically to the price-side reparam.
     reparam_wtilda_as_kw_inner: bool = eqx.field(static=True)
     w_tilda_idx: int = eqx.field(static=True)
@@ -237,8 +243,9 @@ class DisasterPolicyNet(eqx.Module):
             key=key,
         )
 
-        # Final-layer scaling for zero-init delta: at training step 0 the
-        # MLP output is exactly zero, so policy = π_BK exactly.
+        # Final-layer scaling: the bias is zeroed and the weights scaled by
+        # init_scale, so with init_scale=0 the MLP output is exactly zero at
+        # training step 0 (and, with no reparam enabled, policy = π_BK).
         last = self.mlp.layers[-1]
         scaled_w = last.weight * init_scale
         zero_b = jnp.zeros_like(last.bias)
@@ -266,8 +273,9 @@ class DisasterPolicyNet(eqx.Module):
 
         # Investment-bracket reparam (§3.3): when True, the q output of
         # the network is interpreted as M = q · 𝓑(x), and q is recovered
-        # post-MLP as M / 𝓑(x). Eliminates the sign-flip pathology in
-        # eq 7 (the LHS µ_Υ q 𝓑(x) is forced positive by construction).
+        # post-MLP as M / 𝓑(x), with 𝓑 floored at 1e-3 in the division.
+        # Aimed at the sign-flip pathology in eq 7; 𝓑(x) itself, and so the
+        # sign of µ_Υ q 𝓑(x), is not constrained.
         self.reparam_q_as_m = bool(reparam_q_as_m)
         self.q_idx = int(q_idx)
         self.i_idx = int(i_idx)
@@ -624,8 +632,8 @@ class DisasterPolicyNet(eqx.Module):
         # Calvo K_p_inner reparam (§3.1, price side): post-clip, raw[pi_idx]
         # is K_p_inner_t bounded to (0.01, 1/(1−ξ_p)−0.01). Recover π_t via
         # the inverse map AND override raw[K_p_idx] with K_p = F_p ·
-        # K_p_inner^{1−λ_f} so eq 2a is satisfied as an algebraic identity
-        # (no residual). The (1−(1−ξ_p)·K_p_inner)/ξ_p factor is positive
+        # K_p_inner^{1−λ_f} so eq 2a holds up to the soft-floor wedge of
+        # definitions(). The (1−(1−ξ_p)·K_p_inner)/ξ_p factor is positive
         # everywhere on the bounded K_p_inner domain.
         if self.reparam_pi_as_kp_inner:
             pi_lag = state[self.pi_lag_idx]
@@ -663,7 +671,8 @@ class DisasterPolicyNet(eqx.Module):
             # if enabled, otherwise it's the network's clipped output for pi).
             pi_t = raw[self.pi_idx]
             w_tilda_t = pi_w_t * w_tilda_lag / (pi_t + 1e-12)
-            # K_w override: makes eq 4a identity (K_w = (1/ψ_L)·K_w_inner^{1−λ_w(1+σ_L)}·w_tilda·F_w)
+            # K_w override: eq 4a holds up to the soft-floor wedge
+            # (K_w = (1/ψ_L)·K_w_inner^{1−λ_w(1+σ_L)}·w_tilda·F_w)
             kw_exponent = 1.0 - self.lambda_w * (1.0 + self.sigma_L)
             F_w_t = raw[self.F_w_idx]
             K_w_t = (1.0 / self.psi_L) * (kw_inner_t**kw_exponent) * w_tilda_t * F_w_t

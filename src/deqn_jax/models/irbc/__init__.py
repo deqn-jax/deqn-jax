@@ -7,8 +7,8 @@ complementarity residuals.
 
 5 equations (2 Eulers + 1 ARC + 2 FB), 5 policy outputs (2 k_next +
 1 lambda + 2 mu), 4 states (2 k + 2 z), 3 shocks (2 country-specific +
-1 aggregate). First model in the repo to use the Fischer-Burmeister
-pattern; same function will later drive bm_labor_constrained.
+1 aggregate). The Fischer-Burmeister residual is written inline in
+``equations.py``.
 """
 
 from deqn_jax.models.irbc.dynamics import step

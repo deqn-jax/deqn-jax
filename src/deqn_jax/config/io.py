@@ -10,7 +10,7 @@ from deqn_jax.config._base import _ConfigBase
 from deqn_jax.config.train import TrainConfig
 
 # ---------------------------------------------------------------------------
-# Helpers (kept from original)
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -22,7 +22,6 @@ from deqn_jax.config.train import TrainConfig
 REMOVED_FIELDS: Dict[str, Set[str]] = {
     "network": {"multi_head", "skip_connections"},
     "optimizer": {
-        "weight_decay",
         "lr_reduce_factor",
         "lr_reduce_patience",
         "lr_reduce_cooldown",
