@@ -8,8 +8,9 @@ Owns the on-disk layout for training checkpoints:
 - ``config.yaml`` — written once on first save so resume can rebuild
   a matching state pytree even if the live config has drifted.
 
-Lives here so ``trainer.py`` carries only the policy of *when* to
-save / prune / resume, not the storage layout.
+The in-loop policy of *when* to save, prune and fall back
+(``maybe_checkpoint``, ``maybe_save_best``, ``final_save_best_fallback``)
+lives here too, so ``trainer.py`` only calls it.
 """
 
 import glob as glob_mod
@@ -93,8 +94,9 @@ def prune_checkpoints(checkpoint_dir: str, max_keep: int) -> None:
 def resume_from(template_state: Any, checkpoint_path: str) -> Any:
     """Load a serialised TrainState from disk into the given template.
 
-    Thin wrapper around ``eqx.tree_deserialise_leaves`` so trainer.py
-    doesn't need to spell out the equinox call. ``template_state`` must
+    Thin wrapper around ``eqx.tree_deserialise_leaves``, shared by resume
+    (``state_init._build_initial_state``) and
+    ``load_policy_from_checkpoint``. ``template_state`` must
     have the same pytree structure as the saved state -- typically built
     from the config that produced the checkpoint.
     """
@@ -103,10 +105,8 @@ def resume_from(template_state: Any, checkpoint_path: str) -> Any:
 
 # ---------------------------------------------------------------------------
 # In-loop orchestration (when to save / refresh-rollback / fallback).
-# Moved out of trainer.py so the trainer carries only the loop, not the
-# checkpoint policy. ``nan`` / ``tracker`` are duck-typed (trainer's
-# _NanRollback / _SaveBestTracker) so this module stays free of trainer
-# imports.
+# ``nan`` / ``tracker`` are duck-typed (loop_control's _NanRollback /
+# _SaveBestTracker) so this module stays free of loop imports.
 # ---------------------------------------------------------------------------
 
 
@@ -320,13 +320,9 @@ def load_policy_from_checkpoint(
     state = resume_from(template_state, checkpoint_path)
     policy_net = state.params
 
-    # NB: the previous "restore correct bounds" rehab block was a fix for
-    # a former bug where output_lower / output_upper drifted under Adam-
-    # family second-moment updates. That bug was closed structurally in
-    # ``f5041c8`` (bound + normalization fields are now ``eqx.field(static=True)``
-    # tuples, excluded from the trainable pytree). New checkpoints inherit
-    # the correct bounds from the template state's ``__init__`` at load
-    # time, so no post-load rehab is needed — and ``eqx.tree_at`` on
-    # static fields raises, since static fields aren't pytree leaves.
+    # Bound and normalization fields are ``eqx.field(static=True)`` tuples,
+    # excluded from the trainable pytree, so the loaded network takes them
+    # from the template's ``__init__`` and needs no post-load repair
+    # (``eqx.tree_at`` on static fields would raise: they are not leaves).
 
     return policy_net, model

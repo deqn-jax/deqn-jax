@@ -1,4 +1,4 @@
-"""Composite loss: anchor + Jacobian + Sobolev-anchor + model-supplied aux.
+"""Composite loss: base residual + anchor/Jacobian terms + model-supplied aux.
 
 Drop-in replacement for compute_loss() — returns the same (total_loss, eq_losses_dict)
 signature, with auxiliary losses keyed with "aux_" prefix so adaptive reweighting
@@ -6,16 +6,17 @@ and per-equation gradient surgery only see the base equilibrium residuals.
 
 The generic terms here are MODEL-AGNOSTIC:
 
-- ``aux_anchor``      = ||π_θ(s) − π_BK(s)||² at sampled-near-SS points
-- ``aux_jac``         = ||J_π_θ(s_ss) − P||²_F
+- ``aux_anchor``      = mean squared π_θ(s) − π_BK(s) at sampled-near-SS points
+- ``aux_jac``         = mean squared entry of J_π_θ(s_ss) − P
 - ``aux_jac_anchor``  = same as aux_jac but at every anchor point (Sobolev)
+- ``aux_drift``       = closed-loop growth hinge from SS probes (``drift_weight``)
+- ``aux_res_sobolev`` = directional derivatives of E[r] (``res_sobolev_weight``)
 
 Per-model auxiliary terms (e.g. economic-feasibility barriers, Newton-solver
 diagnostics) flow through ``ModelSpec.composite_aux_fn``. The hook receives
 the per-batch ``defs`` dict, the precomputed ``CompositeData``, and a
-``weights`` dict containing every weight knob the trainer was given (so the
-hook can pick the ones it cares about, e.g. ``barrier_weight``,
-``leverage_mult``, ``newton_weight``). See ``models/disaster/composite_aux.py``
+``weights`` dict with ``barrier_weight``, ``leverage_mult`` and
+``newton_weight``. See ``models/disaster/composite_aux.py``
 for the canonical pattern (BGG net-worth barrier, leverage barrier,
 consumption barrier, Newton-conditioning diagnostics).
 
@@ -51,8 +52,8 @@ class CompositeData(NamedTuple):
         anchor_lin_policy: Linear policy at anchor points [n_anchor, n_policies]
         aux_constants: Generic dict for model-specific precomputed constants
             (e.g. disaster's ss_leverage). Populated by the model's
-            ``composite_aux_fn`` (or left empty when the model declares no
-            aux terms). Read by the same hook at loss-evaluation time.
+            ``composite_aux_constants_fn`` (empty when the model declares
+            none). Read by ``composite_aux_fn`` at loss-evaluation time.
     """
 
     P: Array
@@ -211,7 +212,7 @@ def _jac_loss(
     data: CompositeData,
     history_len: int = 1,
 ) -> Array:
-    """Jacobian loss: ||J_net(ss) - P||^2_F.
+    """Jacobian loss: mean squared entry of J_net(ss) - P.
 
     Penalizes deviation of the neural network Jacobian at the steady state
     from the linearized policy rule matrix P. This ensures the net has
@@ -228,7 +229,7 @@ def _sobolev_anchor_loss(
     data: CompositeData,
     history_len: int = 1,
 ) -> Array:
-    """Sobolev-style anchor loss: ||J_net(x_i) - P||² averaged over anchors.
+    """Sobolev-style anchor loss: mean squared entry of J_net(x_i) - P over anchors.
 
     Generalises ``_jac_loss`` from the single steady-state point to every
     anchor point. Matches the first-order behaviour of the network to the
@@ -322,7 +323,9 @@ def _residual_sobolev_loss(
     fixed ergodic-shaped unit directions, on a subsample of the batch.
 
     v1: Gaussian-quadrature expectations only; single-stage models only
-    (equations_fn is called directly). Gated in _validate_train_config.
+    (equations_fn is called directly). Gated in _validate_train_config
+    (quadrature) and _resolve_model_for_training (single-stage, no
+    discrete chain).
     """
     markov_fn = _make_markov_wrapper(policy_fn, history_len)
     eq_names = list(model.equation_names)
@@ -383,9 +386,11 @@ def make_composite_loss(
 ) -> Callable:
     """Create composite loss function as drop-in replacement for compute_loss.
 
-    Returns a function with the same signature as compute_loss():
+    Returns a function with the call signature the grad steps use:
         (model, policy_fn, states, key, mc_samples, weights, shock_scale,
-         quad_nodes, quad_weights) -> (total_loss, eq_losses_dict)
+         quad_nodes, quad_weights, target_policy_fn)
+        -> (total_loss, eq_losses_dict)
+    ``loss_choice`` and ``huber_delta`` are fixed here at build time.
 
     ``base_loss_fn`` (default: plain ``compute_loss``) computes the base
     residual term; it must accept the full compute_loss signature including
@@ -569,7 +574,7 @@ def make_composite_loss(
 
 
 # ---------------------------------------------------------------------------
-# Loss-object builder for train_from_config (moved from trainer.py)
+# Loss-object builder for train_from_config
 # ---------------------------------------------------------------------------
 
 
@@ -577,13 +582,14 @@ def _build_custom_loss_fn(config, model: ModelSpec, history_len: int):
     """Build the wrapped loss function for non-default loss configurations.
 
     Returns the custom loss callable (or None if the default MSE
-    `compute_loss` should be used as-is). Handles three layered cases:
-    composite loss, state-barrier penalty, and Huber loss for the bare
-    path — plus EWM coverage sampling, which wraps plain compute_loss.
-    Coverage composes with the composite loss (composite ∘ coverage: the
-    base residual term becomes the base+stress+local mixture, anchor/jac
-    added once on top); the remaining exclusions are validated in
-    _validate_train_config.
+    `compute_loss` should be used as-is). Handles the composite loss, the
+    state-barrier penalty, a non-MSE ``loss_choice`` (``huber``, ``aio``)
+    on the bare path, EWM coverage sampling (which wraps plain
+    compute_loss), and the moment-matching aux term layered on top of
+    whichever of these was built. Coverage composes with the composite
+    loss (composite ∘ coverage: the base residual term becomes the
+    base+stress+local mixture, anchor/jac added once on top); the remaining
+    exclusions are validated in _validate_train_config.
     """
     from functools import partial
 

@@ -13,9 +13,11 @@ besides the economic states, the reference solution's training scaffolding
 columns — the homotopy weights ``homo``/``homo_1`` (calibration and trade-cost
 continuation), the transversality gate ``A_min``, the bond mask ``a_mask`` and
 the EZ discount accumulators ``U_store_i`` — because the reference checkpoint's
-policy is a function of all 31 columns. They are held at their converged
-values here (``homo = homo_1 = A_min = U_store = 1``, ``a_mask = 0``) and are
-never advanced by the dynamics. The Phase-1 variant model drops them.
+policy is a function of all 31 columns. The sampler starts them at their
+converged values (``homo = homo_1 = A_min = U_store = 1``, ``a_mask = 0``).
+``homo``, ``homo_1``, ``A_min`` and ``a_mask`` are never advanced by the
+dynamics; ``U_store_i`` advances from the ``U_store`` policy. The planned
+Phase-1 variant drops them.
 
 Names are the reference's without its ``_x``/``_y`` suffixes; the parity map
 (private repo) matches by name. Every function in this package indexes by
