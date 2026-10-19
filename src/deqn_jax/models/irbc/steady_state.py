@@ -1,11 +1,11 @@
 """Steady state and init-state sampler for 2-country IRBC.
 
-Simon calibrates the TFP scale ``A_tfp`` so that at z=0, k=1 the
-marginal product equals 1/beta (the capital Euler with zero adjustment
-cost, zero irreversibility slack). Under symmetric calibration that
-fixes K_ss=1 exactly.
+Simon calibrates the TFP scale ``A_tfp`` so that at z=0, k=1 the gross
+return to capital ``1 - delta + mpk`` equals 1/beta (the capital Euler with
+zero adjustment cost, zero irreversibility slack). Under symmetric
+calibration that fixes K_ss=1 exactly.
 
-Given K_ss=1 and MPK_ss=1/beta, the SS shadow price lambda_ss can be
+Given K_ss=1 and a gross return of 1/beta, the SS shadow price lambda_ss can be
 chosen from either country's Pareto FOC ``u'(c_j) = lambda / tau_j``.
 Under symmetric calibration (both Pareto weights 0.5) we'd have
 c_0 = c_1 and lambda_ss chosen so that c_j = y_j - delta * k_j at SS.
@@ -76,7 +76,8 @@ def _solve_lambda_ss(constants: Dict) -> float:
 def steady_state(constants: Dict) -> Tuple[Array, Array]:
     """Zero-shock symmetric SS: k_j=1, z_j=0, mu_j=0.
 
-    k_ss=1 is built into the A_tfp calibration (MPK=1/beta at k=1).
+    k_ss=1 is built into the A_tfp calibration (1 - delta + mpk = 1/beta
+    at k=1).
     Returns (ss_state [4], ss_policy [5]).
     """
     lam_ss = _solve_lambda_ss(constants)

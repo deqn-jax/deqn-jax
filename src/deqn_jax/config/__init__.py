@@ -1,10 +1,13 @@
 """Structured configuration for DEQN-JAX training.
 
-Three-plus nested Pydantic models with YAML loading and CLI override merging.
+Seven Pydantic models: ``TrainConfig`` and the six blocks nested in it
+(``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``,
+``ReplayBufferConfig``, ``CoverageConfig``, ``MomentMatchingConfig``), with
+YAML loading and CLI override merging.
 Priority: --set overrides > CLI args > YAML file > defaults.
 
-Split into a package (config/) for readability; this module re-exports the full
-public surface so ``from deqn_jax.config import TrainConfig`` etc. keep working.
+This module re-exports the public surface of the ``config`` package, so
+``from deqn_jax.config import TrainConfig`` works.
 """
 
 from deqn_jax.config.coverage import CoverageConfig

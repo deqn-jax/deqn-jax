@@ -6,7 +6,12 @@ For 2D parameters (weight matrices), maintains Kronecker factors:
 
 For 1D parameters (biases), reshapes to [1, n] to avoid data-dependent branching.
 
-Preconditioners are updated every ``precond_update_freq`` steps.
+``L`` and ``R`` start at the identity. The statistics are updated only on
+every ``precond_update_freq``-th step (the gradients in between do not enter
+them); the inverse fourth roots are recomputed from the current statistics
+at every step. Through the registry only ``learning_rate`` and
+``precond_update_freq`` are configurable; ``beta`` and ``epsilon`` keep the
+defaults of ``shampoo()``.
 """
 
 from typing import Any, NamedTuple, Optional, Tuple
@@ -47,7 +52,7 @@ def shampoo(
     Args:
         learning_rate: Step size
         beta: EMA decay for preconditioner statistics
-        precond_update_freq: Steps between preconditioner updates
+        precond_update_freq: Steps between updates of the L/R statistics
         epsilon: Ridge for numerical stability
 
     Returns:

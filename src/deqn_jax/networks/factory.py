@@ -1,8 +1,8 @@
 """Policy-network factory: net_type dispatch for ``create_train_state``.
 
 ``build_policy_net`` handles the generic net types (mlp / linear_plus_mlp /
-lstm / transformer) inline and the disaster-specific types
-(disaster_policy_net) via a lazy import. It is the ONE place
+lstm / transformer) inline and the model-specific types (disaster_policy_net,
+rss_market_clearing_net) via a lazy import. It is the ONE place
 a ``NetworkConfig`` is turned into a module — checkpoint loaders must rebuild
 their template through it with the full config (static fields such as
 ``bk_pin`` change the forward graph and are not repaired by leaf
@@ -11,8 +11,10 @@ deserialization).
 Which ``NetworkConfig`` fields each branch actually honors
 ---------------------------------------------------------
 
-Every branch honors ``type`` and ``hidden_sizes``. Beyond that the branches
-differ, and fields a branch does not honor are **silently ignored** here:
+Every branch honors ``type`` and ``hidden_sizes`` (``transformer`` reads
+only its first entry, ``rss_market_clearing_net`` requires exactly two).
+Beyond that the branches differ, and fields a branch does not honor are
+**silently ignored** here:
 
 ===================== ==========================================================
 ``type``              additionally honored
@@ -33,6 +35,8 @@ differ, and fields a branch does not honor are **silently ignored** here:
                       ``kf_names``, ``use_zlb_feature``, ``zlb_feature_kind``,
                       ``bk_pin``, ``reparam_q_as_m``,
                       ``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``
+``rss_market_clearing_net`` nothing else: the reference checkpoint fixes the
+                      activations, init and output transform
 ===================== ==========================================================
 
 TODO: reject the ignored combinations (e.g. ``type: lstm`` with a non-default
@@ -53,8 +57,7 @@ from deqn_jax.types import ModelSpec
 def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     """Construct the policy network for the configured ``net_type``.
 
-    Pure relocation of ``create_train_state``'s net-construction block;
-    returns the Equinox policy module. ``net_key`` is the dedicated network
+    Returns the Equinox policy module. ``net_key`` is the dedicated network
     PRNG subkey; ``hidden_sizes`` is the fallback when ``network_config`` is
     None (it is overridden by ``network_config.hidden_sizes`` otherwise).
 

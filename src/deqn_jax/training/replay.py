@@ -71,9 +71,8 @@ def write(state: ReplayState, samples: Array, priorities: Array) -> ReplayState:
         ``[write_idx, write_idx+1, ..., write_idx+N-1] mod capacity``.
         ``write_idx`` advances modulo capacity; ``n_filled`` is clamped at
         capacity. If ``N > capacity``, only the last ``capacity`` rows are
-        retained (the older rows in the input batch get overwritten by the
-        newer ones during the same write — same as if you'd called write
-        twice with halves).
+        retained and ``write_idx`` advances by ``capacity`` (so it does not
+        move), unlike ``N`` sequential single-row writes.
     """
     capacity = state.buffer.shape[0]
     n = samples.shape[0]
@@ -133,8 +132,8 @@ def sample(
     mask = jnp.arange(capacity, dtype=jnp.int32) < state.n_filled
     weights = jnp.where(mask, (state.priorities + eps) ** alpha, jnp.float32(0.0))
     # Normalize. If buffer is empty (sum=0), this would NaN; the caller is
-    # supposed to gate via is_warm. Add a tiny stabilizer so we degrade to a
-    # uniform draw over the (still-empty) prefix instead of crashing.
+    # supposed to gate via is_warm. The tiny stabilizer avoids the NaN; an
+    # all-zero weight vector then makes every draw row 0.
     weights_sum = jnp.sum(weights)
     weights = weights / jnp.maximum(weights_sum, jnp.float32(1e-30))
 

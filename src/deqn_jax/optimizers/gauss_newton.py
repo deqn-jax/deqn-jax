@@ -9,10 +9,10 @@ This implementation uses JAX autodiff (jacrev/jacfwd) for efficient Jacobian
 computation - much faster than finite differences.
 
 Note on optimistix: optimistix's ``LevenbergMarquardt`` and ``GaussNewton``
-solvers are excellent for *full-convergence* least-squares problems
-(curve fitting, SS solving) and are used in this codebase for those
-cases (see ``models/disaster/equations.py:solve_omega_bar`` and
-``models/disaster/steady_state.py``). They do *not* fit DEQN's
+solvers target *full-convergence* least-squares problems (curve fitting,
+SS solving); this codebase does not depend on optimistix (the disaster
+steady state uses ``scipy.optimize.root`` and ``solve_omega_bar`` a
+hand-rolled projected Newton). They do *not* fit DEQN's
 per-minibatch optimizer contract, where each ``update()`` is called
 once with a fresh residual function (different minibatch's residuals)
 and we want exactly one step. Optimistix's trust-region update is
@@ -40,15 +40,13 @@ from jax import Array
 
 
 class GaussNewtonState(NamedTuple):
-    """State for Gauss-Newton optimizer.
+    """State for the Gauss-Newton and Levenberg-Marquardt optimizers.
 
     ``last_loss`` is a JAX scalar Array at runtime (sum of squared
-    residuals from inside the JIT'd update step). It was annotated as
-    Python ``float`` originally, which produced spurious
-    ``invalid-argument-type`` errors at every constructor call — same
-    pattern as the ``Metrics`` annotation lie cleared in commit
-    ``3ae741f``. ``damping`` stays ``float`` because the LM update
-    keeps it on the Python side.
+    residuals from inside the JIT'd update step). ``damping`` starts as the
+    configured Python float; ``GaussNewton`` carries it unchanged, while
+    ``LevenbergMarquardt`` replaces it with an adapted JAX scalar on every
+    update.
     """
 
     count: int  # Iteration count
@@ -169,7 +167,8 @@ class GaussNewton:
 class ImplicitGaussNewton:
     """Matrix-free damped Gauss-Newton / natural-gradient optimizer.
 
-    For residual least squares ``0.5 * ||r(theta)||^2``, the Gauss-Newton
+    For residual least squares ``0.5 * ||r(theta)||^2`` (``last_loss``
+    records ``sum r^2``, as for ``GaussNewton``), the Gauss-Newton
     metric is ``J.T @ J`` where ``J = dr/dtheta``. This class solves
 
         ``(J.T @ J + damping * I) delta = -J.T @ r``
@@ -293,7 +292,8 @@ def gauss_newton(
 
     Args:
         learning_rate: Step size multiplier (1.0 = full GN step)
-        damping: Fixed damping (0 = pure GN, >0 = LM-style regularization)
+        damping: Fixed damping (>0 = LM-style regularization). The update
+            floors it at 1e-6, so 0 is not an undamped GN step.
 
     Returns:
         GaussNewton optimizer instance
@@ -307,7 +307,11 @@ def implicit_gauss_newton(
     cg_iters: int = 20,
     cg_tol: float = 1e-6,
 ) -> ImplicitGaussNewton:
-    """Create a matrix-free damped Gauss-Newton optimizer."""
+    """Create a matrix-free damped Gauss-Newton optimizer.
+
+    The update floors ``damping`` at 1e-12 (``GaussNewton`` and
+    ``LevenbergMarquardt`` floor it at 1e-6).
+    """
 
     return ImplicitGaussNewton(
         learning_rate=learning_rate,
@@ -443,7 +447,8 @@ def levenberg_marquardt(
         initial_damping: Starting damping value
         damping_increase: Factor when step is bad
         damping_decrease: Factor when step is good
-        min_damping: Minimum damping
+        min_damping: Minimum stored damping. The solve floors damping at
+            1e-6, so stored values below that do not change the step.
         max_damping: Maximum damping
 
     Returns:
