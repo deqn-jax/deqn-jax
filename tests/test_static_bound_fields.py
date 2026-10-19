@@ -130,6 +130,42 @@ def test_apply_bounds_double_where_resists_nan_in_upper():
     )
 
 
+def test_apply_bounds_neg_inf_lower_is_unbounded_passthrough():
+    """A lower bound of -inf leaves that output raw; the others keep their bound.
+
+    Models with signed outputs next to positive ones (shadow prices beside
+    capital, ``cdice_bau``) declare -inf. Forward and backward stay finite;
+    the bounded entries equal the all-finite path exactly.
+    """
+    from deqn_jax.networks.common import _apply_bounds
+
+    x = jnp.array([-2.0, 0.3, -1.5, 4.0])
+    lo = (0.0, float("-inf"), 1.0, float("-inf"))
+    for hi, mask in [
+        (None, None),
+        ((2.0, float("inf"), float("inf"), float("inf")), (True, False, False, False)),
+    ]:
+        out = _apply_bounds(x, lo, hi, mask)
+        assert float(out[1]) == 0.3 and float(out[3]) == 4.0
+        ref = _apply_bounds(x, (0.0, 0.0, 1.0, 0.0), hi, mask)
+        assert float(out[0]) == float(ref[0]) and float(out[2]) == float(ref[2])
+        J = jax.jacrev(lambda y: _apply_bounds(y, lo, hi, mask))(x)
+        assert int(jnp.sum(~jnp.isfinite(J))) == 0
+        assert float(J[1, 1]) == 1.0 and float(J[3, 3]) == 1.0
+
+
+def test_apply_bounds_accepts_traced_finite_bounds():
+    """Traced bound arrays give the same outputs as concrete ones, -inf included."""
+    from deqn_jax.networks.common import _apply_bounds
+
+    x = jnp.array([-2.0, 0.0, 3.0])
+    traced = jax.jit(lambda a, lo: _apply_bounds(a, lo, None, None))
+    assert bool(jnp.allclose(traced(x, jnp.zeros(3)), jax.nn.softplus(x)))
+    lo = jnp.array([0.0, -jnp.inf, 0.0])
+    assert bool(jnp.array_equal(traced(x, lo), _apply_bounds(x, lo, None, None)))
+    assert float(traced(x, lo)[1]) == 0.0
+
+
 def test_static_fields_are_not_pytree_reachable():
     """eqx.tree_at on a static field raises — proof the optimizer can't touch them.
 

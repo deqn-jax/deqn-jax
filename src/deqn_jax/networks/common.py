@@ -26,6 +26,7 @@ from typing import Callable, Optional, Tuple
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 
@@ -116,6 +117,8 @@ def _apply_bounds(
         - ``has_upper_mask[i] = True``  → sigmoid: ``lo + (hi - lo) * sigmoid(x)``
         - ``has_upper_mask[i] = False`` → softplus: ``lo + softplus(x)``
         - ``lower`` is ``None`` → no bounding (raw passthrough)
+        - ``lower[i] = -inf``   → that output is unbounded (raw passthrough);
+          its upper bound must be ``inf``
 
     ``output_lower`` / ``output_upper`` may be Array or tuple. The
     sigmoid branch uses a "safe" upper to keep the *forward* and the
@@ -126,6 +129,30 @@ def _apply_bounds(
     if output_lower is None:
         return x
 
+    # Mixed bounded / unbounded outputs (e.g. positive quantities next to
+    # signed shadow prices). With concrete bounds (the networks store them as
+    # static tuples) this is decided at trace time, so a model with only
+    # finite lower bounds runs the unchanged ``_finite_bounds`` path; traced
+    # bounds are masked inside the graph.
+    try:
+        lower_vals = np.asarray(output_lower, dtype=np.float64)
+    except jax.errors.TracerArrayConversionError:
+        lo = _to_array(output_lower)
+        free = jnp.isneginf(lo)
+        bounded = _finite_bounds(
+            x, jnp.where(free, 0.0, lo), output_upper, has_upper_mask
+        )
+        return jnp.where(free, x, bounded)
+    free = tuple(bool(f) for f in np.isneginf(lower_vals))
+    if not any(free):
+        return _finite_bounds(x, output_lower, output_upper, has_upper_mask)
+    lo_bounded = tuple(0.0 if f else float(v) for v, f in zip(lower_vals, free))
+    bounded = _finite_bounds(x, lo_bounded, output_upper, has_upper_mask)
+    return jnp.where(jnp.array(free), x, bounded)
+
+
+def _finite_bounds(x: Array, output_lower, output_upper, has_upper_mask) -> Array:
+    """``_apply_bounds`` for finite lower bounds (softplus / sigmoid per output)."""
     lo = jax.lax.stop_gradient(_to_array(output_lower))
 
     if output_upper is None:
