@@ -78,7 +78,7 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`. |
+| `name` | `str` | `'adam'` | Optimizer name. Options: `adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`, `lbfgs`, `mao`, `gn`, `ign`, `lm`. |
 | `learning_rate` | `float` | `0.001` | Peak learning rate (or constant LR when `lr_schedule='constant'`). |
 | `grad_clip` | `Union[float, None]` | `None` | Global-norm clipping threshold. None disables. Chained before the update for STANDARD optimizers; MAO clips the norm of its update (Adam-normalized and already scaled by `learning_rate`) instead. Rejected for `lbfgs`, `gn`, `ign` and `lm`, whose update paths do not apply it. |
 | `beta1` | `float` | `0.9` | Adam / MAO first-moment decay. |
@@ -93,6 +93,7 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 | `cg_tol` | `float` | `1e-06` | Implicit Gauss-Newton relative conjugate-gradient residual tolerance. |
 | `lr_schedule` | `str` | `'constant'` | LR schedule: `constant` or `cosine`. |
 | `lr_warmup` | `int` | `0` | With `lr_schedule='cosine'`: episodes of linear warmup from 0 to `learning_rate`, counted inside the schedule's `episodes` horizon. Ignored by `constant`. |
+| `weight_decay` | `float` | `0.0` | Decoupled weight decay for `adamw` (ignored by every other optimizer). At 0.0, `adamw` is `adam`. |
 | `lr_min_factor` | `float` | `0.0` | Minimum LR as a fraction of peak (cosine floor). |
 
 ## `NetworkConfig`

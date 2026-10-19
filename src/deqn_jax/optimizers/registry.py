@@ -131,6 +131,27 @@ def _adam(config):
     )
 
 
+@register_optimizer("sgd")
+def _sgd(config):
+    return optax.sgd(config.learning_rate)
+
+
+@register_optimizer("adamw")
+def _adamw(config):
+    return optax.adamw(
+        config.learning_rate,
+        b1=config.beta1,
+        b2=config.beta2,
+        eps=config.epsilon,
+        weight_decay=config.weight_decay,
+    )
+
+
+@register_optimizer("lion")
+def _lion(config):
+    return optax.lion(config.learning_rate, b1=config.beta1, b2=config.beta2)
+
+
 @register_optimizer("muon")
 def _muon(config):
     return optax.contrib.muon(
