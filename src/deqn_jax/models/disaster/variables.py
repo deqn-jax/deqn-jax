@@ -108,11 +108,9 @@ CONSTANTS = {
 }
 
 STEADY_STATE = {
-    # Numerically solved (max |residual| < 2e-15) at HEAD's equation form.
-    # Refreshed after fixing eq5 habit soft_floor sharpness (10 → 100); see
-    # equations.py:385-389. Pre-fix dict had K_p=4.831/K_w=2.207 (stale
-    # relative to pi_tilda's pi_ss-anchored indexation) and pi=1.012286
-    # (matched pre-soft_floor SS, drifted to 1.013947 with sharpness=10).
+    # Numerically solved (max |residual| < 2e-15) with the eq5 habit
+    # soft floor at sharpness 100 (see the eq5 block in equations.py).
+    # Used as the initial guess of the steady-state solver.
     "pi_lag": 1.012287,
     "k_lag": 27.421465,
     "c_lag": 1.593674,

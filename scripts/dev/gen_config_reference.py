@@ -3,12 +3,10 @@
 Usage: ``uv run python scripts/dev/gen_config_reference.py``
 
 Output overwrites ``docs/site/config_reference.md`` with one table per
-config class (OptimizerConfig / NetworkConfig / CompositeLossConfig /
-TrainConfig) listing every field, its type, default, and description
-as declared via ``Field(description=...)``. Fields without an explicit
-description fall back to ``—``; the rendered doc therefore *shows*
-which fields still need a description, making this a progress bar
-for the config documentation effort.
+config class (``TrainConfig`` and the six blocks nested in it) listing
+every field, its type, default, and description as declared via
+``Field(description=...)``. Fields without an explicit description fall
+back to ``—``, so the rendered doc shows which fields still need one.
 
 The generator is deliberately boring: no templating engine, no plugins,
 just introspection + f-strings. Regenerate after any config change.
@@ -19,10 +17,15 @@ from __future__ import annotations
 import typing as _t
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from deqn_jax.config import (
     CompositeLossConfig,
+    CoverageConfig,
+    MomentMatchingConfig,
     NetworkConfig,
     OptimizerConfig,
+    ReplayBufferConfig,
     TrainConfig,
 )
 
@@ -42,6 +45,21 @@ SECTIONS = [
         "CompositeLossConfig",
         CompositeLossConfig,
         "Composite-loss weights (only active when ``loss_type: composite``); nested under ``composite_loss:`` in YAML.",
+    ),
+    (
+        "ReplayBufferConfig",
+        ReplayBufferConfig,
+        "Prioritized state-replay buffer (only active when ``enabled: true``); nested under ``replay_buffer:`` in YAML.",
+    ),
+    (
+        "CoverageConfig",
+        CoverageConfig,
+        "EWM coverage sampling (only active when ``enabled: true``); nested under ``coverage:`` in YAML.",
+    ),
+    (
+        "MomentMatchingConfig",
+        MomentMatchingConfig,
+        "Moment-matching auxiliary loss (only active when ``enabled: true``); nested under ``moment_matching:`` in YAML.",
     ),
 ]
 
@@ -73,11 +91,17 @@ def _format_type(annotation: _t.Any) -> str:
     return origin_name
 
 
-def _format_default(default: _t.Any) -> str:
+def _format_default(field: _t.Any) -> str:
+    if field.is_required():
+        return "_required_"
+    if field.default_factory is not None:
+        default = field.default_factory()
+        if isinstance(default, BaseModel):
+            return f"`{type(default).__name__}()`"
+    else:
+        default = field.default
     if default is None:
         return "`None`"
-    if callable(default) and default.__class__.__name__ == "PydanticUndefinedType":
-        return "_required_"
     if isinstance(default, str):
         return f"`{default!r}`"
     if isinstance(default, (list, tuple)) and len(default) == 0:
@@ -100,7 +124,7 @@ def render_class(name: str, cls: _t.Any, subtitle: str) -> str:
 
     for field_name, field in fields.items():
         ann = _format_type(field.annotation)
-        default = _format_default(field.default if field.default is not ... else None)
+        default = _format_default(field)
         description = (field.description or "—").strip()
         lines.append(
             f"| `{field_name}` | `{_escape_md(ann)}` | {default} | {_escape_md(description)} |"
@@ -117,7 +141,7 @@ def main() -> None:
 
     preface = """# Config reference
 
-Every field on the four Pydantic config classes (``TrainConfig``, ``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``) with its type, default, and a one-line description.
+Every field on the seven Pydantic config classes (``TrainConfig`` and its nested blocks ``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``, ``ReplayBufferConfig``, ``CoverageConfig``, ``MomentMatchingConfig``) with its type, default, and a one-line description.
 
 Generated from introspection by ``scripts/dev/gen_config_reference.py`` — regenerate after any config change:
 
@@ -125,7 +149,7 @@ Generated from introspection by ``scripts/dev/gen_config_reference.py`` — rege
 uv run python scripts/dev/gen_config_reference.py
 ```
 
-Fields with description ``—`` haven't had an explicit ``Field(description=...)`` added yet; the generator surfaces these as a TODO list for the docs effort. Start there when a user asks "what does X do."
+A field with description ``—`` has no explicit ``Field(description=...)`` yet.
 
 For YAML / CLI usage patterns (override precedence, sampling conventions, checkpoint/resume rules, etc.) see [Running experiments](running_experiments.md). For building models with these configs, see [Implementing a model](models/implementing.md).
 

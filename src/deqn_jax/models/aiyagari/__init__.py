@@ -11,13 +11,14 @@ Partial-equilibrium individual problem:
 - One Euler equation with borrowing constraint
 - Prices fixed at representative-agent steady-state levels
 
-Testbed for DEQN/GRPO on a model with:
+Testbed for DEQN on a model with:
 - Borrowing constraint (k >= 0)
 - Idiosyncratic risk (precautionary savings motive)
 - Nonlinear optimal policy (savings rate depends on wealth)
 
-To promote to a public model: add to ``deqn_jax/models/__init__.py``
-registry dict and add smoke tests under ``tests/``.
+To promote to a public model: add a ``DESCRIPTION`` to ``variables.py``
+(the registry reads it), add the model to the ``_MODELS`` dict in
+``deqn_jax/models/__init__.py``, and add smoke tests under ``tests/``.
 """
 
 from deqn_jax.models.aiyagari.dynamics import step

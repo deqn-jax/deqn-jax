@@ -1,9 +1,16 @@
-"""Natural Gradient Descent (diagonal Fisher approximation).
+"""The optimizer registered as ``ngd``: an RMSProp-style update.
 
-Running diagonal Fisher via EMA of g², preconditioned step:
-    θ ← θ - lr * g / (sqrt(F) + damping)
+Despite the name, this is not a natural-gradient step. It divides the
+gradient by the square root of a running average of squared mini-batch
+gradients, with no bias correction:
 
-Cheap and effective for PINN-style losses.
+    v ← decay * v + (1 - decay) * g²
+    θ ← θ - lr * g / (sqrt(v) + damping)
+
+``g`` is the minibatch-mean gradient the optimizer receives, not per-sample
+gradients, so ``v`` is not an empirical Fisher. ``v`` starts at 0, so the
+first step is about ``lr / sqrt(1 - decay)`` per coordinate. The update
+equals ``optax.rmsprop(eps=damping, eps_in_sqrt=False)``.
 """
 
 from typing import Any, NamedTuple, Optional, Tuple
@@ -17,7 +24,7 @@ from deqn_jax.optimizers.registry import OptimizerKind, register_optimizer
 
 
 class NGDState(NamedTuple):
-    """State for diagonal Fisher NGD."""
+    """State for ``ngd``: step count and the running average of g²."""
 
     count: Array
     fisher_diag: Any  # pytree matching params, EMA of g²
@@ -28,12 +35,12 @@ def ngd(
     damping: float = 1e-4,
     decay: float = 0.999,
 ) -> optax.GradientTransformation:
-    """Diagonal Fisher Natural Gradient Descent.
+    """RMSProp-style update registered as ``ngd`` (see the module docstring).
 
     Args:
         learning_rate: Step size
-        damping: Regularization added to sqrt(Fisher)
-        decay: EMA decay for Fisher diagonal estimate
+        damping: Added to sqrt(v) in the denominator
+        decay: EMA decay of the running average v of g²
 
     Returns:
         optax.GradientTransformation

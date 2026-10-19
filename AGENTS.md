@@ -283,7 +283,9 @@ The reviewer's field is four things, all mandatory: the **branch diff against tr
 role** (`#1`, `#8`/`#9`); **references to the graph nodes entering the diff** — the
 leading vimarsha and every action, phenomenon and rule the branch changes — never a
 retelling. The reviewer runs `iskron:integrity` read-only and returns findings plus an
-**integration report**. `NEEDS_CONTEXT` names a graph gap: fix the graph (design,
+**integration report**. Every review brief, Astra's included, asks for docstrings,
+comments and docs in the diff to be checked against the code they describe.
+`NEEDS_CONTEXT` names a graph gap: fix the graph (design,
 weave, wake the neighbour through `iskron:standing`), then repeat. Fix what came back
 in the same branch; reject a finding with a recorded "why" (in the PR or on the node).
 
@@ -513,7 +515,8 @@ src/deqn_jax/
 configs/         # arm configs (disaster_gated_pcgrad_bkpin.yaml etc.); configs/archive/ is gitignored
 scripts/         # cert/ (SS probe, stress table, risky SS, GN polish), dgx/ (container sweeps), dev/ (plots, config reference, module graph); scripts/local/ is ignored scratch
 tests/           # smoke convention: 3 episodes, hidden=(16,), batch=16; conftest enables x64 before any import
-docs/dev/        # cert report, chronicle, library review (research state)
+docs/dev/        # research record: cert report, chronicle, library review; disaster/ (model spec, errata, LaTeX), audits/
+docs/README.md   # which docs folder serves which reader
 .claude/agents/  # reader / worker / verifier / reviewer role agents
 Makefile         # the gate
 ```
@@ -528,6 +531,15 @@ Makefile         # the gate
   the same move if it does not. Readers of this public code include people without
   graph access: keep such references to the places where *why* is otherwise
   unrecoverable, and keep the dev docs self-standing.
+- **Docstrings are claims about the code, and they move with it.** A change that
+  removes, renames or alters behaviour updates, in the same commit, every
+  docstring, comment, Pydantic field description and doc page that names it:
+  grep the old name across `src/`, `docs/`, `README.md` before committing. Never
+  repeat a docstring to the maintainer as fact without checking the code it
+  describes. A docstring that enumerates a registry points to the CLI command
+  instead, or is guarded by a test. (why: removed optimizers stayed listed in four
+  module docstrings for weeks, the API reference is generated from them, and
+  agents passed them on as truth; graph #59.)
 - Config precedence: `--set` overrides > CLI args > YAML file > defaults
   (`load_config()` in `config/io.py`; dot-notation reaches every nested block, e.g.
   `--set coverage.enabled=true`; lists cannot be set from `--set`). When a
@@ -536,8 +548,8 @@ Makefile         # the gate
 - Two JIT boundaries per cycle (rollout + grad-step sweep); everything
   runtime-variable resolves at construction time, before tracing (graph #42).
 - Five train-step variants (STANDARD/PCGRAD/MAO/LBFGS/GN) dispatched by
-  `OptimizerKind` (resolve the kind through `optimizers.registry.get_optimizer_kind`,
-  never a name list); when adding a loss feature, extend
+  `OptimizerKind` (the kind comes back from `optimizers.registry.create_optimizer`,
+  which reads it from the registry; never a name list); when adding a loss feature, extend
   `state_init._validate_train_config` so combos that would silently drop it from the
   gradient are rejected, not ignored.
 - Loss-dict keys prefixed `aux_` are excluded from reweighting and gradient surgery

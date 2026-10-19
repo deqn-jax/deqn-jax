@@ -48,7 +48,7 @@ record, with all amendments in place).
 - **Model tex vindicated** (07-06/07): all 11 equations re-derived by hand + cross-checked;
   math clean; 5 prose-slop errata fixed (b6fbe6f). ELB floor traced to commit fdfbf2b
   (2026-04-17) — added as a training guardrail, absent from the original model. The
-  original calibration (docs/disaster.tex, from Alex): p = 1%, θ = 15% (Barro-consistent),
+  original calibration (docs/dev/disaster/disaster.tex, from Alex): p = 1%, θ = 15% (Barro-consistent),
   σ_p carrying a 100× percent-typo, and a never-implemented credit-crisis dispersion
   channel (σ_ω 0.268 → 0.54) — spec-let 4 is its restoration.
 - **EWM coverage feature** shipped + validated on irbc (spec 2026-06-29): `coverage:`
@@ -291,7 +291,7 @@ structural.**
 record: final table, referee corrections, taxonomy, experiment 4, risky SS, exits);
 `docs/dev/handoff_2026_07_06.md` (spec-lets 1–4 + statuses); this chronicle;
 `docs/dev/how_it_all_works_companion.md`; `docs/superpowers/specs/…evaluator-overhaul…` and
-EWM spec + `specs/data/ewm_composition_table_2026_07_06.json`; `docs/disaster_corrected.tex`
+EWM spec + `specs/data/ewm_composition_table_2026_07_06.json`; `docs/dev/disaster/disaster_corrected.tex`
 (+ errata item 12).
 **Untracked, sign-off gated:** `docs/how_it_all_works.md`, `docs/dev/disaster_house_audit.md`,
 `docs/dev/codex_accuracy_gap_brief.md`.

@@ -1,9 +1,9 @@
 """Standard grad-step factory.
 
 Used for any optimizer registered with ``OptimizerKind.STANDARD``
-(adam, sgd, adamw, lion, muon, ngd, shampoo, kfac, ...). Builds a
-JIT'd ``grad_step(state, batch, lr_scale, shock_scale)`` that applies
-one optax-style update on an explicit minibatch.
+(``deqn-jax optimizers`` lists them). Builds a JIT'd
+``grad_step(state, batch, lr_scale, shock_scale)`` that applies one
+optax-style update on an explicit minibatch.
 
 Lives in ``optimizers/`` (rather than ``training/``) so each optimizer
 family owns its own grad-step variant — paired with ``mao.py``,
@@ -35,10 +35,10 @@ def make_grad_step_standard(
 ):
     """JIT'd: one STANDARD gradient update on an explicit minibatch.
 
-    The minibatch replaces what was ``ctx.train_states`` in the legacy
-    single-batch train step; no rollout is run. Optimizer state, loss
-    reweighting, and Metrics construction are identical to the legacy
-    path so consumers see no difference per step.
+    No rollout is run here; the cycle (``training/cycle.py``) supplies the
+    minibatch. The gradient of the configured loss goes through
+    ``opt.update``, is scaled by ``lr_scale``, and the step finishes with
+    ``finalize_step`` (loss reweighting and Metrics).
     """
     n_eq = len(model.equation_names) if model.equation_names else 1
     loss_call = make_loss_call(

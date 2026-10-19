@@ -13,10 +13,10 @@ Why not a dimensionless ``resid / u'(c)``? It is MC-safe too, but at
 bad policies that drive consumption to zero it *shrinks* the residual
 magnitude (divides by ``u'(c)`` which blows up for small c), removing
 the gradient pressure that would otherwise push the policy away from
-the low-consumption region. Raw form keeps that pressure. For
-accuracy reporting we convert to a dimensionless log10 magnitude
-post-training in the evaluation module, which is the standard DEQN
-diagnostic (Azinovic et al. 2022).
+the low-consumption region. Raw form keeps that pressure. The
+evaluation module reports log10|residual| of this raw residual, so its
+grades are in marginal-utility units, not the dimensionless Euler error
+of the standard DEQN diagnostic (Azinovic et al. 2022).
 
 Why not the RHS-normalized ``1 - u'(c) / (beta E[u'(c')(1+r'-delta)])``?
 That form requires computing the expectation *inside* the residual

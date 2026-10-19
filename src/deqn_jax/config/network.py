@@ -54,23 +54,23 @@ class NetworkConfig(_ConfigBase):
     )
     hidden_sizes: Tuple[int, ...] = Field(
         default=(64, 64),
-        description="Hidden layer widths. E.g. `(64, 64)` = two 64-unit hidden layers.",
+        description="Hidden layer widths. E.g. `(64, 64)` = two 64-unit hidden layers. `lstm` stacks one cell per entry, `transformer` uses only the first entry as its model width, `rss_market_clearing_net` requires exactly two.",
     )
     activation: str = Field(
         default="tanh",
-        description="Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `softplus`.",
+        description="Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `softplus`. Read by `mlp`, `linear_plus_mlp` and `disaster_policy_net`.",
     )
     activations: Optional[Tuple[str, ...]] = Field(
         default=None,
-        description="Per-layer activations if different per layer. None = use `activation` uniformly. Length = `len(hidden_sizes)`.",
+        description="Per-layer activations if different per layer. None = use `activation` uniformly. Length = `len(hidden_sizes)`. Read by `mlp` only.",
     )
     init: str = Field(
         default="default",
-        description="Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`.",
+        description="Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`. Read by `mlp`, `linear_plus_mlp` and `disaster_policy_net`.",
     )
     history_len: int = Field(
         default=1,
-        description="History window length for sequence policies. 1 = MLP (no history). >1 = LSTM / Transformer.",
+        description="History window length for the sequence networks (`lstm`, `transformer`); other network types ignore it. 1 = no history.",
     )
     num_heads: int = Field(
         default=4, description="Transformer: attention heads per layer."
@@ -85,7 +85,7 @@ class NetworkConfig(_ConfigBase):
 
     use_zlb_feature: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: prepend `(R_lag - R_lb)` as an extra MLP input feature.",
+        description="`disaster_policy_net` only: append `(R_lag - R_lb)` as an extra MLP input feature.",
     )
 
     bk_pin: bool = Field(
@@ -105,7 +105,7 @@ class NetworkConfig(_ConfigBase):
 
     reparam_q_as_m: bool = Field(
         default=False,
-        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP. Eliminates the eq 7 sign-flip pathology by parameterization.",
+        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP (𝓑 floored at 1e-3 in the division). Aimed at the eq 7 sign-flip pathology; 𝓑(x) itself is not constrained.",
     )
 
     reparam_pi_as_kp_inner: bool = Field(

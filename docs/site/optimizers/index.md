@@ -53,17 +53,20 @@ deqn-jax train --config configs/disaster.yaml --set optimizer.name=mao
 The canonical list always comes from the live registry — never trust a doc table over it:
 
 ```bash
-uv run deqn-jax optimizers   # the 13 registered optimizers, live
+uv run deqn-jax optimizers   # the 12 registered optimizers, live
 ```
 
 ## The full registry, one click deeper
 
-??? abstract "All 13 optimizers — name, train-step variant, status, when to reach"
+??? abstract "All 12 optimizers: name, train-step variant, status, when to use"
     Each name maps to one of **four train-step variants** (how gradients are formed before the update), dispatched once at construction, outside JIT. (A fifth step variant, PCGRAD, is *gradient surgery*, not a registered optimizer — see below.)
 
     | Optimizer | Variant | Status | When to reach for it |
     |---|---|---|---|
     | `adam` | STANDARD | **validated** | **The default.** Start here; only move if it stalls. |
+    | `sgd` | STANDARD | baseline | Plain gradient descent at the configured learning rate. Useful as a reference point for the others. |
+    | `adamw` | STANDARD | baseline | Adam with decoupled weight decay set by `optimizer.weight_decay`. At `weight_decay: 0.0` it is `adam`. |
+    | `lion` | STANDARD | baseline | Sign-based update with momentum (Chen et al., 2023). Usually needs a smaller learning rate than `adam`. |
     | `gn` | GN | Newton-style *(exp.)* | Dense Gauss–Newton (H&asymp;J&#7488;J). Quadratic convergence *near* a solution — a polish step. The estimation solver you know, on residuals. |
     | `lm` | GN | Newton-style *(exp.)* | Levenberg–Marquardt: damped Gauss–Newton, the robust GN member. |
     | `ign` | GN | Newton-style *(exp.)* | Matrix-free implicit Gauss–Newton: solves `(J&#7488;J + &lambda;I)&delta; = -J&#7488;r` by conjugate gradients on JVP/VJP products — GN without forming the dense Jacobian. |
@@ -89,7 +92,7 @@ uv run deqn-jax optimizers   # the 13 registered optimizers, live
 ??? abstract "The five train-step variants — why the table has a 'Variant' column"
     The optimizer's variant determines how gradients are formed inside the single JIT'd train step, dispatched once at construction time. Four of the five are selected by the optimizer's registered kind; the fifth (PCGRAD) is selected by the `gradient_surgery` flag.
 
-    - **STANDARD** — `jax.grad` of the scalar loss, then `opt.update`. (`adam`, `muon`, `ngd`, `shampoo`)
+    - **STANDARD** — `jax.grad` of the scalar loss, then `opt.update`. (`adam`, `sgd`, `adamw`, `lion`, `muon`, `ngd`, `shampoo`)
     - **PCGRAD** — per-equation gradients with conflict projection, then a STANDARD update. (`gradient_surgery: pcgrad`)
     - **MAO** — per-equation Jacobian via `jax.jacrev`, then per-equation moment updates. (`mao`)
     - **LBFGS** — `optax.lbfgs` with line search; needs value, grad, and a value function. (`lbfgs`)

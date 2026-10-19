@@ -2,7 +2,7 @@
 
 The DEQN loss is the mean squared residual of equilibrium equations:
 
-    L = E_s[ E_ε[ r(s, π(s), s', π(s'))² ] ]
+    L = E_s[ ( E_ε[ r(s, π(s), s', π(s')) ] )² ]
 
 where the expectation is over:
 1. States s drawn from episode trajectories
@@ -11,6 +11,8 @@ where the expectation is over:
 Expectation methods:
 - **MC**: Antithetic variates (pair each ε with -ε for variance reduction)
 - **Quadrature**: Gauss-Hermite tensor-product or degree-3 monomial nodes
+- **Discrete chain**: exact enumeration of next-period states, used whenever
+  the model sets ``transition_matrix`` and ``z_state_idx``
 
 Residual aggregation uses (E[r])² (average THEN square):
 - Correct loss for E[r]=0 equilibrium conditions
@@ -51,7 +53,7 @@ def sample_antithetic_shocks(
 
     Args:
         key: JAX PRNG key
-        n_samples: Number of MC samples (will be rounded to even)
+        n_samples: Number of MC samples; an odd count adds one unpaired draw
         batch_size: Batch size
         shock_dim: Dimension of shock vector
         shock_scale: Curriculum scaling for shocks (0→1 ramp)
@@ -333,9 +335,15 @@ def compute_loss(
 ) -> Tuple[Array, Dict[str, Array]]:
     """Compute DEQN loss with MC or quadrature expectations.
 
-    Aggregation: (E[r])² — square the weighted mean residual per batch element.
-    This is the correct loss for E[r]=0 equilibrium conditions and is robust
-    to outlier residuals (averages first, then squares).
+    Aggregation: (E[r])², the squared weighted mean residual per batch
+    element. This is the correct loss for E[r]=0 equilibrium conditions and
+    is robust to outlier residuals (averages first, then squares).
+    ``loss_choice='huber'`` applies the Huber function to the mean residual
+    instead of squaring it; ``loss_choice='aio'`` takes the product of the
+    means of two independent shock groups. The total is the weighted sum of
+    the per-equation losses divided by the number of equations, plus the
+    undivided state-barrier and bound penalties; the returned per-equation
+    losses are unweighted.
 
     For MC:        shocks ~ N(0, shock_scale²), uniform weights 1/N
     For quadrature: shocks = nodes * shock_scale, deterministic rule weights

@@ -49,8 +49,11 @@ def euler_equation_errors(
 ) -> Dict[str, Any]:
     """Simulate a long stochastic path and compute Euler residuals everywhere.
 
-    This is the gold standard for DEQN accuracy (Azinovic et al. 2022).
-    Reports log10(|residual|) distribution.
+    This is the gold standard for DEQN accuracy (Azinovic et al. 2022);
+    ``print_euler_errors`` reports the log10(|residual|) distribution.
+    Each row is the residual at the shock drawn that period, except for
+    discrete-chain models (exact expectation over the chain) and
+    two-stage models (expectation by the deterministic rule below).
 
     Args:
         policy_net: Trained policy network
@@ -579,10 +582,12 @@ def stability_check(
     """Check if the simulated economy remains stable.
 
     Returns:
-        ``nan_free`` (bool), ``bound_hit_pct`` (% of policy outputs within
-        1e-4 of a bound), ``max_ss_deviation_pct`` (max relative state
-        deviation from the reference — SS, or mid-trajectory for ergodic-only
-        models), ``stable`` (nan_free and deviation < 500%).
+        ``nan_free`` (bool), ``bound_hit_pct`` (% of outputs of policies with
+        both bounds finite that lie within 1% of the bound span of a bound),
+        ``max_ss_deviation_pct`` (largest relative deviation of the final
+        state from the reference, which is the SS, or the mid-trajectory
+        state for models without one; normalization floored at 0.1),
+        ``stable`` (nan_free, bound_hit_pct < 20 and deviation < 500%).
     """
     constants = model.constants
     key = jax.random.PRNGKey(seed)
