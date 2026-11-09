@@ -70,6 +70,17 @@ from deqn_jax.networks.common import (
 from deqn_jax.networks.mlp import MLP
 
 
+def _float_or_none(x) -> Optional[float]:
+    return None if x is None else float(x)
+
+
+def _require(flag: str, **values) -> None:
+    """Raise naming every input an enabled prior reads but was not given."""
+    missing = [name for name, value in values.items() if value is None]
+    if missing:
+        raise ValueError(f"{flag}=True requires {', '.join(missing)}")
+
+
 class DisasterPolicyNet(eqx.Module):
     """LinearPlusMLP residual ansatz augmented with disaster-specific shape priors.
 
@@ -117,7 +128,7 @@ class DisasterPolicyNet(eqx.Module):
     zlb_feature_kind: str = eqx.field(static=True)
     bk_pin: bool = eqx.field(static=True)
     r_lag_idx: int = eqx.field(static=True)
-    r_lb: float = eqx.field(static=True)
+    r_lb: Optional[float] = eqx.field(static=True)
 
     # Investment-bracket reparameterization
     reparam_q_as_m: bool = eqx.field(static=True)
@@ -126,7 +137,7 @@ class DisasterPolicyNet(eqx.Module):
     i_lag_idx: int = eqx.field(static=True)
     mu_z_idx: int = eqx.field(static=True)
     kappa: float = eqx.field(static=True)
-    mu_z_ss: float = eqx.field(static=True)
+    mu_z_ss: Optional[float] = eqx.field(static=True)
 
     # Calvo K_p_inner reparameterization (§3.1, price side):
     # treat the network's `π` output slot as K_p_inner_t ∈ (0, 1/(1−ξ_p))
@@ -141,8 +152,8 @@ class DisasterPolicyNet(eqx.Module):
     K_p_idx: int = eqx.field(static=True)
     xi_p: float = eqx.field(static=True)
     lambda_f: float = eqx.field(static=True)
-    iota: float = eqx.field(static=True)
-    pi_ss: float = eqx.field(static=True)
+    iota: Optional[float] = eqx.field(static=True)
+    pi_ss: Optional[float] = eqx.field(static=True)
 
     # Calvo K_w_inner reparameterization (§3.1', wage side, mirror of §3.1):
     # treat the network's `w_tilda` output slot as K_w_inner_t. Derive
@@ -158,9 +169,9 @@ class DisasterPolicyNet(eqx.Module):
     K_w_idx: int = eqx.field(static=True)
     xi_w: float = eqx.field(static=True)
     lambda_w: float = eqx.field(static=True)
-    sigma_L: float = eqx.field(static=True)
-    iota_w: float = eqx.field(static=True)
-    psi_L: float = eqx.field(static=True)
+    sigma_L: Optional[float] = eqx.field(static=True)
+    iota_w: Optional[float] = eqx.field(static=True)
+    psi_L: Optional[float] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -181,15 +192,15 @@ class DisasterPolicyNet(eqx.Module):
         use_zlb_feature: bool = False,
         bk_pin: bool = False,
         zlb_feature_kind: Literal["raw", "kink"] = "raw",
-        r_lag_idx: int = 5,
-        r_lb: float = 1.0,
+        r_lag_idx: int = -1,
+        r_lb: Optional[float] = None,
         reparam_q_as_m: bool = False,
         q_idx: int = -1,
         i_idx: int = -1,
         i_lag_idx: int = -1,
         mu_z_idx: int = -1,
         kappa: float = 0.0,
-        mu_z_ss: float = 1.0,
+        mu_z_ss: Optional[float] = None,
         reparam_pi_as_kp_inner: bool = False,
         pi_idx: int = -1,
         pi_lag_idx: int = -1,
@@ -197,8 +208,8 @@ class DisasterPolicyNet(eqx.Module):
         K_p_idx: int = -1,
         xi_p: float = 0.0,
         lambda_f: float = 0.0,
-        iota: float = 0.0,
-        pi_ss: float = 1.0,
+        iota: Optional[float] = None,
+        pi_ss: Optional[float] = None,
         reparam_wtilda_as_kw_inner: bool = False,
         w_tilda_idx: int = -1,
         w_tilda_lag_idx: int = -1,
@@ -206,9 +217,9 @@ class DisasterPolicyNet(eqx.Module):
         K_w_idx: int = -1,
         xi_w: float = 0.0,
         lambda_w: float = 0.0,
-        sigma_L: float = 1.0,
-        iota_w: float = 0.0,
-        psi_L: float = 1.0,
+        sigma_L: Optional[float] = None,
+        iota_w: Optional[float] = None,
+        psi_L: Optional[float] = None,
         output_links: Optional[Sequence[str]] = None,
         *,
         key: Array,
@@ -222,7 +233,14 @@ class DisasterPolicyNet(eqx.Module):
             )
         self.zlb_feature_kind = str(zlb_feature_kind)
         self.r_lag_idx = int(r_lag_idx)
-        self.r_lb = float(r_lb)
+        self.r_lb = _float_or_none(r_lb)
+        if self.use_zlb_feature:
+            if not (0 <= self.r_lag_idx < n_states):
+                raise ValueError(
+                    f"use_zlb_feature=True requires valid r_lag_idx, got "
+                    f"{self.r_lag_idx} (bound {n_states})"
+                )
+            _require("use_zlb_feature", r_lb=self.r_lb)
         n_extra = 1 if self.use_zlb_feature else 0
 
         # When the ZLB regime feature is on, the MLP's input dimension grows
@@ -288,7 +306,7 @@ class DisasterPolicyNet(eqx.Module):
         self.i_lag_idx = int(i_lag_idx)
         self.mu_z_idx = int(mu_z_idx)
         self.kappa = float(kappa)
-        self.mu_z_ss = float(mu_z_ss)
+        self.mu_z_ss = _float_or_none(mu_z_ss)
         if self.reparam_q_as_m:
             for name, idx, bound in [
                 ("q_idx", self.q_idx, n_policies),
@@ -305,6 +323,7 @@ class DisasterPolicyNet(eqx.Module):
                 raise ValueError(
                     f"reparam_q_as_m=True requires kappa > 0, got {self.kappa}"
                 )
+            _require("reparam_q_as_m", mu_z_ss=self.mu_z_ss)
 
         # Calvo K_p_inner reparam (§3.1, price side): the network's π output
         # slot is repurposed as K_p_inner_t. We OVERRIDE the bounds at that
@@ -318,8 +337,8 @@ class DisasterPolicyNet(eqx.Module):
         self.K_p_idx = int(K_p_idx)
         self.xi_p = float(xi_p)
         self.lambda_f = float(lambda_f)
-        self.iota = float(iota)
-        self.pi_ss = float(pi_ss)
+        self.iota = _float_or_none(iota)
+        self.pi_ss = _float_or_none(pi_ss)
         if self.reparam_pi_as_kp_inner:
             for name, idx, bound in [
                 ("pi_idx", self.pi_idx, n_policies),
@@ -341,6 +360,7 @@ class DisasterPolicyNet(eqx.Module):
                     f"reparam_pi_as_kp_inner=True requires lambda_f > 1, got "
                     f"{self.lambda_f}"
                 )
+            _require("reparam_pi_as_kp_inner", iota=self.iota, pi_ss=self.pi_ss)
             # Compute reference values from the solved SS for bound derivation.
             pi_lag_ss = float(self.ss_state[self.pi_lag_idx])
             pi_tilda_ss = (self.pi_ss**self.iota) * (pi_lag_ss ** (1.0 - self.iota))
@@ -411,15 +431,17 @@ class DisasterPolicyNet(eqx.Module):
         self.K_w_idx = int(K_w_idx)
         self.xi_w = float(xi_w)
         self.lambda_w = float(lambda_w)
-        self.sigma_L = float(sigma_L)
-        self.iota_w = float(iota_w)
-        self.psi_L = float(psi_L)
+        self.sigma_L = _float_or_none(sigma_L)
+        self.iota_w = _float_or_none(iota_w)
+        self.psi_L = _float_or_none(psi_L)
         if self.reparam_wtilda_as_kw_inner:
             for name, idx, bound in [
                 ("w_tilda_idx", self.w_tilda_idx, n_policies),
                 ("F_w_idx", self.F_w_idx, n_policies),
                 ("K_w_idx", self.K_w_idx, n_policies),
                 ("w_tilda_lag_idx", self.w_tilda_lag_idx, n_states),
+                ("pi_idx", self.pi_idx, n_policies),
+                ("pi_lag_idx", self.pi_lag_idx, n_states),
             ]:
                 if not (0 <= idx < bound):
                     raise ValueError(
@@ -435,6 +457,14 @@ class DisasterPolicyNet(eqx.Module):
                     f"reparam_wtilda_as_kw_inner requires lambda_w > 1, got "
                     f"{self.lambda_w}"
                 )
+            _require(
+                "reparam_wtilda_as_kw_inner",
+                sigma_L=self.sigma_L,
+                iota_w=self.iota_w,
+                psi_L=self.psi_L,
+                pi_ss=self.pi_ss,
+                mu_z_ss=self.mu_z_ss,
+            )
             # Override bounds at w_tilda_idx to the K_w_inner domain
             # (0.01, 1/(1−ξ_w) − 0.01). The original w_tilda bounds (lower
             # ≈ 1.0, upper = ∞) don't translate to a meaningful K_w_inner
@@ -706,6 +736,21 @@ class DisasterPolicyNet(eqx.Module):
         return jax.vmap(self._forward_single)(x)
 
 
+def _index_of(names: list, name: str, where: str, flag: str) -> int:
+    """Position of ``name`` in the model's ``where`` list; raises naming it."""
+    if name not in names:
+        raise ValueError(f"{flag}=True requires {name!r} in {where}; got {names}")
+    return names.index(name)
+
+
+def _constants_of(model, flag: str, *names: str) -> list:
+    """Calibration constants a prior reads; raises naming every missing one."""
+    missing = [n for n in names if n not in model.constants]
+    if missing:
+        raise ValueError(f"{flag}=True requires model.constants {missing}")
+    return [float(model.constants[n]) for n in names]
+
+
 def create_disaster_policy_net(
     model,
     hidden_sizes: Sequence[int] = (128, 128),
@@ -727,15 +772,20 @@ def create_disaster_policy_net(
 ) -> DisasterPolicyNet:
     """Factory: build DisasterPolicyNet for the disaster model.
 
-    Resolves disaster-specific indices and constants from ``model``:
+    Resolves the indices and constants each enabled prior reads from
+    ``model`` — names from ``model.policy_names`` / ``model.state_names``,
+    calibration from ``model.constants`` — before linearizing, and raises
+    naming whatever is missing:
 
-    - ``kf_names`` → ``kf_indices`` via ``model.policy_names`` lookup
-    - ``r_lag_idx`` → position of ``R_lag`` in ``model.state_names``
-    - ``r_lb`` → ``model.constants["R_lb"]`` (default 1.0)
-    - ``q_idx, i_idx`` → positions of ``q, i`` in ``model.policy_names``
-    - ``i_lag_idx, mu_z_idx`` → positions in ``model.state_names``
-    - ``kappa`` → ``model.constants["kappa"]``
-    - ``mu_z_ss`` → ``model.constants["mu_z_ss"]``
+    - ``kf_names`` → ``kf_indices``
+    - ``use_zlb_feature``: state ``R_lag``; constant ``R_lb``
+    - ``reparam_q_as_m``: policies ``q, i``; states ``i_lag, mu_z``;
+      constants ``kappa, mu_z_ss``
+    - ``reparam_pi_as_kp_inner``: policies ``pi, F_p, K_p``; state
+      ``pi_lag``; constants ``xi_p, lambda_f, iota, pi_ss``
+    - ``reparam_wtilda_as_kw_inner``: policies ``w_tilda, F_w, K_w, pi``;
+      states ``w_tilda_lag, pi_lag``; constants ``xi_w, lambda_w, sigma_L,
+      iota_w, psi_L, pi_ss, mu_z_ss``
 
     All shape priors default off; configs enable them by setting the
     relevant fields on ``NetworkConfig``.
@@ -747,17 +797,6 @@ def create_disaster_policy_net(
             "DisasterPolicyNet requires model.steady_state_fn to compute "
             "the linearization anchor."
         )
-    P_level, _Q = linearize_model(model, verbose=False)
-    ss_state, ss_policy = model.steady_state_fn(model.constants)
-
-    # Pre-convert P per-row to its output_link's natural space (mirror of
-    # create_linear_plus_mlp). For log-link rows: P_log_i = P_level_i / ss_i.
-    if output_links is None:
-        P = P_level
-    else:
-        from deqn_jax.networks.linear_plus_mlp import _convert_p_per_link
-
-        P = _convert_p_per_link(P_level, ss_policy, output_links)
 
     policy_names = list(model.policy_names)
     state_names = list(model.state_names) if model.state_names is not None else []
@@ -773,159 +812,83 @@ def create_disaster_policy_net(
             )
         kf_indices = tuple(policy_names.index(n) for n in kf_names)
 
-    # Resolve ELB feature parameters.
-    r_lag_idx = 5
-    r_lb = 1.0
+    prior_kw: dict = {}
     if use_zlb_feature:
-        if "R_lag" in state_names:
-            r_lag_idx = state_names.index("R_lag")
-        r_lb = float(model.constants.get("R_lb", 1.0))
+        flag = "use_zlb_feature"
+        prior_kw["r_lag_idx"] = _index_of(state_names, "R_lag", "state_names", flag)
+        (prior_kw["r_lb"],) = _constants_of(model, flag, "R_lb")
 
-    # Resolve investment-bracket reparam parameters.
-    q_idx = -1
-    i_idx = -1
-    i_lag_idx = -1
-    mu_z_idx = -1
-    kappa = 0.0
-    mu_z_ss = 1.0
     if reparam_q_as_m:
-        if "q" not in policy_names:
-            raise ValueError(
-                f"reparam_q_as_m=True requires 'q' in policy_names; got {policy_names}"
-            )
-        if "i" not in policy_names:
-            raise ValueError(
-                f"reparam_q_as_m=True requires 'i' in policy_names; got {policy_names}"
-            )
-        if "i_lag" not in state_names:
-            raise ValueError(
-                f"reparam_q_as_m=True requires 'i_lag' in state_names; got "
-                f"{state_names}"
-            )
-        if "mu_z" not in state_names:
-            raise ValueError(
-                f"reparam_q_as_m=True requires 'mu_z' in state_names; got {state_names}"
-            )
-        q_idx = policy_names.index("q")
-        i_idx = policy_names.index("i")
-        i_lag_idx = state_names.index("i_lag")
-        mu_z_idx = state_names.index("mu_z")
-        kappa = float(model.constants.get("kappa", 0.0))
-        mu_z_ss = float(model.constants.get("mu_z_ss", 1.0))
-        if kappa <= 0.0:
-            raise ValueError(
-                f"reparam_q_as_m=True requires model.constants['kappa'] > 0, "
-                f"got {kappa}"
-            )
+        flag = "reparam_q_as_m"
+        prior_kw.update(
+            q_idx=_index_of(policy_names, "q", "policy_names", flag),
+            i_idx=_index_of(policy_names, "i", "policy_names", flag),
+            i_lag_idx=_index_of(state_names, "i_lag", "state_names", flag),
+            mu_z_idx=_index_of(state_names, "mu_z", "state_names", flag),
+        )
+        prior_kw["kappa"], prior_kw["mu_z_ss"] = _constants_of(
+            model, flag, "kappa", "mu_z_ss"
+        )
 
-    # Resolve Calvo K_p_inner reparam parameters (§3.1, price side).
-    pi_idx = -1
-    pi_lag_idx = -1
-    F_p_idx = -1
-    K_p_idx = -1
-    xi_p = 0.0
-    lambda_f = 0.0
-    iota = 0.0
-    pi_ss = 1.0
     if reparam_pi_as_kp_inner:
-        for required, where in [
-            ("pi", "policy_names"),
-            ("F_p", "policy_names"),
-            ("K_p", "policy_names"),
-            ("pi_lag", "state_names"),
-        ]:
-            names = policy_names if where == "policy_names" else state_names
-            if required not in names:
-                raise ValueError(
-                    f"reparam_pi_as_kp_inner=True requires {required!r} in "
-                    f"{where}; got {names}"
-                )
-        pi_idx = policy_names.index("pi")
-        F_p_idx = policy_names.index("F_p")
-        K_p_idx = policy_names.index("K_p")
-        pi_lag_idx = state_names.index("pi_lag")
-        xi_p = float(model.constants.get("xi_p", 0.0))
-        lambda_f = float(model.constants.get("lambda_f", 0.0))
-        iota = float(model.constants.get("iota", 0.0))
-        pi_ss = float(model.constants.get("pi_ss", 1.0))
-        if not (0.0 < xi_p < 1.0):
-            raise ValueError(
-                f"reparam_pi_as_kp_inner requires 0 < xi_p < 1, got {xi_p}"
-            )
-        if lambda_f <= 1.0:
-            raise ValueError(
-                f"reparam_pi_as_kp_inner requires lambda_f > 1, got {lambda_f}"
-            )
+        flag = "reparam_pi_as_kp_inner"
+        prior_kw.update(
+            pi_idx=_index_of(policy_names, "pi", "policy_names", flag),
+            F_p_idx=_index_of(policy_names, "F_p", "policy_names", flag),
+            K_p_idx=_index_of(policy_names, "K_p", "policy_names", flag),
+            pi_lag_idx=_index_of(state_names, "pi_lag", "state_names", flag),
+        )
+        (
+            prior_kw["xi_p"],
+            prior_kw["lambda_f"],
+            prior_kw["iota"],
+            prior_kw["pi_ss"],
+        ) = _constants_of(model, flag, "xi_p", "lambda_f", "iota", "pi_ss")
 
-    # Resolve Calvo K_w_inner reparam parameters (§3.1', wage side).
-    w_tilda_idx = -1
-    w_tilda_lag_idx = -1
-    F_w_idx = -1
-    K_w_idx = -1
-    xi_w = 0.0
-    lambda_w = 0.0
-    sigma_L = 1.0
-    iota_w = 0.0
-    psi_L = 1.0
     if reparam_wtilda_as_kw_inner:
-        for required, where in [
-            ("w_tilda", "policy_names"),
-            ("F_w", "policy_names"),
-            ("K_w", "policy_names"),
-            ("w_tilda_lag", "state_names"),
-        ]:
-            names = policy_names if where == "policy_names" else state_names
-            if required not in names:
-                raise ValueError(
-                    f"reparam_wtilda_as_kw_inner=True requires {required!r} in "
-                    f"{where}; got {names}"
-                )
-        # Also need pi_lag for pi_w_tilda (wage indexation) and pi for pi_w.
-        # The latter is checked when reparam_pi_as_kp_inner is on; if off, we
-        # still need pi_idx to access pi_BK on-the-fly.
-        if "pi_lag" not in state_names:
-            raise ValueError(
-                f"reparam_wtilda_as_kw_inner requires 'pi_lag' in state_names; "
-                f"got {state_names}"
-            )
-        if "pi" not in policy_names:
-            raise ValueError(
-                f"reparam_wtilda_as_kw_inner requires 'pi' in policy_names; "
-                f"got {policy_names}"
-            )
-        w_tilda_idx = policy_names.index("w_tilda")
-        F_w_idx = policy_names.index("F_w")
-        K_w_idx = policy_names.index("K_w")
-        w_tilda_lag_idx = state_names.index("w_tilda_lag")
-        xi_w = float(model.constants.get("xi_w", 0.0))
-        lambda_w = float(model.constants.get("lambda_w", 0.0))
-        sigma_L = float(model.constants.get("sigma_L", 1.0))
-        iota_w = float(model.constants.get("iota_w", 0.0))
-        psi_L = float(model.constants.get("psi_L", 1.0))
-        if not (0.0 < xi_w < 1.0):
-            raise ValueError(
-                f"reparam_wtilda_as_kw_inner requires 0 < xi_w < 1, got {xi_w}"
-            )
-        if lambda_w <= 1.0:
-            raise ValueError(
-                f"reparam_wtilda_as_kw_inner requires lambda_w > 1, got {lambda_w}"
-            )
-        # Wage-side reparam needs pi_idx and pi_lag_idx populated even if
-        # the price-side reparam isn't on (pi_BK is captured in the forward
-        # pass for the wage K_w_inner BK conversion, and pi_lag is needed
-        # for pi_w_tilda).
-        if pi_idx == -1:
-            pi_idx = policy_names.index("pi")
-        if pi_lag_idx == -1:
-            pi_lag_idx = state_names.index("pi_lag")
-        # pi_ss is also needed for pi_w_tilda; populate if not already set.
-        if pi_ss == 1.0 and "pi_ss" in model.constants:
-            pi_ss = float(model.constants["pi_ss"])
-        # mu_z_ss enters the K_w_inner BK formula (pi_w_tilda * mu_z_ss / pi_w).
-        # Only resolved by the q_as_m branch above, so populate here too if
-        # that branch didn't run.
-        if mu_z_ss == 1.0 and "mu_z_ss" in model.constants:
-            mu_z_ss = float(model.constants["mu_z_ss"])
+        # The wage side also reads pi_BK (pi slot), pi_lag and pi_ss for the
+        # wage indexation, and mu_z_ss, whether or not the price-side or
+        # q-as-M reparams are on.
+        flag = "reparam_wtilda_as_kw_inner"
+        prior_kw.update(
+            w_tilda_idx=_index_of(policy_names, "w_tilda", "policy_names", flag),
+            F_w_idx=_index_of(policy_names, "F_w", "policy_names", flag),
+            K_w_idx=_index_of(policy_names, "K_w", "policy_names", flag),
+            w_tilda_lag_idx=_index_of(state_names, "w_tilda_lag", "state_names", flag),
+            pi_idx=_index_of(policy_names, "pi", "policy_names", flag),
+            pi_lag_idx=_index_of(state_names, "pi_lag", "state_names", flag),
+        )
+        (
+            prior_kw["xi_w"],
+            prior_kw["lambda_w"],
+            prior_kw["sigma_L"],
+            prior_kw["iota_w"],
+            prior_kw["psi_L"],
+            prior_kw["pi_ss"],
+            prior_kw["mu_z_ss"],
+        ) = _constants_of(
+            model,
+            flag,
+            "xi_w",
+            "lambda_w",
+            "sigma_L",
+            "iota_w",
+            "psi_L",
+            "pi_ss",
+            "mu_z_ss",
+        )
+
+    P_level, _Q = linearize_model(model, verbose=False)
+    ss_state, ss_policy = model.steady_state_fn(model.constants)
+
+    # Pre-convert P per-row to its output_link's natural space (mirror of
+    # create_linear_plus_mlp). For log-link rows: P_log_i = P_level_i / ss_i.
+    if output_links is None:
+        P = P_level
+    else:
+        from deqn_jax.networks.linear_plus_mlp import _convert_p_per_link
+
+        P = _convert_p_per_link(P_level, ss_policy, output_links)
 
     return DisasterPolicyNet(
         n_states=model.n_states,
@@ -945,36 +908,12 @@ def create_disaster_policy_net(
         use_zlb_feature=use_zlb_feature,
         bk_pin=bk_pin,
         zlb_feature_kind=zlb_feature_kind,
-        r_lag_idx=r_lag_idx,
-        r_lb=r_lb,
         reparam_q_as_m=reparam_q_as_m,
-        q_idx=q_idx,
-        i_idx=i_idx,
-        i_lag_idx=i_lag_idx,
-        mu_z_idx=mu_z_idx,
-        kappa=kappa,
-        mu_z_ss=mu_z_ss,
         reparam_pi_as_kp_inner=reparam_pi_as_kp_inner,
-        pi_idx=pi_idx,
-        pi_lag_idx=pi_lag_idx,
-        F_p_idx=F_p_idx,
-        K_p_idx=K_p_idx,
-        xi_p=xi_p,
-        lambda_f=lambda_f,
-        iota=iota,
-        pi_ss=pi_ss,
         reparam_wtilda_as_kw_inner=reparam_wtilda_as_kw_inner,
-        w_tilda_idx=w_tilda_idx,
-        w_tilda_lag_idx=w_tilda_lag_idx,
-        F_w_idx=F_w_idx,
-        K_w_idx=K_w_idx,
-        xi_w=xi_w,
-        lambda_w=lambda_w,
-        sigma_L=sigma_L,
-        iota_w=iota_w,
-        psi_L=psi_L,
         output_links=output_links,
         key=key,
+        **prior_kw,
     )
 
 
