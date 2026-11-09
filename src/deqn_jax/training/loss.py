@@ -619,9 +619,11 @@ def _compute_bound_penalty(
 
     Values whose names don't appear in ``bounds_spec`` are skipped.
     Values whose arrays are not scalar-per-batch are handled via
-    ``jnp.mean`` over all axes.
+    ``jnp.mean`` over all axes. The penalty carries the values' precision
+    (default float dtype when no bound names a present variable).
     """
-    penalty = jnp.array(0.0, dtype=jnp.float32)
+    # Weakly typed zero: adopts the dtype of the first penalised value.
+    penalty = jnp.asarray(0.0)
     for name, spec in bounds_spec.items():
         if name not in values:
             continue
