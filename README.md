@@ -140,28 +140,31 @@ uv run deqn-jax list
 
 ## Quick start
 
-Train the 5-minute smoke-test model:
+Train the 5-minute smoke-test model; `--checkpoint-dir` is what saves the
+trained policy for the next two steps:
 
 ```bash
-uv run deqn-jax train brock_mirman -n 1000 --warm-start
+uv run deqn-jax train brock_mirman -n 1000 --warm-start \
+    --checkpoint-dir checkpoints/brock_mirman
 ```
 
-Train the disaster model with the validated stack:
+Evaluate the checkpoint (the config is read from the checkpoint's directory):
+
+```bash
+uv run deqn-jax evaluate checkpoints/brock_mirman/checkpoint_best.eqx -n 2000
+```
+
+Impulse-response functions (`deqn-jax info brock_mirman` lists the shock names):
+
+```bash
+uv run deqn-jax irf checkpoints/brock_mirman/checkpoint_best.eqx --shock eps_z
+```
+
+Train the experimental disaster model; its config saves checkpoints to
+`checkpoints/disaster/`:
 
 ```bash
 uv run deqn-jax train --config configs/disaster.yaml
-```
-
-Evaluate a checkpoint:
-
-```bash
-uv run deqn-jax evaluate path/to/checkpoint.eqx -n 2000
-```
-
-Impulse-response functions:
-
-```bash
-uv run deqn-jax irf path/to/checkpoint.eqx --shock eps
 ```
 
 ## Resuming training & switching optimizers
