@@ -91,7 +91,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 
 </details>
 
-**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **632 tests pass** (plus 21 skips without local Dynare fixtures; count as of 2026-07-06), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — the test suite passes (`make check`; see [Tests](#tests) for how to get the current count), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `verify`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`; `deqn-jax --help`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
 
 ## What's implemented
 
@@ -270,8 +270,10 @@ src/deqn_jax/
 ## Tests
 
 ```bash
-uv run pytest tests/ -v               # 612 passed / 4 skipped (2026-07-06)
-uv run pytest tests/test_basic.py     # 12 core tests
+make check                            # the gate CI runs: lint, format check, full pytest
+uv run pytest tests/ -q               # the whole suite; the summary line gives the current count
+uv run pytest tests/ --collect-only -q | tail -1   # count without running
+uv run pytest tests/test_basic.py     # core tests
 uv run pytest tests/test_optimizers.py # optimizer + short training tests
 ```
 
