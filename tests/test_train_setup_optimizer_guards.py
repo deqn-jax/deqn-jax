@@ -2,7 +2,9 @@
 
 Pins, for every registered optimizer, which configured options the setup
 validators reject (the table below records the behaviour from before the
-guards were derived from ``OptimizerKind``).
+guards were derived from ``OptimizerKind``), and requires that a mid-run
+``switch_optimizer`` is held to the same guards at setup time as the same
+optimizer configured from the start.
 """
 
 import pytest
@@ -94,3 +96,12 @@ def test_table_covers_the_registry():
 @pytest.mark.parametrize("feature", list(FEATURES))
 def test_guard_outcome_per_registered_optimizer(name, feature):
     assert _rejected(_cfg(feature, name)) == (feature in REJECTED[name])
+
+
+@pytest.mark.parametrize("name", list_optimizers())
+@pytest.mark.parametrize("feature", list(FEATURES))
+def test_switched_optimizer_is_guarded_like_a_configured_one(name, feature):
+    # adam accepts every feature, so any rejection comes from the switch.
+    assert _rejected(_cfg(feature, "adam", switch_to=name)) == (
+        feature in REJECTED[name]
+    )

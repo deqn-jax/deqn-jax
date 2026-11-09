@@ -290,6 +290,78 @@ def make_train_step(
     )
 
 
+def make_config_train_step(
+    config,
+    model: ModelSpec,
+    opt: Any,
+    kind: OptimizerKind,
+    *,
+    history_len: int,
+    quad_nodes: Optional[Array],
+    quad_weights: Optional[Array],
+    compute_loss_fn: Optional[Callable],
+    use_target_network: bool,
+):
+    """``make_train_step`` with every per-run setting read from ``config``.
+
+    The one constructor for the train step of a run: the initial step and
+    the step after a mid-run optimizer switch differ only in ``opt`` and
+    ``kind``.
+    """
+    return make_train_step(
+        model,
+        opt,
+        config.episode_length,
+        config.mc_samples,
+        config.batch_size,
+        loss_reweight=config.loss_reweight,
+        reweight_alpha=config.reweight_alpha,
+        kind=kind,
+        gradient_surgery=config.gradient_surgery,
+        grad_clip=config.optimizer.grad_clip,
+        quad_nodes=quad_nodes,
+        quad_weights=quad_weights,
+        history_len=history_len,
+        compute_loss_fn=compute_loss_fn,
+        ss_reset_frac=config.ss_reset_frac,
+        use_target_network=use_target_network,
+        n_epochs_per_rollout=config.n_epochs_per_rollout,
+        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
+        initialize_each_episode=config.initialize_each_episode,
+        sorted_within_batch=config.sorted_within_batch,
+        replay_cfg=config.replay_buffer,
+    )
+
+
+def switch_optimizer_config(config):
+    """The ``OptimizerConfig`` a run switches to at ``switch_episode``.
+
+    The configured ``optimizer`` block with ``name`` set to
+    ``switch_optimizer`` and ``learning_rate`` to ``switch_lr`` (else the
+    configured rate). Every other optimizer field carries over -- as the
+    checkpoint loader assumes when it rebuilds a post-switch checkpoint --
+    except the LR schedule, which is not applied after the switch.
+    """
+    from deqn_jax.config import OptimizerConfig
+
+    return OptimizerConfig.model_validate(
+        {
+            **config.optimizer.model_dump(),
+            "name": config.switch_optimizer,
+            "learning_rate": config.switch_lr or config.optimizer.learning_rate,
+            "lr_schedule": "constant",
+        }
+    )
+
+
+def _optimizer_configs(config):
+    """``(config field, OptimizerConfig)`` for every optimizer a run uses."""
+    configs = [("optimizer", config.optimizer)]
+    if config.switch_optimizer is not None:
+        configs.append(("switch_optimizer", switch_optimizer_config(config)))
+    return configs
+
+
 # ---------------------------------------------------------------------------
 # train_from_config setup helpers
 # ---------------------------------------------------------------------------
@@ -411,14 +483,17 @@ def _validate_train_config(config) -> None:
     Also turns on JAX x64 when ``config.fp64`` is set. Rejects
     combinations whose settings would be silently dropped from the
     gradient (optimizer, gradient surgery, composite loss, coverage,
-    replay and grad_clip combinations), the residual-Sobolev term without
-    quadrature, and ``episode_length=1`` without
+    replay and grad_clip combinations) -- for the configured optimizer and
+    for ``switch_optimizer`` alike, so a switch that would drop a setting
+    fails here rather than at the switch episode -- the residual-Sobolev
+    term without quadrature, and ``episode_length=1`` without
     ``initialize_each_episode``.
     """
     if config.fp64 and not jax.config.read("jax_enable_x64"):
         jax.config.update("jax_enable_x64", True)
 
-    _validate_optimizer_options(config, config.optimizer, "optimizer")
+    for field, opt_cfg in _optimizer_configs(config):
+        _validate_optimizer_options(config, opt_cfg, field)
 
     # PCGrad×composite reconstructs the projected core from UNWEIGHTED
     # per-equation gradients at mean scale; a common non-unit weight
@@ -592,17 +667,18 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
     # LOGGING the correct f(E[r]) loss. Reject rather than silently training
     # the wrong objective. MAO/LBFGS differentiate compute_loss (which takes
     # the two-stage path) and are fine.
-    if (
-        create_optimizer(config.optimizer)[1] == OptimizerKind.GN
-        and model.combine_fn is not None
-    ):
-        raise ValueError(
-            f"optimizer '{config.optimizer.name}' (gn step) is not supported on "
-            f"two-stage model '{model.name}' (combine_fn set): the GN residual "
-            "vector uses equations_fn averaged over shocks, which optimizes the "
-            "biased E[f(r)] objective while the logged loss is the correct "
-            "f(E[r]). Use a STANDARD optimizer, MAO, or LBFGS."
-        )
+    for field, opt_cfg in _optimizer_configs(config):
+        if (
+            create_optimizer(opt_cfg)[1] == OptimizerKind.GN
+            and model.combine_fn is not None
+        ):
+            raise ValueError(
+                f"{field} '{opt_cfg.name}' (gn step) is not supported on "
+                f"two-stage model '{model.name}' (combine_fn set): the GN "
+                "residual vector uses equations_fn averaged over shocks, which "
+                "optimizes the biased E[f(r)] objective while the logged loss "
+                "is the correct f(E[r]). Use a STANDARD optimizer, MAO, or LBFGS."
+            )
 
     if config.constants:
         # Surface exactly which calibration constants change (old -> new). A

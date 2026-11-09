@@ -16,12 +16,12 @@ lists each registered name with its kind); PCGRAD is selected by
 - GN: Gauss-Newton / Levenberg-Marquardt on the residual Jacobian
 """
 
+import functools
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import Array
 
 from deqn_jax.optimizers.registry import OptimizerKind
 from deqn_jax.training.checkpointing import (
@@ -96,10 +96,13 @@ from deqn_jax.training.state_init import (  # noqa: E402  (re-export)
     _build_initial_state,
     _resolve_model_for_training,
     _validate_train_config,
-    make_train_step,
+    make_config_train_step,
 )
 from deqn_jax.training.state_init import (
     create_train_state as create_train_state,  # re-export (not used internally)
+)
+from deqn_jax.training.state_init import (
+    make_train_step as make_train_step,  # re-export (not used internally)
 )
 from deqn_jax.types import ModelSpec, TrainState
 
@@ -119,13 +122,10 @@ def _run_training_loop(
     state: TrainState,
     opt: Any,
     kind: OptimizerKind,
-    gradient_surgery: str,
     train_step: Callable,
+    build_step: Callable[[Any, OptimizerKind], Callable],
     lr_schedule_fn: Optional[Callable],
-    quad_nodes_jax: Optional[Array],
-    quad_weights_jax: Optional[Array],
     history_len: int,
-    custom_loss_fn: Optional[Callable],
     use_target: bool,
     n_equations: int,
     start_episode: int,
@@ -182,18 +182,7 @@ def _run_training_loop(
 
     for ep_num in range(start_episode + 1, total_episodes + 1):
         state, did_switch = _maybe_switch_optimizer(
-            config,
-            model,
-            n_equations,
-            history_len,
-            gradient_surgery,
-            quad_nodes_jax,
-            quad_weights_jax,
-            custom_loss_fn,
-            use_target,
-            state,
-            runtime,
-            ep_num,
+            config, n_equations, build_step, state, runtime, ep_num
         )
         if did_switch:
             es_best, es_patience = float("inf"), 0
@@ -400,35 +389,24 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             )
 
     # ---- Create JIT-compiled train step ----
-    gradient_surgery = config.gradient_surgery
-    train_step = make_train_step(
+    # One constructor for the initial step and the step after a mid-run
+    # optimizer switch: only the optimizer and its kind differ.
+    build_step = functools.partial(
+        make_config_train_step,
+        config,
         model,
-        opt,
-        config.episode_length,
-        config.mc_samples,
-        config.batch_size,
-        loss_reweight=config.loss_reweight,
-        reweight_alpha=config.reweight_alpha,
-        kind=kind,
-        gradient_surgery=gradient_surgery,
-        grad_clip=config.optimizer.grad_clip,
+        history_len=history_len,
         quad_nodes=quad_nodes_jax,
         quad_weights=quad_weights_jax,
-        history_len=history_len,
         compute_loss_fn=custom_loss_fn,
-        ss_reset_frac=config.ss_reset_frac,
         use_target_network=use_target,
-        n_epochs_per_rollout=config.n_epochs_per_rollout,
-        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
-        initialize_each_episode=config.initialize_each_episode,
-        sorted_within_batch=config.sorted_within_batch,
-        replay_cfg=config.replay_buffer,
     )
+    train_step = build_step(opt, kind)
 
     if (
         config.verbose
         and kind == OptimizerKind.STANDARD
-        and gradient_surgery != "pcgrad"
+        and config.gradient_surgery != "pcgrad"
     ):
         # Compute and report the effective schedule so users can see what
         # the trainer is actually doing per outer iteration.
@@ -458,13 +436,10 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         state=state,
         opt=opt,
         kind=kind,
-        gradient_surgery=gradient_surgery,
         train_step=train_step,
+        build_step=build_step,
         lr_schedule_fn=lr_schedule_fn,
-        quad_nodes_jax=quad_nodes_jax,
-        quad_weights_jax=quad_weights_jax,
         history_len=history_len,
-        custom_loss_fn=custom_loss_fn,
         use_target=use_target,
         n_equations=n_equations,
         start_episode=start_episode,
