@@ -91,7 +91,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 
 </details>
 
-**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — **632 tests pass** (plus 21 skips without local Dynare fixtures; count as of 2026-07-06), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
+**Status:** alpha (`v0.2.0`). API may change. Core plumbing is solid — the test suite passes (`make check`; see [Tests](#tests) for how to get the current count), `uv build` produces both wheel and sdist, and all nine CLI subcommands (`train`, `verify`, `list`, `info`, `optimizers`, `irf`, `evaluate`, `check`, `init-config`; `deqn-jax --help`) work. The framework is model-agnostic, not paper-specific. The **validated stack is deliberately small**: Adam + `MLP` (or `LinearPlusMLP`) + MSE residual loss + antithetic-MC (or Gauss-Hermite) expectations. Everything beyond that — second-order optimizers, sequence policies, composite loss — is a research instrument, not a turnkey recommendation.
 
 ## What's implemented
 
@@ -107,7 +107,7 @@ This reimplementation migrates the approach to JAX + Equinox, adds architectural
 | `disaster` — NK-DSGE with financial frictions (+ capital destruction) | experimental | 13 states, 11 policies, numerical SS. Baseline CMR converges reliably; the disaster block is implemented but still under validation. |
 | Networks: `MLP`, `LSTM`, `Transformer` | stable | History-dependent (sequence) policies supported; MLP is the validated default. |
 | Network: `LinearPlusMLP` (residual over the Blanchard–Kahn solution) | stable | Recommended for medium-scale DSGE — `networks/linear_plus_mlp.py`. |
-| Optimizers: `adam`, `muon`, `ngd`, `shampoo`, `mao`, `lbfgs`, `gn`, `ign`, `lm` | varying | `adam` is the validated first-order method. Second-order (`gn`/`ign`/`lm`, `shampoo`, `ngd`, `mao`) work but are less tested. |
+| Optimizers: `adam`, `adamw`, `sgd`, `lion`, `muon`, `ngd`, `shampoo`, `mao`, `lbfgs`, `gn`, `ign`, `lm` (`deqn-jax optimizers`) | varying | `adam` is the validated first-order method. Second-order (`gn`/`ign`/`lm`, `shampoo`, `ngd`, `mao`) work but are less tested. |
 | Composite loss (anchor + Jacobian + barrier + Newton) | stable | Optional supervised priors toward the linearized policy. |
 | Warm start | stable | L-BFGS fit to steady state, or Dynare/Blanchard–Kahn linearization import. |
 | Curriculum on shock magnitude | stable | Ramp shocks from small to full over N episodes. |
@@ -140,28 +140,31 @@ uv run deqn-jax list
 
 ## Quick start
 
-Train the 5-minute smoke-test model:
+Train the 5-minute smoke-test model; `--checkpoint-dir` is what saves the
+trained policy for the next two steps:
 
 ```bash
-uv run deqn-jax train brock_mirman -n 1000 --warm-start
+uv run deqn-jax train brock_mirman -n 1000 --warm-start \
+    --checkpoint-dir checkpoints/brock_mirman
 ```
 
-Train the disaster model with the validated stack:
+Evaluate the checkpoint (the config is read from the checkpoint's directory):
+
+```bash
+uv run deqn-jax evaluate checkpoints/brock_mirman/checkpoint_best.eqx -n 2000
+```
+
+Impulse-response functions (`deqn-jax info brock_mirman` lists the shock names):
+
+```bash
+uv run deqn-jax irf checkpoints/brock_mirman/checkpoint_best.eqx --shock eps_z
+```
+
+Train the experimental disaster model; its config saves checkpoints to
+`checkpoints/disaster/`:
 
 ```bash
 uv run deqn-jax train --config configs/disaster.yaml
-```
-
-Evaluate a checkpoint:
-
-```bash
-uv run deqn-jax evaluate path/to/checkpoint.eqx -n 2000
-```
-
-Impulse-response functions:
-
-```bash
-uv run deqn-jax irf path/to/checkpoint.eqx --shock eps
 ```
 
 ## Resuming training & switching optimizers
@@ -267,8 +270,10 @@ src/deqn_jax/
 ## Tests
 
 ```bash
-uv run pytest tests/ -v               # 612 passed / 4 skipped (2026-07-06)
-uv run pytest tests/test_basic.py     # 12 core tests
+make check                            # the gate CI runs: lint, format check, full pytest
+uv run pytest tests/ -q               # the whole suite; the summary line gives the current count
+uv run pytest tests/ --collect-only -q | tail -1   # count without running
+uv run pytest tests/test_basic.py     # core tests
 uv run pytest tests/test_optimizers.py # optimizer + short training tests
 ```
 

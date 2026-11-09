@@ -74,9 +74,9 @@ print_euler_errors(diag)   # log10|residual| distribution; mean < -3 = converged
 uv run deqn-jax list                                    # available models
 uv run deqn-jax optimizers                              # available optimizers
 uv run deqn-jax train brock_mirman -n 1000 -q           # smoke train
-uv run deqn-jax train --config configs/disaster.yaml -n 50000
-uv run deqn-jax evaluate runs/disaster/checkpoint_best.eqx
-uv run deqn-jax irf runs/disaster/checkpoint_best.eqx --shock eps_z --horizon 40
+uv run deqn-jax train --config configs/disaster.yaml -n 50000   # checkpoints/disaster/
+uv run deqn-jax evaluate checkpoints/disaster/checkpoint_best.eqx
+uv run deqn-jax irf checkpoints/disaster/checkpoint_best.eqx --shock eps --girf
 uv run deqn-jax train models/my_model                  # a model folder, see "Path C"
 uv run deqn-jax verify models/my_model                 # solved or not, report.html
 ```
@@ -931,8 +931,8 @@ quadrature-weighted mean over next-shock nodes at each visited state,
 `E[residual | state]` (Gauss–Hermite, 16 nodes for one shock, else 5 per
 dimension unless `n_quadrature_points` is set), while the path still advances
 on the drawn shock. Discrete-chain and two-stage models are always scored by
-their expectation; disaster models stay single-draw. CLI exits with code 2 if
-configurable thresholds aren't met (see `evaluate.run_evaluate_cli`).
+their expectation; disaster models stay single-draw. `deqn-jax evaluate` prints
+these grades but does not enforce a threshold (see *Exit codes* below).
 
 ### `stability_check(policy_net, model, ...) -> dict[str, bool]`
 
@@ -968,17 +968,18 @@ from deqn_jax.api import (
     save_irf_csv, print_irf_summary, load_model,
 )
 
-policy_net = load_policy_from_checkpoint("runs/disaster/checkpoint_best.eqx")
+# returns the network and the run's config (read from the checkpoint's directory)
+policy_net, config = load_policy_from_checkpoint("checkpoints/disaster/checkpoint_best.eqx")
 model = load_model("disaster")
 
 # Plain IRF (path - SS):
-irf = run_irf(policy_net, model, shock_name="eps_z", shock_size=1.0, horizon=40)
+irf = run_irf(policy_net, model, shock_name="eps", shock_size=1.0, horizon=40)
 
 # Generalized IRF (shocked - no-shock counterfactual):
-girf = run_girf(policy_net, model, shock_name="eps_z", shock_size=1.0, horizon=40)
+girf = run_girf(policy_net, model, shock_name="eps", shock_size=1.0, horizon=40)
 
-print_irf_summary(girf, "eps_z")
-save_irf_csv(girf, "/tmp/eps_z.csv")
+print_irf_summary(girf, "eps")
+save_irf_csv(girf, "/tmp/eps.csv")
 ```
 
 Both return `dict[str, list[float]]` with keys: `"period"`, every state, every
@@ -1023,11 +1024,15 @@ snapshot is never deleted.
 ## CLI reference
 
 ```bash
-deqn-jax train MODEL [-n EPISODES] [--config YAML] [--set KEY=VALUE ...] [-q]
+deqn-jax train [MODEL|FOLDER] [-n EPISODES] [--config YAML] [--set KEY=VALUE ...] [-q]
+deqn-jax verify FOLDER [--run NN] [--exact]
 deqn-jax list                       # all registered models
+deqn-jax info MODEL                 # dimensions, names (incl. shock names), constants
 deqn-jax optimizers                 # all registered optimizers
-deqn-jax evaluate CKPT [opts]       # see evaluate.run_evaluate_cli
-deqn-jax irf CKPT --shock NAME [--horizon N] [--mode irf|girf]
+deqn-jax evaluate CKPT [-n PERIODS] [--config YAML]
+deqn-jax irf CKPT [--shock NAME ...] [--horizon N] [--girf] [-o DIR]
+deqn-jax check                      # installation sanity check
+deqn-jax init-config [PATH]         # write a default YAML
 ```
 
 Common flags:
@@ -1041,9 +1046,14 @@ Common flags:
 | `--checkpoint-dir <path>` | Sets `checkpoint_dir` |
 | `--resume <ckpt>` | Resume from a `.eqx` checkpoint |
 
-Exit codes: 0 = success, non-zero = config / training / verification failure.
-Use `deqn-jax evaluate` exit code as the integration gate for an autonomous
-outer loop.
+Every subcommand's full flag list: `deqn-jax --help`, then `--help` after the
+subcommand (`deqn-jax irf --help`).
+
+Exit codes: 0 = success, non-zero = a config or training failure.
+`deqn-jax evaluate` exits 1 when the simulated path produces NaN and 0
+otherwise; it prints the Euler-error grades without enforcing them. An
+autonomous outer loop applies its own thresholds to the dicts returned by
+`euler_equation_errors` / `stability_check` (see *Suggested verification gates*).
 
 ---
 

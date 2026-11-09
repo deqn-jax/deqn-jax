@@ -136,7 +136,7 @@ deeper so the decision layer stays glanceable. The canonical lists always come
 from the live registries:
 
 ```bash
-uv run deqn-jax optimizers   # the 13 registered optimizers, live
+uv run deqn-jax optimizers   # the registered optimizers, live
 uv run deqn-jax list         # the registered models
 ```
 
@@ -154,6 +154,7 @@ packaged API.
     | Optimizer | Variant | Status | When to reach for it |
     |---|---|---|---|
     | `adam` | STANDARD | validated | **The default.** Start here; only move if it stalls. |
+    | `sgd`, `adamw`, `lion` | STANDARD | baseline | Plain gradient descent, Adam with decoupled weight decay, sign-based momentum -- reference points for the others. |
     | `muon` | STANDARD | experimental | Newton-Schulz orthogonalized updates. (DL optimizer -- see footnote.) |
     | `ngd` | STANDARD | experimental | Diagonal-Fisher natural gradient. (DL optimizer -- see footnote.) |
     | `shampoo` | STANDARD | experimental | Kronecker-factored second-order. (DL optimizer -- see footnote.) |
