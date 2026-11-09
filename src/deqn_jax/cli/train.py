@@ -342,6 +342,5 @@ def run(args):
     if run_dir is not None:
         from deqn_jax.models.folder import write_history
 
-        if result is not None:
-            write_history(run_dir, result[1])
+        write_history(run_dir, result[1])
         print(f"\nRun: {run_dir}\nNext: deqn-jax verify {folder}")

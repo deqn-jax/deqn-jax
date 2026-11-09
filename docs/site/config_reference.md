@@ -93,7 +93,7 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 | `cg_tol` | `float` | `1e-06` | Implicit Gauss-Newton relative conjugate-gradient residual tolerance. |
 | `lr_schedule` | `str` | `'constant'` | LR schedule: `constant` or `cosine`. |
 | `lr_warmup` | `int` | `0` | With `lr_schedule='cosine'`: episodes of linear warmup from 0 to `learning_rate`, counted inside the schedule's `episodes` horizon. Ignored by `constant`. |
-| `weight_decay` | `float` | `0.0` | Decoupled weight decay for `adamw` (ignored by every other optimizer). At 0.0, `adamw` is `adam`. |
+| `weight_decay` | `float` | `0.0` | Decoupled weight decay for `adamw`. At 0.0, `adamw` is `adam`. Not read by any other optimizer; note that `lion` applies optax's own default decay (1e-3) whatever this field says. |
 | `lr_min_factor` | `float` | `0.0` | Minimum LR as a fraction of peak (cosine floor). |
 
 ## `NetworkConfig`
