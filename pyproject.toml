@@ -25,13 +25,11 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "matplotlib>=3.7",
+    "tensorboardX>=2.6",
 ]
 
 [project.optional-dependencies]
 cuda = ["jax[cuda12]>=0.4.20"]
-logging = [
-    "tensorboardX>=2.6",
-]
 wandb = ["wandb>=0.15.0"]
 docs = [
     "mkdocs>=1.6",
@@ -39,7 +37,7 @@ docs = [
     "mkdocstrings[python]>=0.25",
     "mkdocs-jupyter>=0.24",
 ]
-all = ["deqn-jax[logging,wandb,docs]"]
+all = ["deqn-jax[wandb,docs]"]
 
 [project.scripts]
 deqn-jax = "deqn_jax.cli:main"

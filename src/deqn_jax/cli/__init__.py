@@ -44,4 +44,10 @@ def main():
     if handler is None:
         parser.print_help()
         sys.exit(1)
-    handler(args)
+    from deqn_jax.training.metrics import MissingDependencyError
+
+    try:
+        handler(args)
+    except MissingDependencyError as err:
+        print(f"deqn-jax: error: {err}", file=sys.stderr)
+        sys.exit(1)

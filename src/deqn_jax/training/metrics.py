@@ -1,12 +1,21 @@
 """Metric logging backends for training monitoring.
 
-Supports TensorBoard (via tensorboardX) and Weights & Biases.
-All backends are optional — NullLogger is used when nothing is configured.
+Supports TensorBoard (via tensorboardX, a core dependency) and Weights &
+Biases (the optional ``wandb`` extra). NullLogger is used when nothing is
+configured.
 """
 
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 
 import numpy as np
+
+
+class MissingDependencyError(ImportError):
+    """An optional dependency a requested feature needs is not installed.
+
+    The message is complete for a user (what is missing, how to install it);
+    the CLI prints it as a one-line error instead of a traceback.
+    """
 
 
 @runtime_checkable
@@ -39,13 +48,8 @@ class TensorBoardLogger:
     """TensorBoard logging via tensorboardX."""
 
     def __init__(self, log_dir: str):
-        try:
-            from tensorboardX import SummaryWriter
-        except ImportError:
-            raise ImportError(
-                "tensorboardX required for TensorBoard logging. "
-                "Install with: uv pip install tensorboardX"
-            )
+        from tensorboardX import SummaryWriter
+
         self._writer = SummaryWriter(log_dir)
 
     def log_scalars(self, metrics: Dict[str, float], step: int) -> None:
@@ -69,10 +73,12 @@ class WandbLogger:
     def __init__(self, project: str, config: Optional[Dict] = None):
         try:
             import wandb
-        except ImportError:
-            raise ImportError(
-                "wandb required for W&B logging. Install with: uv pip install wandb"
-            )
+        except ImportError as err:
+            raise MissingDependencyError(
+                "W&B logging (--wandb / wandb_project) needs the optional "
+                "'wandb' extra: uv sync --extra wandb "
+                '(or uv pip install -e ".[wandb]")'
+            ) from err
         wandb.init(project=project, config=config)
         self._wandb = wandb
 
