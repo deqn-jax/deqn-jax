@@ -31,21 +31,15 @@ the class docstring):
    ``dpi/ds(s*) = P`` hold for every parameter value; training shapes
    second-order-and-beyond deviations only.
 
-4. **Investment-bracket reparam** (``reparam_q_as_m``, §3.3 of the
-   shape-priors doc). Treats the network's ``q`` output as
-   ``M = q · 𝓑(x)`` where ``𝓑(x) = 1 − S(x) − x·S'(x)`` is the
-   investment-Euler bracket and ``x = µ_z·i/i_lag``. Recovers
-   ``q = M / 𝓑(x)`` post-MLP.
+4. **Output-slot reparametrizations** (``reparam_q_as_m``,
+   ``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``): the ``q`` /
+   ``pi`` / ``w_tilda`` slots carry a better-conditioned quantity (the
+   investment-bracket ``M``, the Calvo inner terms ``K_p_inner`` /
+   ``K_w_inner``) and the policy is recovered from it. Their logic, indices
+   and constants live in ``reparams.py``. Experimental: no shipped config
+   enables them.
 
-5. **Calvo reparams** (``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``,
-   §3.1/§3.1'). The ``pi`` / ``w_tilda`` output slots are read as the Calvo
-   inner terms ``K_p_inner`` / ``K_w_inner`` (bounds overridden to their
-   domain); ``pi``, ``w_tilda`` and ``K_p`` / ``K_w`` are recovered post-clip
-   so eqs 2a / 4a hold as identities up to the soft-floor wedge that
-   ``definitions()`` applies to the inner terms. Experimental:
-   `configs/archive/disaster_calvo` only.
-
-6. **Per-policy output links** (``output_links``): ``linear`` (additive) or
+5. **Per-policy output links** (``output_links``): ``linear`` (additive) or
    ``log`` (multiplicative around SS); reparam slots must be linear.
 
 Defaults: only the K/F restriction is on; everything else is off.
@@ -60,6 +54,13 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from deqn_jax.models.disaster.reparams import (
+    CalvoPrice,
+    CalvoWage,
+    InvestmentBracket,
+    constants_of,
+    index_of,
+)
 from deqn_jax.networks.common import (
     _apply_hard_clip,
     _apply_output_links,
@@ -68,17 +69,6 @@ from deqn_jax.networks.common import (
     _to_tuple,
 )
 from deqn_jax.networks.mlp import MLP
-
-
-def _float_or_none(x) -> Optional[float]:
-    return None if x is None else float(x)
-
-
-def _require(flag: str, **values) -> None:
-    """Raise naming every input an enabled prior reads but was not given."""
-    missing = [name for name, value in values.items() if value is None]
-    if missing:
-        raise ValueError(f"{flag}=True requires {', '.join(missing)}")
 
 
 class DisasterPolicyNet(eqx.Module):
@@ -112,10 +102,9 @@ class DisasterPolicyNet(eqx.Module):
     _ss_state: tuple = eqx.field(static=True)
     _ss_policy: tuple = eqx.field(static=True)
     # Per-policy output parameterization (mirror of LinearPlusMLP). Tuple of
-    # ints, 0=linear, 1=log. Reparam-affected slots (q if reparam_q_as_m, pi
-    # if reparam_pi_as_kp_inner, w_tilda if reparam_wtilda_as_kw_inner) are
-    # forced to linear and validated in __init__ — log + reparam at the same
-    # slot is incoherent (the reparam logic operates in level space).
+    # ints, 0=linear, 1=log. Reparam slots are forced to linear and
+    # validated in __init__ — log + reparam at the same slot is incoherent
+    # (the reparam logic operates in level space).
     output_links: tuple = eqx.field(static=True)
     policy_lower: Optional[tuple] = eqx.field(static=True)
     policy_upper: Optional[tuple] = eqx.field(static=True)
@@ -130,48 +119,10 @@ class DisasterPolicyNet(eqx.Module):
     r_lag_idx: int = eqx.field(static=True)
     r_lb: Optional[float] = eqx.field(static=True)
 
-    # Investment-bracket reparameterization
-    reparam_q_as_m: bool = eqx.field(static=True)
-    q_idx: int = eqx.field(static=True)
-    i_idx: int = eqx.field(static=True)
-    i_lag_idx: int = eqx.field(static=True)
-    mu_z_idx: int = eqx.field(static=True)
-    kappa: float = eqx.field(static=True)
-    mu_z_ss: Optional[float] = eqx.field(static=True)
-
-    # Calvo K_p_inner reparameterization (§3.1, price side):
-    # treat the network's `π` output slot as K_p_inner_t ∈ (0, 1/(1−ξ_p))
-    # via repurposed bounds; derive π_t from the inverse map post-clip,
-    # AND override raw[K_p_idx] with K_p = F_p · K_p_inner^{1−λ_f} so eq 2a
-    # holds up to the soft-floor wedge of definitions(). Encodes the Calvo asymptote in
-    # the parameterization so the MLP only has to learn smooth K_p_inner.
-    reparam_pi_as_kp_inner: bool = eqx.field(static=True)
-    pi_idx: int = eqx.field(static=True)
-    pi_lag_idx: int = eqx.field(static=True)
-    F_p_idx: int = eqx.field(static=True)
-    K_p_idx: int = eqx.field(static=True)
-    xi_p: float = eqx.field(static=True)
-    lambda_f: float = eqx.field(static=True)
-    iota: Optional[float] = eqx.field(static=True)
-    pi_ss: Optional[float] = eqx.field(static=True)
-
-    # Calvo K_w_inner reparameterization (§3.1', wage side, mirror of §3.1):
-    # treat the network's `w_tilda` output slot as K_w_inner_t. Derive
-    # w_tilda from the inverse eq 4a formula post-clip:
-    #     w_tilda = ψ_L · K_w / (F_w · K_w_inner^{1−λ_w(1+σ_L)})
-    # which makes eq 4a hold up to the soft-floor wedge of definitions().
-    # Encodes the wage-side
-    # Calvo asymptote symmetrically to the price-side reparam.
-    reparam_wtilda_as_kw_inner: bool = eqx.field(static=True)
-    w_tilda_idx: int = eqx.field(static=True)
-    w_tilda_lag_idx: int = eqx.field(static=True)
-    F_w_idx: int = eqx.field(static=True)
-    K_w_idx: int = eqx.field(static=True)
-    xi_w: float = eqx.field(static=True)
-    lambda_w: float = eqx.field(static=True)
-    sigma_L: Optional[float] = eqx.field(static=True)
-    iota_w: Optional[float] = eqx.field(static=True)
-    psi_L: Optional[float] = eqx.field(static=True)
+    # Output-slot reparametrizations (``reparams.py``); None = off.
+    q_as_m: Optional[InvestmentBracket] = eqx.field(static=True)
+    calvo_price: Optional[CalvoPrice] = eqx.field(static=True)
+    calvo_wage: Optional[CalvoWage] = eqx.field(static=True)
 
     def __init__(
         self,
@@ -194,32 +145,9 @@ class DisasterPolicyNet(eqx.Module):
         zlb_feature_kind: Literal["raw", "kink"] = "raw",
         r_lag_idx: int = -1,
         r_lb: Optional[float] = None,
-        reparam_q_as_m: bool = False,
-        q_idx: int = -1,
-        i_idx: int = -1,
-        i_lag_idx: int = -1,
-        mu_z_idx: int = -1,
-        kappa: float = 0.0,
-        mu_z_ss: Optional[float] = None,
-        reparam_pi_as_kp_inner: bool = False,
-        pi_idx: int = -1,
-        pi_lag_idx: int = -1,
-        F_p_idx: int = -1,
-        K_p_idx: int = -1,
-        xi_p: float = 0.0,
-        lambda_f: float = 0.0,
-        iota: Optional[float] = None,
-        pi_ss: Optional[float] = None,
-        reparam_wtilda_as_kw_inner: bool = False,
-        w_tilda_idx: int = -1,
-        w_tilda_lag_idx: int = -1,
-        F_w_idx: int = -1,
-        K_w_idx: int = -1,
-        xi_w: float = 0.0,
-        lambda_w: float = 0.0,
-        sigma_L: Optional[float] = None,
-        iota_w: Optional[float] = None,
-        psi_L: Optional[float] = None,
+        q_as_m: Optional[InvestmentBracket] = None,
+        calvo_price: Optional[CalvoPrice] = None,
+        calvo_wage: Optional[CalvoWage] = None,
         output_links: Optional[Sequence[str]] = None,
         *,
         key: Array,
@@ -233,14 +161,15 @@ class DisasterPolicyNet(eqx.Module):
             )
         self.zlb_feature_kind = str(zlb_feature_kind)
         self.r_lag_idx = int(r_lag_idx)
-        self.r_lb = _float_or_none(r_lb)
+        self.r_lb = None if r_lb is None else float(r_lb)
         if self.use_zlb_feature:
             if not (0 <= self.r_lag_idx < n_states):
                 raise ValueError(
                     f"use_zlb_feature=True requires valid r_lag_idx, got "
                     f"{self.r_lag_idx} (bound {n_states})"
                 )
-            _require("use_zlb_feature", r_lb=self.r_lb)
+            if self.r_lb is None:
+                raise ValueError("use_zlb_feature=True requires r_lb")
         n_extra = 1 if self.use_zlb_feature else 0
 
         # When the ZLB regime feature is on, the MLP's input dimension grows
@@ -295,196 +224,16 @@ class DisasterPolicyNet(eqx.Module):
                 )
         self.kf_indices = kf_idx_tuple
 
-        # Investment-bracket reparam (§3.3): when True, the q output of
-        # the network is interpreted as M = q · 𝓑(x), and q is recovered
-        # post-MLP as M / 𝓑(x), with 𝓑 floored at 1e-3 in the division.
-        # Aimed at the sign-flip pathology in eq 7; 𝓑(x) itself, and so the
-        # sign of µ_Υ q 𝓑(x), is not constrained.
-        self.reparam_q_as_m = bool(reparam_q_as_m)
-        self.q_idx = int(q_idx)
-        self.i_idx = int(i_idx)
-        self.i_lag_idx = int(i_lag_idx)
-        self.mu_z_idx = int(mu_z_idx)
-        self.kappa = float(kappa)
-        self.mu_z_ss = _float_or_none(mu_z_ss)
-        if self.reparam_q_as_m:
-            for name, idx, bound in [
-                ("q_idx", self.q_idx, n_policies),
-                ("i_idx", self.i_idx, n_policies),
-                ("i_lag_idx", self.i_lag_idx, n_states),
-                ("mu_z_idx", self.mu_z_idx, n_states),
-            ]:
-                if not (0 <= idx < bound):
-                    raise ValueError(
-                        f"reparam_q_as_m=True requires valid {name}, got {idx} "
-                        f"(bound {bound})"
-                    )
-            if self.kappa <= 0.0:
-                raise ValueError(
-                    f"reparam_q_as_m=True requires kappa > 0, got {self.kappa}"
-                )
-            _require("reparam_q_as_m", mu_z_ss=self.mu_z_ss)
-
-        # Calvo K_p_inner reparam (§3.1, price side): the network's π output
-        # slot is repurposed as K_p_inner_t. We OVERRIDE the bounds at that
-        # slot from the model's pi-bounds [0.95, 1.10] to K_p_inner-bounds
-        # (0.01, 1/(1−ξ_p) − 0.01) so the existing clip mechanism enforces
-        # the K_p_inner domain. Post-clip, the inverse map recovers π_t.
-        self.reparam_pi_as_kp_inner = bool(reparam_pi_as_kp_inner)
-        self.pi_idx = int(pi_idx)
-        self.pi_lag_idx = int(pi_lag_idx)
-        self.F_p_idx = int(F_p_idx)
-        self.K_p_idx = int(K_p_idx)
-        self.xi_p = float(xi_p)
-        self.lambda_f = float(lambda_f)
-        self.iota = _float_or_none(iota)
-        self.pi_ss = _float_or_none(pi_ss)
-        if self.reparam_pi_as_kp_inner:
-            for name, idx, bound in [
-                ("pi_idx", self.pi_idx, n_policies),
-                ("F_p_idx", self.F_p_idx, n_policies),
-                ("K_p_idx", self.K_p_idx, n_policies),
-                ("pi_lag_idx", self.pi_lag_idx, n_states),
-            ]:
-                if not (0 <= idx < bound):
-                    raise ValueError(
-                        f"reparam_pi_as_kp_inner=True requires valid {name}, got "
-                        f"{idx} (bound {bound})"
-                    )
-            if not (0.0 < self.xi_p < 1.0):
-                raise ValueError(
-                    f"reparam_pi_as_kp_inner=True requires 0 < xi_p < 1, got {self.xi_p}"
-                )
-            if self.lambda_f <= 1.0:
-                raise ValueError(
-                    f"reparam_pi_as_kp_inner=True requires lambda_f > 1, got "
-                    f"{self.lambda_f}"
-                )
-            _require("reparam_pi_as_kp_inner", iota=self.iota, pi_ss=self.pi_ss)
-            # Compute reference values from the solved SS for bound derivation.
-            pi_lag_ss = float(self.ss_state[self.pi_lag_idx])
-            pi_tilda_ss = (self.pi_ss**self.iota) * (pi_lag_ss ** (1.0 - self.iota))
-            a_exp = 1.0 / (1.0 - self.lambda_f)
-
-            def _kp_inner_from_pi(pi_val: float) -> float:
-                """Forward Calvo: π → K_p_inner at SS pi_tilda (for bounds)."""
-                return (1.0 - self.xi_p * (pi_tilda_ss / pi_val) ** a_exp) / (
-                    1.0 - self.xi_p
-                )
-
-            # Derive K_p_inner bounds FROM THE ORIGINAL pi bounds (not the
-            # full domain). High π → low K_p_inner; low π → high K_p_inner.
-            # This preserves the model's physical pi range while encoding
-            # the Calvo-edge asymptote at the lower bound (where π →
-            # 1.108·π̃). The Calvo full domain (0, 1/(1−ξ_p)) is much
-            # wider than physically plausible π — using it lets the
-            # optimizer push K_p_inner toward extreme values that yield
-            # π outside the model's calibrated range.
-            orig_pi_lower = (
-                float(self.policy_lower[self.pi_idx])
-                if self.policy_lower is not None
-                else 0.5
+        # Output-slot reparametrizations: each repurposed slot's clip bounds
+        # become the domain of the quantity it carries (Calvo slots).
+        self.q_as_m = q_as_m
+        self.calvo_price = calvo_price
+        self.calvo_wage = calvo_wage
+        for reparam in self._reparams():
+            reparam.check_indices(n_states, n_policies)
+            self.policy_lower, self.policy_upper = reparam.override_bounds(
+                self.policy_lower, self.policy_upper, self.ss_state, n_policies
             )
-            orig_pi_upper = (
-                float(self.policy_upper[self.pi_idx])
-                if self.policy_upper is not None
-                else float("inf")
-            )
-            kp_inner_lo = (
-                _kp_inner_from_pi(orig_pi_upper)
-                if orig_pi_upper < float("inf")
-                else 0.01
-            )
-            kp_inner_hi = _kp_inner_from_pi(orig_pi_lower)
-            kp_inner_lo = max(kp_inner_lo, 0.01)
-            kp_inner_hi = min(kp_inner_hi, 1.0 / (1.0 - self.xi_p) - 0.01)
-
-            new_lower = (
-                list(self.policy_lower)
-                if self.policy_lower is not None
-                else [-float("inf")] * n_policies
-            )
-            new_upper = (
-                list(self.policy_upper)
-                if self.policy_upper is not None
-                else [float("inf")] * n_policies
-            )
-            new_lower[self.pi_idx] = kp_inner_lo
-            new_upper[self.pi_idx] = kp_inner_hi
-            self.policy_lower = tuple(new_lower)
-            self.policy_upper = tuple(new_upper)
-
-            # NOTE: do not override ss_policy[pi_idx]. We instead compute
-            # K_p_inner_BK on-the-fly in the forward pass via the EXACT
-            # Calvo formula applied to pi_BK = linear[pi_idx]. This avoids
-            # the off-SS bias that arises when ss_policy[pi_idx] is set to
-            # K_p_inner_ss but P[pi_idx] is still the pi-space derivative.
-
-        # Calvo K_w_inner reparam (§3.1', wage side): symmetric to §3.1.
-        # Treat the network's `w_tilda` output slot as K_w_inner_t. Override
-        # bounds at w_tilda_idx to a wider Calvo-domain range. After MLP +
-        # clip, recover w_tilda via the inverse eq 4a formula.
-        self.reparam_wtilda_as_kw_inner = bool(reparam_wtilda_as_kw_inner)
-        self.w_tilda_idx = int(w_tilda_idx)
-        self.w_tilda_lag_idx = int(w_tilda_lag_idx)
-        self.F_w_idx = int(F_w_idx)
-        self.K_w_idx = int(K_w_idx)
-        self.xi_w = float(xi_w)
-        self.lambda_w = float(lambda_w)
-        self.sigma_L = _float_or_none(sigma_L)
-        self.iota_w = _float_or_none(iota_w)
-        self.psi_L = _float_or_none(psi_L)
-        if self.reparam_wtilda_as_kw_inner:
-            for name, idx, bound in [
-                ("w_tilda_idx", self.w_tilda_idx, n_policies),
-                ("F_w_idx", self.F_w_idx, n_policies),
-                ("K_w_idx", self.K_w_idx, n_policies),
-                ("w_tilda_lag_idx", self.w_tilda_lag_idx, n_states),
-                ("pi_idx", self.pi_idx, n_policies),
-                ("pi_lag_idx", self.pi_lag_idx, n_states),
-            ]:
-                if not (0 <= idx < bound):
-                    raise ValueError(
-                        f"reparam_wtilda_as_kw_inner=True requires valid {name}, "
-                        f"got {idx} (bound {bound})"
-                    )
-            if not (0.0 < self.xi_w < 1.0):
-                raise ValueError(
-                    f"reparam_wtilda_as_kw_inner requires 0 < xi_w < 1, got {self.xi_w}"
-                )
-            if self.lambda_w <= 1.0:
-                raise ValueError(
-                    f"reparam_wtilda_as_kw_inner requires lambda_w > 1, got "
-                    f"{self.lambda_w}"
-                )
-            _require(
-                "reparam_wtilda_as_kw_inner",
-                sigma_L=self.sigma_L,
-                iota_w=self.iota_w,
-                psi_L=self.psi_L,
-                pi_ss=self.pi_ss,
-                mu_z_ss=self.mu_z_ss,
-            )
-            # Override bounds at w_tilda_idx to the K_w_inner domain
-            # (0.01, 1/(1−ξ_w) − 0.01). The original w_tilda bounds (lower
-            # ≈ 1.0, upper = ∞) don't translate to a meaningful K_w_inner
-            # range — they'd constrain wages to the deflationary side only.
-            kw_inner_lo = 0.01
-            kw_inner_hi = 1.0 / (1.0 - self.xi_w) - 0.01
-            new_lower = (
-                list(self.policy_lower)
-                if self.policy_lower is not None
-                else [-float("inf")] * n_policies
-            )
-            new_upper = (
-                list(self.policy_upper)
-                if self.policy_upper is not None
-                else [float("inf")] * n_policies
-            )
-            new_lower[self.w_tilda_idx] = kw_inner_lo
-            new_upper[self.w_tilda_idx] = kw_inner_hi
-            self.policy_lower = tuple(new_lower)
-            self.policy_upper = tuple(new_upper)
 
         # output_links: per-policy "linear"/"log". Reparam-affected slots are
         # forced to "linear" (incoherent to apply log on top of a slot whose
@@ -516,21 +265,21 @@ class DisasterPolicyNet(eqx.Module):
                     f"output_link='log' requires ss_policy > 0; non-positive at "
                     f"indices {bad_pos} (ss values {[float(ss_arr[i]) for i in bad_pos]})"
                 )
-            # Reparam ↔ log incompatibility checks
-            reparam_slots = []
-            if self.reparam_q_as_m and self.q_idx >= 0:
-                reparam_slots.append(("reparam_q_as_m", self.q_idx))
-            if self.reparam_pi_as_kp_inner and self.pi_idx >= 0:
-                reparam_slots.append(("reparam_pi_as_kp_inner", self.pi_idx))
-            if self.reparam_wtilda_as_kw_inner and self.w_tilda_idx >= 0:
-                reparam_slots.append(("reparam_wtilda_as_kw_inner", self.w_tilda_idx))
-            for flag_name, slot_idx in reparam_slots:
-                if link_codes_tuple[slot_idx] == 1:
+            for reparam in self._reparams():
+                if link_codes_tuple[reparam.slot] == 1:
                     raise ValueError(
-                        f"{flag_name}=True forces output_links[{slot_idx}]='linear' "
-                        f"(the reparam logic operates in level space); got 'log'"
+                        f"{reparam.flag}=True forces output_links[{reparam.slot}]="
+                        f"'linear' (the reparam logic operates in level space); "
+                        f"got 'log'"
                     )
         self.output_links = link_codes_tuple
+
+    def _reparams(self) -> tuple:
+        """The enabled reparametrizations, in the order the forward applies
+        them (the wage side reads the pi the price side recovers)."""
+        return tuple(
+            r for r in (self.calvo_price, self.calvo_wage, self.q_as_m) if r is not None
+        )
 
     @property
     def P(self) -> Array:
@@ -583,60 +332,17 @@ class DisasterPolicyNet(eqx.Module):
         P = self.P
         bk_corr = P @ (state - ss_state)
 
-        # Capture pi_BK / w_tilda_BK in *level* space at the pre-substitution
-        # point. Reparam slots are forced linear-link, so pi_BK = ss + bk_corr.
-        pi_BK_captured = (
-            ss_policy[self.pi_idx] + bk_corr[self.pi_idx]
-            if (self.reparam_pi_as_kp_inner or self.reparam_wtilda_as_kw_inner)
-            else None
-        )
-        w_tilda_BK_captured = (
-            ss_policy[self.w_tilda_idx] + bk_corr[self.w_tilda_idx]
-            if self.reparam_wtilda_as_kw_inner
-            else None
-        )
-
-        # Calvo K_p_inner reparam (§3.1, BK conversion): substitute the
-        # pi-slot's BK contribution so that ss + bk_corr = K_p_inner_BK at
-        # the pi slot. (Always level-space; pi_idx is forced linear-link.)
-        if self.reparam_pi_as_kp_inner:
-            pi_lag = state[self.pi_lag_idx]
-            pi_tilda_t = (self.pi_ss**self.iota) * (pi_lag ** (1.0 - self.iota))
-            a_exp_fwd = 1.0 / (1.0 - self.lambda_f)
-            kp_inner_BK = (
-                1.0 - self.xi_p * (pi_tilda_t / pi_BK_captured) ** a_exp_fwd
-            ) / (1.0 - self.xi_p)
-            bk_corr = bk_corr.at[self.pi_idx].set(kp_inner_BK - ss_policy[self.pi_idx])
-
-        # Calvo K_w_inner reparam (§3.1', wage side BK conversion).
-        if self.reparam_wtilda_as_kw_inner:
-            pi_lag_for_w = state[self.pi_lag_idx]
-            w_tilda_lag = state[self.w_tilda_lag_idx]
-            pi_w_BK = pi_BK_captured * w_tilda_BK_captured / (w_tilda_lag + 1e-12)
-            pi_w_tilda_t = (self.pi_ss**self.iota_w) * (
-                pi_lag_for_w ** (1.0 - self.iota_w)
-            )
-            aw_exp = 1.0 / (1.0 - self.lambda_w)
-            kw_inner_BK = (
-                1.0 - self.xi_w * (pi_w_tilda_t * self.mu_z_ss / pi_w_BK) ** aw_exp
-            ) / (1.0 - self.xi_w)
-            bk_corr = bk_corr.at[self.w_tilda_idx].set(
-                kw_inner_BK - ss_policy[self.w_tilda_idx]
-            )
-
-        # Investment-bracket reparam: q-slot's BK contribution is
-        # M_BK - ss[q_idx] (q_idx forced linear-link).
-        if self.reparam_q_as_m:
-            mu_z_t = state[self.mu_z_idx]
-            i_lag = state[self.i_lag_idx]
-            i_BK = ss_policy[self.i_idx] + bk_corr[self.i_idx]
-            x_BK = mu_z_t * i_BK / (i_lag + 1e-12)
-            S_val_BK = 0.5 * self.kappa * (x_BK - self.mu_z_ss) ** 2
-            S_prime_BK = self.kappa * (x_BK - self.mu_z_ss)
-            B_BK = 1.0 - S_val_BK - x_BK * S_prime_BK
-            q_BK = ss_policy[self.q_idx] + bk_corr[self.q_idx]
-            M_BK = q_BK * B_BK
-            bk_corr = bk_corr.at[self.q_idx].set(M_BK - ss_policy[self.q_idx])
+        # Reparametrized slots: replace the BK term by the BK policy in the
+        # slot's reparametrized space, so ss + bk_corr there is K_p_inner_BK /
+        # K_w_inner_BK / M_BK. Each reads the BK *level* captured before any
+        # substitution (reparam slots are forced linear-link).
+        reparams = self._reparams()
+        if reparams:
+            bk_level = ss_policy + bk_corr
+            for reparam in reparams:
+                bk_corr = bk_corr.at[reparam.slot].set(
+                    reparam.bk_target(bk_level, state) - ss_policy[reparam.slot]
+                )
 
         delta = self._delta_of_state(state)
 
@@ -657,76 +363,20 @@ class DisasterPolicyNet(eqx.Module):
         # for natural positivity + log-deviation parameterization.
         raw = _apply_output_links(ss_policy, bk_corr, delta, self.output_links)
 
-        # Investment-bracket reparam: recover q_t = M_t / 𝓑(x_t) using the
-        # POST-delta i_t to compute x_t. 𝓑 floored at 1e-3 to keep the
-        # division well-conditioned if x approaches the sign-flip point.
-        if self.reparam_q_as_m:
-            mu_z_t = state[self.mu_z_idx]
-            i_lag = state[self.i_lag_idx]
-            i_t = raw[self.i_idx]
-            x_t = mu_z_t * i_t / (i_lag + 1e-12)
-            S_val_t = 0.5 * self.kappa * (x_t - self.mu_z_ss) ** 2
-            S_prime_t = self.kappa * (x_t - self.mu_z_ss)
-            B_t = 1.0 - S_val_t - x_t * S_prime_t
-            B_safe = jnp.where(B_t > 1e-3, B_t, jnp.asarray(1e-3, dtype=B_t.dtype))
-            M_t = raw[self.q_idx]
-            q_t = M_t / B_safe
-            raw = raw.at[self.q_idx].set(q_t)
+        # q = M / 𝓑(x) is recovered before the clip, so the q bounds apply to q.
+        if self.q_as_m is not None:
+            raw = self.q_as_m.recover(raw, state)
 
-        # Hard clip per-output bounds. When reparam_pi_as_kp_inner is True,
-        # the bounds at pi_idx have been overridden in __init__ to enforce
-        # the K_p_inner domain (0.01, 1/(1−ξ_p)−0.01).
+        # Hard clip per-output bounds; the Calvo slots carry their inner
+        # terms' domains (set in __init__).
         raw = _apply_hard_clip(raw, self.policy_lower, self.policy_upper)
 
-        # Calvo K_p_inner reparam (§3.1, price side): post-clip, raw[pi_idx]
-        # is K_p_inner_t bounded to (0.01, 1/(1−ξ_p)−0.01). Recover π_t via
-        # the inverse map AND override raw[K_p_idx] with K_p = F_p ·
-        # K_p_inner^{1−λ_f} so eq 2a holds up to the soft-floor wedge of
-        # definitions(). The (1−(1−ξ_p)·K_p_inner)/ξ_p factor is positive
-        # everywhere on the bounded K_p_inner domain.
-        if self.reparam_pi_as_kp_inner:
-            pi_lag = state[self.pi_lag_idx]
-            pi_tilda_t = (self.pi_ss**self.iota) * (pi_lag ** (1.0 - self.iota))
-            kp_inner_t = raw[self.pi_idx]
-            inner_term = (1.0 - (1.0 - self.xi_p) * kp_inner_t) / self.xi_p
-            pi_t = pi_tilda_t * inner_term ** (self.lambda_f - 1.0)
-            F_p_t = raw[self.F_p_idx]
-            K_p_t = F_p_t * kp_inner_t ** (1.0 - self.lambda_f)
-            raw = raw.at[self.pi_idx].set(pi_t)
-            raw = raw.at[self.K_p_idx].set(K_p_t)
-
-        # Calvo K_w_inner reparam (§3.1', wage side): post-clip, raw[w_tilda_idx]
-        # is K_w_inner_t. Recover w_tilda via the *Calvo formula inversion*
-        # (mirror of price-side), then override K_w to make eq 4a identically
-        # zero. Critical: the eq-4a-direct inversion (w_tilda = ψ_L·K_w·
-        # K_w_inner^{1−λ_w(1+σ_L)}/F_w) is NOT correct off-SS, because then
-        # equations.definitions() recomputes K_w_inner_eq from
-        # (pi_w_tilda·µ_z_ss/pi_w) and gets a value ≠ K_w_inner_t, breaking
-        # eq 4a. The fix: invert the Calvo formula to get pi_w_t such that
-        # K_w_inner_eq = K_w_inner_t identically, then derive w_tilda_t from
-        # pi_w_t = pi_t·w_tilda_t/w_tilda_lag, then override K_w_t to satisfy
-        # eq 4a.
-        if self.reparam_wtilda_as_kw_inner:
-            pi_lag_for_w = state[self.pi_lag_idx]
-            w_tilda_lag = state[self.w_tilda_lag_idx]
-            pi_w_tilda_t = (self.pi_ss**self.iota_w) * (
-                pi_lag_for_w ** (1.0 - self.iota_w)
-            )
-            kw_inner_t = raw[self.w_tilda_idx]
-            inner_term_w = (1.0 - (1.0 - self.xi_w) * kw_inner_t) / self.xi_w
-            # Calvo inversion: pi_w = pi_w_tilda · µ_z_ss · inner_term^{λ_w−1}
-            pi_w_t = pi_w_tilda_t * self.mu_z_ss * inner_term_w ** (self.lambda_w - 1.0)
-            # raw[pi_idx] is already the recovered pi_t (price-side ran above
-            # if enabled, otherwise it's the network's clipped output for pi).
-            pi_t = raw[self.pi_idx]
-            w_tilda_t = pi_w_t * w_tilda_lag / (pi_t + 1e-12)
-            # K_w override: eq 4a holds up to the soft-floor wedge
-            # (K_w = (1/ψ_L)·K_w_inner^{1−λ_w(1+σ_L)}·w_tilda·F_w)
-            kw_exponent = 1.0 - self.lambda_w * (1.0 + self.sigma_L)
-            F_w_t = raw[self.F_w_idx]
-            K_w_t = (1.0 / self.psi_L) * (kw_inner_t**kw_exponent) * w_tilda_t * F_w_t
-            raw = raw.at[self.w_tilda_idx].set(w_tilda_t)
-            raw = raw.at[self.K_w_idx].set(K_w_t)
+        # Calvo recoveries from the clipped inner terms; the wage side reads
+        # the pi the price side recovers.
+        if self.calvo_price is not None:
+            raw = self.calvo_price.recover(raw, state)
+        if self.calvo_wage is not None:
+            raw = self.calvo_wage.recover(raw, state)
 
         return raw
 
@@ -734,21 +384,6 @@ class DisasterPolicyNet(eqx.Module):
         if x.ndim == 1:
             return self._forward_single(x)
         return jax.vmap(self._forward_single)(x)
-
-
-def _index_of(names: list, name: str, where: str, flag: str) -> int:
-    """Position of ``name`` in the model's ``where`` list; raises naming it."""
-    if name not in names:
-        raise ValueError(f"{flag}=True requires {name!r} in {where}; got {names}")
-    return names.index(name)
-
-
-def _constants_of(model, flag: str, *names: str) -> list:
-    """Calibration constants a prior reads; raises naming every missing one."""
-    missing = [n for n in names if n not in model.constants]
-    if missing:
-        raise ValueError(f"{flag}=True requires model.constants {missing}")
-    return [float(model.constants[n]) for n in names]
 
 
 def create_disaster_policy_net(
@@ -775,17 +410,9 @@ def create_disaster_policy_net(
     Resolves the indices and constants each enabled prior reads from
     ``model`` — names from ``model.policy_names`` / ``model.state_names``,
     calibration from ``model.constants`` — before linearizing, and raises
-    naming whatever is missing:
-
-    - ``kf_names`` → ``kf_indices``
-    - ``use_zlb_feature``: state ``R_lag``; constant ``R_lb``
-    - ``reparam_q_as_m``: policies ``q, i``; states ``i_lag, mu_z``;
-      constants ``kappa, mu_z_ss``
-    - ``reparam_pi_as_kp_inner``: policies ``pi, F_p, K_p``; state
-      ``pi_lag``; constants ``xi_p, lambda_f, iota, pi_ss``
-    - ``reparam_wtilda_as_kw_inner``: policies ``w_tilda, F_w, K_w, pi``;
-      states ``w_tilda_lag, pi_lag``; constants ``xi_w, lambda_w, sigma_L,
-      iota_w, psi_L, pi_ss, mu_z_ss``
+    naming whatever is missing: ``kf_names`` → ``kf_indices``;
+    ``use_zlb_feature`` reads state ``R_lag`` and constant ``R_lb``; each
+    ``reparam_*`` flag reads what its class in ``reparams.py`` declares.
 
     All shape priors default off; configs enable them by setting the
     relevant fields on ``NetworkConfig``.
@@ -812,71 +439,15 @@ def create_disaster_policy_net(
             )
         kf_indices = tuple(policy_names.index(n) for n in kf_names)
 
-    prior_kw: dict = {}
+    zlb_kw: dict = {}
     if use_zlb_feature:
         flag = "use_zlb_feature"
-        prior_kw["r_lag_idx"] = _index_of(state_names, "R_lag", "state_names", flag)
-        (prior_kw["r_lb"],) = _constants_of(model, flag, "R_lb")
+        zlb_kw["r_lag_idx"] = index_of(state_names, "R_lag", "state_names", flag)
+        (zlb_kw["r_lb"],) = constants_of(model, flag, "R_lb")
 
-    if reparam_q_as_m:
-        flag = "reparam_q_as_m"
-        prior_kw.update(
-            q_idx=_index_of(policy_names, "q", "policy_names", flag),
-            i_idx=_index_of(policy_names, "i", "policy_names", flag),
-            i_lag_idx=_index_of(state_names, "i_lag", "state_names", flag),
-            mu_z_idx=_index_of(state_names, "mu_z", "state_names", flag),
-        )
-        prior_kw["kappa"], prior_kw["mu_z_ss"] = _constants_of(
-            model, flag, "kappa", "mu_z_ss"
-        )
-
-    if reparam_pi_as_kp_inner:
-        flag = "reparam_pi_as_kp_inner"
-        prior_kw.update(
-            pi_idx=_index_of(policy_names, "pi", "policy_names", flag),
-            F_p_idx=_index_of(policy_names, "F_p", "policy_names", flag),
-            K_p_idx=_index_of(policy_names, "K_p", "policy_names", flag),
-            pi_lag_idx=_index_of(state_names, "pi_lag", "state_names", flag),
-        )
-        (
-            prior_kw["xi_p"],
-            prior_kw["lambda_f"],
-            prior_kw["iota"],
-            prior_kw["pi_ss"],
-        ) = _constants_of(model, flag, "xi_p", "lambda_f", "iota", "pi_ss")
-
-    if reparam_wtilda_as_kw_inner:
-        # The wage side also reads pi_BK (pi slot), pi_lag and pi_ss for the
-        # wage indexation, and mu_z_ss, whether or not the price-side or
-        # q-as-M reparams are on.
-        flag = "reparam_wtilda_as_kw_inner"
-        prior_kw.update(
-            w_tilda_idx=_index_of(policy_names, "w_tilda", "policy_names", flag),
-            F_w_idx=_index_of(policy_names, "F_w", "policy_names", flag),
-            K_w_idx=_index_of(policy_names, "K_w", "policy_names", flag),
-            w_tilda_lag_idx=_index_of(state_names, "w_tilda_lag", "state_names", flag),
-            pi_idx=_index_of(policy_names, "pi", "policy_names", flag),
-            pi_lag_idx=_index_of(state_names, "pi_lag", "state_names", flag),
-        )
-        (
-            prior_kw["xi_w"],
-            prior_kw["lambda_w"],
-            prior_kw["sigma_L"],
-            prior_kw["iota_w"],
-            prior_kw["psi_L"],
-            prior_kw["pi_ss"],
-            prior_kw["mu_z_ss"],
-        ) = _constants_of(
-            model,
-            flag,
-            "xi_w",
-            "lambda_w",
-            "sigma_L",
-            "iota_w",
-            "psi_L",
-            "pi_ss",
-            "mu_z_ss",
-        )
+    q_as_m = InvestmentBracket.from_model(model) if reparam_q_as_m else None
+    calvo_price = CalvoPrice.from_model(model) if reparam_pi_as_kp_inner else None
+    calvo_wage = CalvoWage.from_model(model) if reparam_wtilda_as_kw_inner else None
 
     P_level, _Q = linearize_model(model, verbose=False)
     ss_state, ss_policy = model.steady_state_fn(model.constants)
@@ -908,12 +479,12 @@ def create_disaster_policy_net(
         use_zlb_feature=use_zlb_feature,
         bk_pin=bk_pin,
         zlb_feature_kind=zlb_feature_kind,
-        reparam_q_as_m=reparam_q_as_m,
-        reparam_pi_as_kp_inner=reparam_pi_as_kp_inner,
-        reparam_wtilda_as_kw_inner=reparam_wtilda_as_kw_inner,
+        q_as_m=q_as_m,
+        calvo_price=calvo_price,
+        calvo_wage=calvo_wage,
         output_links=output_links,
         key=key,
-        **prior_kw,
+        **zlb_kw,
     )
 
 
