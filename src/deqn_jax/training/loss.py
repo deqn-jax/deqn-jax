@@ -357,6 +357,39 @@ def huber(x: Array, delta: float) -> Array:
     )
 
 
+def _equation_order(
+    model: ModelSpec, residuals: Dict[str, Array], weights: Optional[Array]
+) -> Tuple[str, ...]:
+    """Order in which per-equation losses are weighted, summed and returned.
+
+    ``weights`` (the config's ``loss_weights``, the reweighted
+    ``TrainState.loss_weights``) is positional in ``model.equation_names``.
+    The residual dicts arrive in another order: vmapped dicts come back
+    with sorted keys, a ``combine_fn`` returns its own insertion order. So
+    the terms are lined up by name; a model without ``equation_names`` keeps
+    the residual order. Raises when the residual names and
+    ``equation_names`` differ, or when ``weights`` has the wrong length.
+    """
+    declared = tuple(model.equation_names)
+    if not declared:
+        order = tuple(residuals)
+    elif set(residuals) != set(declared):
+        unknown = sorted(set(residuals) - set(declared))
+        missing = sorted(set(declared) - set(residuals))
+        raise ValueError(
+            f"model {model.name!r} returns residuals {unknown} not in its "
+            f"equation_names {declared} (missing: {missing})."
+        )
+    else:
+        order = declared
+    if weights is not None and jnp.shape(weights)[0] != len(order):
+        raise ValueError(
+            f"{jnp.shape(weights)[0]} loss weights for {len(order)} equations "
+            f"{order} of model {model.name!r}."
+        )
+    return order
+
+
 def compute_loss(
     model: ModelSpec,
     policy_fn: Callable[[Array], Array],
@@ -382,7 +415,7 @@ def compute_loss(
     means of two independent shock groups. The total is the weighted sum of
     the per-equation losses divided by the number of equations, plus the
     undivided state-barrier and bound penalties; the returned per-equation
-    losses are unweighted.
+    losses are unweighted and come in ``model.equation_names`` order.
 
     For MC:        shocks ~ N(0, shock_scale²), uniform weights 1/N
     For quadrature: shocks = nodes * shock_scale, deterministic rule weights
@@ -396,7 +429,8 @@ def compute_loss(
         states: State batch [batch, n_states] or history windows [batch, H, n_states]
         key: PRNG key for MC shock sampling (ignored for quadrature)
         mc_samples: Number of Monte Carlo samples (ignored for quadrature)
-        weights: Per-equation loss weights [n_eq] (default: uniform)
+        weights: Per-equation loss weights [n_eq], positional in
+            ``model.equation_names`` (default: uniform)
         shock_scale: Curriculum scaling for shocks (0→1 ramp)
         quad_nodes: Quadrature nodes [n_nodes, shock_dim] (None -> use MC)
         quad_weights: Quadrature weights [n_nodes] (None -> use MC)
@@ -554,12 +588,14 @@ def compute_loss(
 
         eq_losses = {}
         total_loss = 0.0
-        for i, (eq_name, (m1, m2)) in enumerate(group_means.items()):
+        order = _equation_order(model, group_means, weights)
+        for i, eq_name in enumerate(order):
+            m1, m2 = group_means[eq_name]
             eq_loss = jnp.mean(m1 * m2)
             eq_losses[eq_name] = eq_loss
             w = 1.0 if weights is None else weights[i]
             total_loss = total_loss + w * eq_loss
-        n_eq = len(group_means)
+        n_eq = len(order)
         if n_eq > 1:
             total_loss = total_loss / n_eq
     elif _two_stage:
@@ -577,7 +613,9 @@ def compute_loss(
         )
         eq_losses = {}
         total_loss = 0.0
-        for i, (eq_name, mean_residual) in enumerate(residuals_by_eq.items()):
+        order = _equation_order(model, residuals_by_eq, weights)
+        for i, eq_name in enumerate(order):
+            mean_residual = residuals_by_eq[eq_name]
             if loss_choice == "huber":
                 eq_loss = jnp.mean(huber(mean_residual, huber_delta))
             else:
@@ -585,7 +623,7 @@ def compute_loss(
             eq_losses[eq_name] = eq_loss
             w = 1.0 if weights is None else weights[i]
             total_loss = total_loss + w * eq_loss
-        n_eq = len(residuals_by_eq)
+        n_eq = len(order)
         if n_eq > 1:
             total_loss = total_loss / n_eq
     else:
@@ -593,7 +631,9 @@ def compute_loss(
         # graph (and thus the result to the last bit) is unchanged.
         eq_losses = {}
         total_loss = 0.0
-        for i, (eq_name, residuals) in enumerate(all_residuals.items()):
+        order = _equation_order(model, all_residuals, weights)
+        for i, eq_name in enumerate(order):
+            residuals = all_residuals[eq_name]
             mean_residual = jnp.einsum("sb,sb->b", sample_weights, residuals)
             if loss_choice == "huber":
                 eq_loss = jnp.mean(huber(mean_residual, huber_delta))
@@ -602,7 +642,7 @@ def compute_loss(
             eq_losses[eq_name] = eq_loss
             w = 1.0 if weights is None else weights[i]
             total_loss = total_loss + w * eq_loss
-        n_eq = len(all_residuals)
+        n_eq = len(order)
         if n_eq > 1:
             total_loss = total_loss / n_eq
 
