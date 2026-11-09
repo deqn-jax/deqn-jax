@@ -931,8 +931,8 @@ quadrature-weighted mean over next-shock nodes at each visited state,
 `E[residual | state]` (Gauss–Hermite, 16 nodes for one shock, else 5 per
 dimension unless `n_quadrature_points` is set), while the path still advances
 on the drawn shock. Discrete-chain and two-stage models are always scored by
-their expectation; disaster models stay single-draw. CLI exits with code 2 if
-configurable thresholds aren't met (see `evaluate.run_evaluate_cli`).
+their expectation; disaster models stay single-draw. `deqn-jax evaluate` prints
+these grades but does not enforce a threshold (see *Exit codes* below).
 
 ### `stability_check(policy_net, model, ...) -> dict[str, bool]`
 
@@ -1046,9 +1046,14 @@ Common flags:
 | `--checkpoint-dir <path>` | Sets `checkpoint_dir` |
 | `--resume <ckpt>` | Resume from a `.eqx` checkpoint |
 
-Exit codes: 0 = success, non-zero = config / training / verification failure.
-Use `deqn-jax evaluate` exit code as the integration gate for an autonomous
-outer loop.
+Every subcommand's full flag list: `deqn-jax --help`, then `--help` after the
+subcommand (`deqn-jax irf --help`).
+
+Exit codes: 0 = success, non-zero = a config or training failure.
+`deqn-jax evaluate` exits 1 when the simulated path produces NaN and 0
+otherwise; it prints the Euler-error grades without enforcing them. An
+autonomous outer loop applies its own thresholds to the dicts returned by
+`euler_equation_errors` / `stability_check` (see *Suggested verification gates*).
 
 ---
 

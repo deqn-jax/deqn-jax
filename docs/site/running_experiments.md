@@ -53,7 +53,7 @@ uv run deqn-jax init-config          # generate a default YAML
 --set overrides  >  CLI flags  >  YAML file  >  dataclass defaults
 ```
 
-Dot-notation works for any depth: `--set network.hidden_sizes='[128, 128]'`, `--set composite_loss.anchor_weight=0.01`, etc. Repeat `--set` as many times as needed.
+Dot-notation works for any depth: `--set network.hidden_sizes=128,128`, `--set composite_loss.anchor_weight=0.01`, etc. Repeat `--set` as many times as needed.
 
 ---
 
@@ -217,14 +217,19 @@ Logs:
 View:
 
 ```bash
-uv run tensorboard --logdir runs/
+uvx tensorboard --logdir runs/
 ```
+
+deqn-jax writes the event files (through `tensorboardX`); the TensorBoard viewer
+itself is not a dependency, so `uvx` runs it in a throwaway environment.
 
 The framework's logger lives in `src/deqn_jax/training/metrics.py` (class `TensorBoardLogger`). All scalar/histogram calls go through a shared `MetricLogger` interface so TB, W&B, and the null logger are swappable.
 
 ---
 
 ## Weights & Biases
+
+W&B is an optional extra: install it once with `uv sync --extra wandb`.
 
 ```bash
 uv run deqn-jax train brock_mirman \
@@ -242,27 +247,40 @@ Authentication: `wandb login` once; the CLI picks up the token from `~/.netrc`. 
 
 ## Comparing runs
 
-The `deqn_jax.plots.compare` module reads TensorBoard event files (or the text logs from `-q`-less runs) and produces aligned multi-run plots.
+The `deqn_jax.plots.compare` module reads the text a non-quiet run prints (the
+`[episode/total] loss=… | grad=…` line every `log_every` episodes; `-q` silences
+it) and overlays runs. Keep that text with `tee`:
+
+```bash
+mkdir -p runs
+uv run deqn-jax train brock_mirman -n 2000 --set optimizer.learning_rate=3e-4 | tee runs/bm_adam_3e4.log
+uv run deqn-jax train brock_mirman -n 2000 --set optimizer.learning_rate=1e-3 | tee runs/bm_adam_1e3.log
+```
 
 ```python
-from deqn_jax.plots.compare import parse_log, plot_multi_run_loss
+from deqn_jax.plots.compare import parse_log_single, plot_multi_run_loss
 
 runs = {
-    "adam-3e-4": parse_log("runs/brock_mirman_adam_3e4/train.log"),
-    "adam-1e-3": parse_log("runs/brock_mirman_adam_1e3/train.log"),
-    "mao":        parse_log("runs/brock_mirman_mao/train.log"),
+    **parse_log_single("runs/bm_adam_3e4.log", "adam-3e-4"),
+    **parse_log_single("runs/bm_adam_1e3.log", "adam-1e-3"),
 }
 plot_multi_run_loss(runs, log_y=True)
 ```
 
-For schedule alignment (e.g. comparing LR curves across runs with different schedules):
+Each history holds `episodes`, `loss`, `grad_norm` and `best`. A log holding
+several runs between `==== <name> starting ====` / `==== <name> finished ====`
+marker lines (the sweep scripts write them) goes through `parse_log(path)`,
+which returns `{name: history}` for every run in it.
+
+To compare runs whose schedules take different numbers of gradient updates per
+cycle, plot the loss against total updates; the run banner prints the
+per-cycle number (`… = 100 grad updates/cycle`):
 
 ```python
 from deqn_jax.plots.compare import plot_schedule_alignment
-plot_schedule_alignment(runs, metric="learning_rate")
-```
 
-Full text-log parsing lives in `plots.compare.parse_log`; schema is stable across framework versions.
+plot_schedule_alignment({label: (history, 100) for label, history in runs.items()})
+```
 
 ---
 
