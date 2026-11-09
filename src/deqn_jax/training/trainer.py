@@ -63,6 +63,7 @@ from deqn_jax.training.loop_control import (  # noqa: E402  (re-export)
 from deqn_jax.training.loss import (
     QUADRATURE_EXPECTATION_TYPES,
     build_quadrature,
+    check_expectation_matches_model,
 )
 from deqn_jax.training.metrics import create_logger
 from deqn_jax.training.reporting import (
@@ -350,7 +351,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Pre-compute deterministic quadrature nodes ----
     quad_nodes_jax = None
     quad_weights_jax = None
-    exp_type = config.expectation_type
+    exp_type = check_expectation_matches_model(config.expectation_type, model)
+    if config.verbose and exp_type != config.expectation_type:
+        print(f"  Expectation: {exp_type} (model carries a discrete shock chain)")
     n_qp = config.n_quadrature_points
     quad = build_quadrature(exp_type, model.n_shocks, n_qp)
     if quad is not None:

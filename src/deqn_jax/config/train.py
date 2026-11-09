@@ -108,11 +108,11 @@ class TrainConfig(_ConfigBase):
     )
     warm_start_linearize: bool = Field(
         default=False,
-        description="With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Not used by sequence networks.",
+        description="With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Rejected at setup for sequence networks.",
     )
     warm_start_dynare: Optional[str] = Field(
         default=None,
-        description="With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Not used by sequence networks. Rare.",
+        description="With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Rejected at setup for sequence networks. Rare.",
     )
     loss_weights: Optional[List[float]] = Field(
         default=None,
@@ -170,7 +170,7 @@ class TrainConfig(_ConfigBase):
     )
     switch_optimizer: Optional[str] = Field(
         default=None,
-        description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Only the name, `switch_lr` and `optimizer.grad_clip` carry over (other optimizer fields take their defaults), and the LR schedule is not applied after the switch.",
+        description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Every `optimizer` field carries over except the name and, when `switch_lr` is set, the learning rate; the switched combination is validated at setup like the configured one. The LR schedule is not applied after the switch.",
     )
     switch_episode: Optional[int] = Field(
         default=None,
