@@ -93,9 +93,9 @@ policy trained and certified.
         network=NetworkConfig(type="mlp", hidden_sizes=(64, 64)),
         optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
     )
-    state, history = train_from_config(cfg)            # the global solve
+    policy_net, history = train_from_config(cfg)       # the global solve
 
-    diag = euler_equation_errors(state.params, load_model("brock_mirman"))
+    diag = euler_equation_errors(policy_net, load_model("brock_mirman"))
     print_euler_errors(diag)                           # the errREE you'd quote
     ```
     `adam` + `mlp` + MSE residual + antithetic-MC — the **validated stack**. The

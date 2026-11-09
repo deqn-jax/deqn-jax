@@ -16,8 +16,9 @@ config = config.with_overrides({"episodes": 500})
 params, history = train_from_config(config)
 ```
 
-`history` is a dict of per-episode metrics (loss, per-equation residuals,
-gradient norm). `params` is the trained Equinox model.
+`history` is a dict with two per-episode lists, `"loss"` and `"grad_norm"`
+(per-equation losses go to TensorBoard / W&B when configured). `params` is the
+trained Equinox policy network.
 
 ## Construct a config programmatically
 
