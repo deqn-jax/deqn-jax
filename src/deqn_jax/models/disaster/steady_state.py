@@ -10,7 +10,6 @@ from scipy.optimize import root
 
 from deqn_jax.models.disaster.equations import Gamma, equations, solve_omega_bar
 from deqn_jax.models.disaster.variables import (
-    CONSTANTS,
     OMEGA_BAR_SS,
     SPEC,
     STEADY_STATE,
@@ -140,9 +139,12 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
     )
 
 
-# Cache of solved steady states, keyed by tuple(sorted(constants.items())).
-# Prevents stale results when the caller passes modified constants (e.g.
-# disaster calibration with different p_disaster / theta_disaster).
+# Caches of solved steady states, keyed by ``_cache_key``: the calibration
+# (a caller may pass modified constants, e.g. a different p_disaster /
+# theta_disaster) and the precision in force at the call, so an fp64 run
+# gets a steady state solved in float64 even when an fp32 solve of the same
+# calibration happened earlier in the process. Nothing is solved at import:
+# the precision is only known when a run asks.
 #
 # NOTE: this solver computes the DETERMINISTIC steady state (no disaster
 # realizations). For the RISKY steady state under disaster risk, the Euler
@@ -151,26 +153,23 @@ def _solve_steady_state(constants: Dict) -> Tuple[np.ndarray, np.ndarray]:
 _ss_cache: dict = {}
 
 
-def _constants_key(constants: Dict) -> tuple:
-    """Hashable key for a constants dict. Sorted for determinism."""
-    return tuple(sorted(constants.items()))
+def _cache_key(constants: Dict) -> tuple:
+    """Hashable key: x64 flag plus the constants dict, sorted for determinism."""
+    return (jax.config.read("jax_enable_x64"), tuple(sorted(constants.items())))
 
 
 def steady_state(constants: Dict) -> Tuple[Array, Array]:
     """Return (deterministic) steady state for the given calibration.
 
-    Caches solutions keyed on constants so repeat calls with the same
-    calibration are fast, but a different calibration triggers a re-solve.
+    Solved at the precision in force at the call and cached per calibration
+    and precision, so repeat calls are fast, while a different calibration
+    or a switch to x64 triggers a re-solve.
     """
-    key = _constants_key(constants)
+    key = _cache_key(constants)
     if key not in _ss_cache:
         _ss_cache[key] = _solve_steady_state(constants)
     ss_state_np, ss_policy_np = _ss_cache[key]
     return jnp.array(ss_state_np), jnp.array(ss_policy_np)
-
-
-# Pre-populate cache with the module-default calibration so first call is fast.
-steady_state(CONSTANTS)
 
 
 def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
@@ -268,7 +267,7 @@ def risky_steady_state(constants: Dict) -> Tuple[Array, Array]:
     ``ModelSpec.steady_state_fn`` so the composite-loss anchor and the BK
     linearisation both target it.
     """
-    key = _constants_key(constants)
+    key = _cache_key(constants)
     if key not in _risky_ss_cache:
         _risky_ss_cache[key] = _solve_risky_steady_state(constants)
     ss_state_np, ss_policy_np = _risky_ss_cache[key]

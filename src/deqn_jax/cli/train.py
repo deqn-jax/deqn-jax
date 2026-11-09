@@ -225,27 +225,19 @@ def run(args):
     """Run training."""
     from pathlib import Path
 
+    from deqn_jax.cli._common import enable_fp64
+
+    # Precision first, from the flag or the YAML this run reads (--config, else
+    # a model folder's train.yaml): importing deqn_jax.models.folder loads every
+    # model package, and arrays built at import keep the precision then in force.
+    folder_yaml = Path(args.model) / "train.yaml" if args.model else None
+    enable_fp64(args.fp64, args.config or folder_yaml)
+
     from deqn_jax.models.folder import is_model_folder
 
     folder = Path(args.model) if args.model and is_model_folder(args.model) else None
     if folder is not None and args.config is None and (folder / "train.yaml").exists():
         args.config = str(folder / "train.yaml")
-
-    # Set precision before importing JAX — check both CLI flag and config file
-    if args.fp64:
-        import jax
-
-        jax.config.update("jax_enable_x64", True)
-    elif hasattr(args, "config") and args.config:
-        # Check if YAML config has fp64: true (before full config load)
-        import yaml
-
-        with open(args.config) as _f:
-            _raw = yaml.safe_load(_f) or {}
-        if _raw.get("fp64", False):
-            import jax
-
-            jax.config.update("jax_enable_x64", True)
 
     run_dir = None
     if folder is not None:
