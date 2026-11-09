@@ -824,7 +824,29 @@ def _build_initial_state(
     elif config.warm_start:
         _hl = get_history_len(state.params)
         if _hl > 1:
-            if model.steady_state_fn is not None:
+            # Sequence nets have only the constant-SS fit below; a requested
+            # linearized or Dynare target would be replaced by it silently.
+            requested = [
+                name
+                for name, value in (
+                    ("warm_start_dynare", config.warm_start_dynare),
+                    ("warm_start_linearize", config.warm_start_linearize),
+                )
+                if value
+            ]
+            if requested:
+                raise ValueError(
+                    f"{' and '.join(requested)} cannot be fitted by the "
+                    f"sequence network '{config.network.type}' (history_len="
+                    f"{_hl}): its warm start fits only the constant "
+                    "steady-state policy. Remove the option, or use a "
+                    "non-sequence network."
+                )
+            if model.steady_state_fn is None:
+                # Same notice as warm_start_network on non-sequence nets.
+                if config.verbose:
+                    print("No steady_state_fn, skipping warm start")
+            else:
                 ss_state, ss_policy = model.steady_state_fn(model.constants)
                 ws_key = jax.random.PRNGKey(0)
                 noise = jax.random.uniform(
