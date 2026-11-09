@@ -273,9 +273,11 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         config (TrainConfig): the training configuration.
 
     Returns:
-        Tuple of (trained_params, history_dict). When a resumed checkpoint is
-        already at or past ``config.episodes`` nothing is trained: the
-        loaded params come back with an empty history.
+        Tuple of (policy_network, history_dict): the trained network itself
+        (an Equinox module, callable on a batch of states) and a dict of
+        per-episode series. When a resumed checkpoint is already at or past
+        ``config.episodes`` nothing is trained: the loaded network comes
+        back with an empty history.
     """
     _validate_train_config(config)
     model, n_equations = _resolve_model_for_training(config)
