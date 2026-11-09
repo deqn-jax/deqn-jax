@@ -130,3 +130,20 @@ def test_cli_trains_fp64_bk_pin_config(tmp_path):
         str(ckpt),
     )
     assert (ckpt / "checkpoint_best.eqx").exists()
+
+
+def test_cli_fp64_run_builds_model_constants_in_float64(tmp_path):
+    code = f"""
+import json
+import sys
+from deqn_jax.cli import main
+
+sys.argv = ["deqn-jax", "train", "brock_mirman", "--fp64", "-n", "3", "-q",
+            "--checkpoint-dir", {str(tmp_path / "ck")!r}]
+main()
+from deqn_jax.models import load_model
+
+model = load_model("brock_mirman")
+print(json.dumps([str(model.policy_lower.dtype), str(model.policy_upper.dtype)]))
+"""
+    assert _last_json(_run_fresh(code)) == ["float64", "float64"]
