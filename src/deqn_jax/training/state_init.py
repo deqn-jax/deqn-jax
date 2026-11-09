@@ -41,6 +41,18 @@ from deqn_jax.training.loss import QUADRATURE_EXPECTATION_TYPES
 from deqn_jax.types import ModelSpec, TrainState, make_reweight_state
 
 
+def build_optimizer(optimizer_config, n_equations: int) -> Tuple[Any, OptimizerKind]:
+    """Create the optimizer for ``optimizer_config`` and size it to the model.
+
+    The one place an optimizer is built for training (fresh state, resume,
+    mid-run switch): MAO needs the equation count before ``init``.
+    """
+    opt, kind = create_optimizer(optimizer_config)
+    if kind == OptimizerKind.MAO and hasattr(opt, "with_num_tasks"):
+        opt = opt.with_num_tasks(n_equations)
+    return opt, kind
+
+
 def create_train_state(
     model: ModelSpec,
     key: Array,
@@ -78,29 +90,17 @@ def create_train_state(
 
     policy_net = build_policy_net(model, net_key, hidden_sizes, network_config)
 
-    # Create optimizer via registry or legacy path
-    if optimizer_config is not None:
-        opt, kind = create_optimizer(optimizer_config)
-    else:
+    if optimizer_config is None:
         # Legacy path: build OptimizerConfig from individual args
         from deqn_jax.config import OptimizerConfig
 
-        opt_cfg = OptimizerConfig(
+        optimizer_config = OptimizerConfig(
             name=optimizer,
             learning_rate=learning_rate,
             grad_clip=grad_clip,
         )
-        opt, kind = create_optimizer(opt_cfg)
-
-    # Resolve MAO factory and init optimizer state
-    if kind == OptimizerKind.MAO:
-        if hasattr(opt, "with_num_tasks"):
-            opt = opt.with_num_tasks(n_equations)
-        opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
-    elif kind == OptimizerKind.GN:
-        opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
-    else:
-        opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
+    opt, kind = build_optimizer(optimizer_config, n_equations)
+    opt_state = opt.init(eqx.filter(policy_net, eqx.is_array))
 
     # Sample initial states. When sim_batch is set, the rollout carries
     # sim_batch parallel trajectories; otherwise fall back to batch_size
@@ -120,8 +120,6 @@ def create_train_state(
     # init_states across the time axis so the first rollout sees a
     # well-defined but uninformative prefix; subsequent rollouts persist
     # the actual final window via TrainState.history_state.
-    from deqn_jax.training.history import get_history_len, make_constant_history
-
     hist_len = get_history_len(policy_net)
     if hist_len > 1:
         init_history = make_constant_history(init_states, hist_len)
@@ -673,24 +671,17 @@ def _build_initial_state(
         total_for_schedule = config.episodes
 
         optimizer_changed = config.optimizer.name != orig_config.optimizer.name
+        opt, kind = build_optimizer(effective_opt_cfg, n_equations)
         if optimizer_changed:
-            new_opt, new_kind = create_optimizer(effective_opt_cfg)
-            if new_kind == OptimizerKind.MAO and hasattr(new_opt, "with_num_tasks"):
-                new_opt = new_opt.with_num_tasks(n_equations)
-            new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
-            state = state._replace(opt_state=new_opt_state)
-            opt, kind = new_opt, new_kind
-            if config.verbose:
-                print(f"  Resumed from {config.resume} (episode {start_episode})")
+            state = state._replace(
+                opt_state=opt.init(eqx.filter(state.params, eqx.is_array))
+            )
+        if config.verbose:
+            print(f"  Resumed from {config.resume} (episode {start_episode})")
+            if optimizer_changed:
                 print(
                     f"  Switched optimizer: {orig_config.optimizer.name} -> {config.optimizer.name}"
                 )
-        else:
-            opt, kind = create_optimizer(effective_opt_cfg)
-            if kind == OptimizerKind.MAO and hasattr(opt, "with_num_tasks"):
-                opt = opt.with_num_tasks(n_equations)
-            if config.verbose:
-                print(f"  Resumed from {config.resume} (episode {start_episode})")
         return state, opt, kind, start_episode, total_for_schedule
 
     state, opt, kind = create_train_state(
