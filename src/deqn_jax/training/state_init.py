@@ -611,7 +611,10 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
     Returns ``(model, n_equations)``. Done as one helper because the
     validation steps depend on the loaded model and we want to apply
     all model-side adaptations (constants override, setup_fn) before
-    computing ``n_equations``.
+    computing ``n_equations``. Also rejects the optimizer combinations
+    (configured and ``switch_optimizer``) that the loaded model makes lossy:
+    a GN-family step on a two-stage model, and a step that updates from the
+    per-equation residual vector on a model with ``definition_bounds``.
     """
     from deqn_jax.models import load_model
 
@@ -695,6 +698,31 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
 
     if model.setup_fn is not None:
         model = model.setup_fn(model, config)
+
+    # Declarative definition_bounds add their soft penalty to the scalar loss
+    # as the ``aux_definition_bounds`` term (training/loss.py). Variants that
+    # update from the per-equation residual vector never see it: the penalty
+    # would be logged but would not move the policy. (state_bounds penalize
+    # the sampled states, which carry no parameter gradient on any variant.)
+    if model.definition_bounds:
+        for field, opt_cfg in _optimizer_configs(config):
+            kind = create_optimizer(opt_cfg)[1]
+            if _drops_scalar_only_terms(kind, config.gradient_surgery):
+                surgery = (
+                    " + gradient_surgery='pcgrad'"
+                    if config.gradient_surgery == "pcgrad"
+                    else ""
+                )
+                raise ValueError(
+                    f"model '{model.name}' declares definition_bounds, whose "
+                    "penalty enters the scalar loss as an aux_ term; "
+                    f"{field} '{opt_cfg.name}' ({kind.value} step){surgery} "
+                    "updates from the per-equation residual vector, so the "
+                    "penalty would be logged but never reach the update. Use a "
+                    "STANDARD optimizer with gradient_surgery='none' or an "
+                    "LBFGS one (`deqn-jax optimizers` lists each optimizer with "
+                    "its kind)."
+                )
 
     n_equations = len(model.equation_names) if model.equation_names else 1
 
