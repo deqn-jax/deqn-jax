@@ -64,6 +64,7 @@ from deqn_jax.networks.common import (
     _apply_hard_clip,
     _apply_output_links,
     _resolve_activation,
+    _to_array,
     _to_tuple,
 )
 from deqn_jax.networks.mlp import MLP
@@ -89,11 +90,16 @@ class DisasterPolicyNet(eqx.Module):
     With no prior enabled, the result is the generic LinearPlusMLP ansatz.
     """
 
-    # Generic ansatz components (mirror LinearPlusMLP)
+    # Generic ansatz components (mirror LinearPlusMLP). The BK anchors are
+    # architecture constants stored as static tuples (the ``networks.common``
+    # convention), outside the parameter tree: as array leaves they reached
+    # the optimizer, and decoupled weight decay shrinks a leaf even at zero
+    # gradient, which voids the BK pin. Read them through the ``P`` /
+    # ``ss_state`` / ``ss_policy`` properties.
     mlp: MLP
-    P: Array
-    ss_state: Array
-    ss_policy: Array
+    _P: tuple = eqx.field(static=True)
+    _ss_state: tuple = eqx.field(static=True)
+    _ss_policy: tuple = eqx.field(static=True)
     # Per-policy output parameterization (mirror of LinearPlusMLP). Tuple of
     # ints, 0=linear, 1=log. Reparam-affected slots (q if reparam_q_as_m, pi
     # if reparam_pi_as_kp_inner, w_tilda if reparam_wtilda_as_kw_inner) are
@@ -256,9 +262,9 @@ class DisasterPolicyNet(eqx.Module):
         )
         self.mlp = eqx.tree_at(lambda m: m.layers[-1], self.mlp, new_last)
 
-        self.P = jnp.asarray(P)
-        self.ss_state = jnp.asarray(ss_state)
-        self.ss_policy = jnp.asarray(ss_policy)
+        self._P = tuple(_to_tuple(row) for row in P)
+        self._ss_state = _to_tuple(ss_state)
+        self._ss_policy = _to_tuple(ss_policy)
         self.policy_lower = _to_tuple(policy_lower)
         self.policy_upper = _to_tuple(policy_upper)
 
@@ -496,6 +502,19 @@ class DisasterPolicyNet(eqx.Module):
                     )
         self.output_links = link_codes_tuple
 
+    @property
+    def P(self) -> Array:
+        """BK policy slope, per row in its output link's natural space."""
+        return _to_array(self._P)
+
+    @property
+    def ss_state(self) -> Array:
+        return _to_array(self._ss_state)
+
+    @property
+    def ss_policy(self) -> Array:
+        return _to_array(self._ss_policy)
+
     def _delta_of_state(self, state: Array) -> Array:
         """MLP delta as a function of the raw state (feature building +
         MLP + K/F restriction). Split out so the BK pin can take its value
@@ -529,9 +548,9 @@ class DisasterPolicyNet(eqx.Module):
         # natural unit of policy i. For linear slots: ss_i + bk_corr[i]
         # gives the BK level. For log slots: exp(bk_corr[i]) is the
         # multiplicative deviation, so ss_i * exp(bk_corr[i]) gives BK.
-        ss_state = jax.lax.stop_gradient(self.ss_state)
-        ss_policy = jax.lax.stop_gradient(self.ss_policy)
-        P = jax.lax.stop_gradient(self.P)
+        ss_state = self.ss_state
+        ss_policy = self.ss_policy
+        P = self.P
         bk_corr = P @ (state - ss_state)
 
         # Capture pi_BK / w_tilda_BK in *level* space at the pre-substitution
