@@ -24,7 +24,7 @@ Residual aggregation uses (E[r])² (average THEN square):
 
 import math
 from functools import lru_cache
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -390,6 +390,34 @@ def _equation_order(
     return order
 
 
+def _aggregate_equations(
+    model: ModelSpec,
+    terms: Dict[str, Any],
+    weights: Optional[Array],
+    eq_loss_fn: Callable[[Any], Array],
+) -> Tuple[Array, Dict[str, Array]]:
+    """Per-equation losses and their weighted mean over equations.
+
+    ``eq_loss_fn`` maps one equation's term to its scalar loss; it runs
+    inside the loop, one equation at a time, so every expectation path
+    traces the same op sequence. Cross-equation aggregation is the mean over
+    equations (DEQN-MAO convention): the loss magnitude is decoupled from
+    equation count so one LR transfers across model sizes.
+    """
+    order = _equation_order(model, terms, weights)
+    eq_losses = {}
+    total_loss = 0.0
+    for i, eq_name in enumerate(order):
+        eq_loss = eq_loss_fn(terms[eq_name])
+        eq_losses[eq_name] = eq_loss
+        w = 1.0 if weights is None else weights[i]
+        total_loss = total_loss + w * eq_loss
+    n_eq = len(order)
+    if n_eq > 1:
+        total_loss = total_loss / n_eq
+    return total_loss, eq_losses
+
+
 def compute_loss(
     model: ModelSpec,
     policy_fn: Callable[[Array], Array],
@@ -555,13 +583,14 @@ def compute_loss(
     # vmap over samples/nodes: Dict[str, [n_samples, batch]]
     all_residuals = jax.vmap(compute_sample_residuals)(shocks)
 
-    # Aggregate per equation. Two paths, BRANCHED so the standard path is the
-    # original code verbatim -- identical XLA graph, hence bit-identical results.
-    # (A restructure that merely *looks* equivalent can shift the last bit via
-    # different fusion and bifurcate a chaotic run like disaster.) Cross-equation
-    # aggregation is the mean over equations (DEQN-MAO convention): the loss
-    # magnitude is decoupled from equation count so one LR transfers across
-    # model sizes (brock_mirman=1, bm_labor=2, olg=5, disaster=11).
+    def _residual_loss(mean_residual):
+        if loss_choice == "huber":
+            return jnp.mean(huber(mean_residual, huber_delta))
+        return jnp.mean(mean_residual**2)
+
+    # Aggregate per equation. The shared loop traces one op sequence for every
+    # path; a restructure that merely *looks* equivalent can shift the last
+    # bit via different fusion and bifurcate a chaotic run like disaster.
     if use_aio:
         # AiO aggregation: per equation, average each independent group
         # separately and take the batch mean of the PRODUCT of group means.
@@ -586,18 +615,9 @@ def compute_loss(
                 for k, v in all_residuals.items()
             }
 
-        eq_losses = {}
-        total_loss = 0.0
-        order = _equation_order(model, group_means, weights)
-        for i, eq_name in enumerate(order):
-            m1, m2 = group_means[eq_name]
-            eq_loss = jnp.mean(m1 * m2)
-            eq_losses[eq_name] = eq_loss
-            w = 1.0 if weights is None else weights[i]
-            total_loss = total_loss + w * eq_loss
-        n_eq = len(order)
-        if n_eq > 1:
-            total_loss = total_loss / n_eq
+        total_loss, eq_losses = _aggregate_equations(
+            model, group_means, weights, lambda m: jnp.mean(m[0] * m[1])
+        )
     elif _two_stage:
         # Average the inside terms -> E[inside], then apply the nonlinear
         # combine_fn (the expectation lives INSIDE the residual). MC-correct for
@@ -611,40 +631,17 @@ def compute_loss(
         residuals_by_eq = model.combine_fn(
             cur_states, policy_fn(states), expectations, model.constants
         )
-        eq_losses = {}
-        total_loss = 0.0
-        order = _equation_order(model, residuals_by_eq, weights)
-        for i, eq_name in enumerate(order):
-            mean_residual = residuals_by_eq[eq_name]
-            if loss_choice == "huber":
-                eq_loss = jnp.mean(huber(mean_residual, huber_delta))
-            else:
-                eq_loss = jnp.mean(mean_residual**2)
-            eq_losses[eq_name] = eq_loss
-            w = 1.0 if weights is None else weights[i]
-            total_loss = total_loss + w * eq_loss
-        n_eq = len(order)
-        if n_eq > 1:
-            total_loss = total_loss / n_eq
+        total_loss, eq_losses = _aggregate_equations(
+            model, residuals_by_eq, weights, _residual_loss
+        )
     else:
-        # Standard (E[residual])^2 path -- VERBATIM original code so the XLA
-        # graph (and thus the result to the last bit) is unchanged.
-        eq_losses = {}
-        total_loss = 0.0
-        order = _equation_order(model, all_residuals, weights)
-        for i, eq_name in enumerate(order):
-            residuals = all_residuals[eq_name]
-            mean_residual = jnp.einsum("sb,sb->b", sample_weights, residuals)
-            if loss_choice == "huber":
-                eq_loss = jnp.mean(huber(mean_residual, huber_delta))
-            else:
-                eq_loss = jnp.mean(mean_residual**2)
-            eq_losses[eq_name] = eq_loss
-            w = 1.0 if weights is None else weights[i]
-            total_loss = total_loss + w * eq_loss
-        n_eq = len(order)
-        if n_eq > 1:
-            total_loss = total_loss / n_eq
+        # Standard (E[residual])^2 path.
+        total_loss, eq_losses = _aggregate_equations(
+            model,
+            all_residuals,
+            weights,
+            lambda r: _residual_loss(jnp.einsum("sb,sb->b", sample_weights, r)),
+        )
 
     # State barrier: penalize next_states outside plausible bounds
     if barrier_weight > 0 and model.state_barrier_fn is not None:
