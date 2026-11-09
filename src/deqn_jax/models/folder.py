@@ -10,8 +10,9 @@
                       ``checkpoints/``, and after ``deqn-jax verify`` the report
 
 ``model.py`` may set ``SHOCK_NODES_PER_DIM`` when its shocks take a few discrete
-values (e.g. 2 for a shock drawn as +-1 with equal probability); the solution
-check then integrates over exactly those values.
+values (e.g. 2 for a shock that is +-1 with equal probability); the solution
+check then integrates over exactly those values. The simulation still draws
+normal shocks, so such a model's ``step_fn`` reads ``jnp.sign(shock)``.
 """
 
 from __future__ import annotations

@@ -457,6 +457,8 @@ everywhere on the path. The thresholds are module constants in
 `deqn_jax.evaluate.solution`, fixed for every model. A shock that takes a few
 discrete values (drawn as ±1, as in `olg_analytic_6`) is declared in `model.py`
 as `SHOCK_NODES_PER_DIM = 2`; the check then integrates over exactly those values.
+The simulation still draws normal shocks, so such a model's `step_fn` reads
+`jnp.sign(shock)` (±1 with probability ½).
 
 ### Validation gates a new model should pass
 
