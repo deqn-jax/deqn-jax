@@ -294,6 +294,116 @@ def make_train_step(
 # train_from_config setup helpers
 # ---------------------------------------------------------------------------
 
+# Step variants that update from the per-equation residual vector (MAO's
+# per-equation Jacobian, the GN family's residual Jacobian) instead of the
+# gradient of the configured scalar loss: anything folded only into that
+# scalar -- loss weights, reweighting, ``aux_`` terms -- never reaches their
+# parameter update. PCGrad surgery on a STANDARD optimizer shares this for
+# everything but the composite aux stack (see ``optimizers/pcgrad.py``).
+_RESIDUAL_VECTOR_KINDS = frozenset({OptimizerKind.MAO, OptimizerKind.GN})
+
+
+def _drops_scalar_only_terms(kind: OptimizerKind, gradient_surgery: str) -> bool:
+    """True when the step variant's update never sees ``aux_`` loss terms."""
+    return kind in _RESIDUAL_VECTOR_KINDS or gradient_surgery == "pcgrad"
+
+
+def _validate_optimizer_options(config, opt_cfg, field: str) -> None:
+    """Reject configured options that ``opt_cfg``'s step variant would drop.
+
+    The variant is the ``OptimizerKind`` the registry returns for the
+    optimizer (``deqn-jax optimizers`` lists each name with its kind),
+    together with ``config.gradient_surgery``. ``field`` names the config
+    field that chose the optimizer, for the error message.
+    """
+    _, kind = create_optimizer(opt_cfg)
+    who = f"{field} '{opt_cfg.name}' ({kind.value} step)"
+    pcgrad = config.gradient_surgery == "pcgrad"
+    hint = "`deqn-jax optimizers` lists each optimizer with its kind"
+
+    # Ordered first because this is the more specific / silent-correctness
+    # class of mistake. LBFGS differentiates the configured loss (the
+    # `make_loss_call` closure built in optimizers/_step_common.py), so a
+    # composite/custom loss genuinely reaches its gradient and line search.
+    # PCGrad × composite is supported since 2026-07-07: the PCGrad step
+    # projects only the per-equation core gradients and adds the exact
+    # auxiliary gradient grad(total) − grad(base) unprojected.
+    if config.loss_type == "composite" and kind in _RESIDUAL_VECTOR_KINDS:
+        raise ValueError(
+            f"loss_type='composite' is not supported with {who}. Composite "
+            "auxiliary losses (anchor, Jacobian, barriers, Newton) would "
+            "appear in logs but not affect parameter updates on this path. "
+            "Use a STANDARD optimizer (with or without "
+            f"gradient_surgery='pcgrad') or an LBFGS one ({hint}), or switch "
+            "to loss_type='mse'."
+        )
+
+    # PCGrad is only wired for the STANDARD grad-step variant (the dispatch
+    # in make_train_step requires kind == STANDARD); with any other optimizer
+    # the setting silently does nothing. Reject unconditionally rather than
+    # only when some other ignored feature happens to be configured too.
+    if pcgrad and kind != OptimizerKind.STANDARD:
+        raise ValueError(
+            f"gradient_surgery='pcgrad' has no effect with {who}: PCGrad is "
+            "only wired for the STANDARD grad-step variant, so the setting "
+            f"would be silently ignored. Use a STANDARD optimizer ({hint}) or "
+            "set gradient_surgery='none'."
+        )
+
+    # grad_clip is chained into the optax pipeline for STANDARD kinds and
+    # forwarded to MAO; the other update paths never apply it. Reject an
+    # explicitly-set value rather than silently dropping it.
+    if opt_cfg.grad_clip is not None and kind not in (
+        OptimizerKind.STANDARD,
+        OptimizerKind.MAO,
+    ):
+        raise ValueError(
+            f"optimizer.grad_clip is not applied on the {who} update path "
+            "(clipping is chained only for STANDARD optimizers and MAO). "
+            "Remove grad_clip or use a STANDARD optimizer."
+        )
+
+    # Weighting / custom-loss features on a variant whose update only sees
+    # base, UNWEIGHTED MSE residuals (PCGrad differentiates the raw
+    # per-equation vector; MAO passes weights=None; GN builds a raw residual
+    # vector) would appear in logs/config but never affect parameter updates
+    # (audit JAX-SILENT-02/03). LBFGS consumes weights=state.loss_weights,
+    # runs update_reweighting, and differentiates any custom loss fn.
+    if _drops_scalar_only_terms(kind, config.gradient_surgery):
+        ignored = []
+        if config.loss_weights is not None and len(set(config.loss_weights)) > 1:
+            ignored.append("loss_weights (non-uniform)")
+        if config.loss_reweight != "none":
+            ignored.append(f"loss_reweight='{config.loss_reweight}'")
+        if config.loss_choice != "mse":
+            ignored.append(f"loss_choice='{config.loss_choice}'")
+        if config.barrier_weight > 0:
+            ignored.append("barrier_weight>0")
+        if config.moment_matching.enabled:
+            ignored.append("moment_matching.enabled")
+        if ignored:
+            surgery = " + gradient_surgery='pcgrad'" if pcgrad else ""
+            raise ValueError(
+                f"{who}{surgery} ignores these configured options on its "
+                f"update path: {', '.join(ignored)}. They appear in "
+                "logs/config but do NOT affect parameter updates (PCGrad, MAO "
+                "and the GN family update from base, unweighted MSE "
+                "residuals). Use a STANDARD optimizer with "
+                f"gradient_surgery='none' or an LBFGS one ({hint}) to use "
+                "these options, or remove them."
+            )
+
+    # The coverage stress/local pools are folded into the scalar total, which
+    # only the plain STANDARD step differentiates.
+    if config.coverage.enabled and (kind != OptimizerKind.STANDARD or pcgrad):
+        raise ValueError(
+            f"coverage.enabled requires a STANDARD optimizer; {who}"
+            + (" + gradient_surgery='pcgrad'" if pcgrad else "")
+            + " differentiates the per-equation/residual vector, so the "
+            "stress/local pools (folded into the scalar total) would be "
+            f"silently dropped from the gradient ({hint})."
+        )
+
 
 def _validate_train_config(config) -> None:
     """Validate config invariants that don't depend on the loaded model.
@@ -308,67 +418,25 @@ def _validate_train_config(config) -> None:
     if config.fp64 and not jax.config.read("jax_enable_x64"):
         jax.config.update("jax_enable_x64", True)
 
-    # Reject composite loss combined with optimizers whose update paths
-    # only see base-equation gradients. Ordered first because this is
-    # the more specific / silent-correctness class of mistake. LBFGS is
-    # deliberately NOT in this set: its grad step differentiates the
-    # configured loss (the `make_loss_call` closure built in
-    # optimizers/_step_common.py), so a composite/custom loss genuinely
-    # reaches its gradient and line search.
-    if config.loss_type == "composite":
-        # PCGrad × composite is supported since 2026-07-07: the PCGrad step
-        # projects only the per-equation core gradients and adds the exact
-        # auxiliary gradient grad(total) − grad(base) unprojected
-        # (optimizers/pcgrad.py), so the aux stack genuinely reaches the
-        # update. MAO/GN/LM/IGN still differentiate only the base residual
-        # vector — the aux terms would appear in logs but not in updates.
-        _bad_opts = {"mao", "lm", "gn", "ign"}
-        _opt_name = config.optimizer.name.lower()
-        if _opt_name in _bad_opts:
-            raise ValueError(
-                f"loss_type='composite' is not supported with optimizer "
-                f"'{config.optimizer.name}'. Composite auxiliary losses "
-                "(anchor, Jacobian, barriers, Newton) would appear in logs "
-                "but not affect parameter updates on this path. Use optimizer "
-                "'adam'/'muon'/'ngd'/'shampoo' (the "
-                "STANDARD variant, with or without gradient_surgery='pcgrad') "
-                "or 'lbfgs', or switch to loss_type='mse'."
-            )
-        # PCGrad×composite reconstructs the projected core from UNWEIGHTED
-        # per-equation gradients at mean scale; a common non-unit weight
-        # would scale the base inside grad(total)-grad(base) but not the
-        # projected core, silently breaking the no-conflict equivalence
-        # with the standard composite step (2026-07-10 referee finding).
-        if (
-            config.gradient_surgery == "pcgrad"
-            and config.loss_weights is not None
-            and any(w != 1.0 for w in config.loss_weights)
-        ):
-            raise ValueError(
-                "gradient_surgery='pcgrad' with loss_type='composite' "
-                "requires unit loss_weights (or none): the surgery path "
-                "reconstructs the core gradient unweighted, so non-unit "
-                "weights would be silently inconsistent between the core "
-                "and auxiliary terms."
-            )
+    _validate_optimizer_options(config, config.optimizer, "optimizer")
 
-    # PCGrad is only wired for the STANDARD grad-step variant (the dispatch
-    # in make_train_step requires kind == STANDARD); with any other optimizer
-    # the setting silently does nothing. Reject unconditionally rather than
-    # only when some other ignored feature happens to be configured too.
-    if config.gradient_surgery == "pcgrad" and config.optimizer.name.lower() in {
-        "mao",
-        "lm",
-        "gn",
-        "ign",
-        "lbfgs",
-    }:
+    # PCGrad×composite reconstructs the projected core from UNWEIGHTED
+    # per-equation gradients at mean scale; a common non-unit weight
+    # would scale the base inside grad(total)-grad(base) but not the
+    # projected core, silently breaking the no-conflict equivalence
+    # with the standard composite step (2026-07-10 referee finding).
+    if (
+        config.loss_type == "composite"
+        and config.gradient_surgery == "pcgrad"
+        and config.loss_weights is not None
+        and any(w != 1.0 for w in config.loss_weights)
+    ):
         raise ValueError(
-            f"gradient_surgery='pcgrad' has no effect with optimizer "
-            f"'{config.optimizer.name}': PCGrad is only wired for the STANDARD "
-            "grad-step variant, so the setting would be silently ignored. Use "
-            "a STANDARD optimizer (adam/muon/ngd/shampoo) or "
-            "set gradient_surgery='none'."
+            "gradient_surgery='pcgrad' with loss_type='composite' "
+            "requires unit loss_weights (or none): the surgery path "
+            "reconstructs the core gradient unweighted, so non-unit "
+            "weights would be silently inconsistent between the core "
+            "and auxiliary terms."
         )
 
     # Top-level barrier_weight is consumed by the bare-MSE loss builder only;
@@ -384,73 +452,11 @@ def _validate_train_config(config) -> None:
             "loss_type='mse' for the state-barrier penalty."
         )
 
-    # grad_clip is chained into the optax pipeline for STANDARD kinds and
-    # forwarded to MAO, but the LBFGS and GN/LM/IGN update paths never apply
-    # it. Reject an explicitly-set value rather than silently dropping it.
-    if config.optimizer.grad_clip is not None and config.optimizer.name.lower() in {
-        "lbfgs",
-        "gn",
-        "lm",
-        "ign",
-    }:
-        raise ValueError(
-            f"optimizer.grad_clip is not applied on the '{config.optimizer.name}' "
-            "update path (clipping is chained only for STANDARD optimizers and "
-            "MAO). Remove grad_clip or use a STANDARD optimizer."
-        )
-
-    # Reject weighting / custom-loss features combined with optimizers whose
-    # update paths only see base, UNWEIGHTED MSE residuals (PCGrad differentiates
-    # the raw per-equation vector; MAO passes weights=None; GN builds a raw
-    # residual vector). These options would appear in logs/config but never
-    # affect parameter updates -- the same silent-correctness class as the
-    # composite gate above (audit JAX-SILENT-02/03). LBFGS is deliberately NOT
-    # in this set: it consumes weights=state.loss_weights, runs
-    # update_reweighting, and differentiates any custom loss fn.
-    _bad_opts = {"mao", "lm", "gn", "ign"}
-    _opt_name = config.optimizer.name.lower()
-    _is_pcgrad = config.gradient_surgery == "pcgrad"
-    if _opt_name in _bad_opts or _is_pcgrad:
-        _ignored = []
-        if config.loss_weights is not None and len(set(config.loss_weights)) > 1:
-            _ignored.append("loss_weights (non-uniform)")
-        if config.loss_reweight != "none":
-            _ignored.append(f"loss_reweight='{config.loss_reweight}'")
-        if config.loss_choice != "mse":
-            _ignored.append(f"loss_choice='{config.loss_choice}'")
-        if config.barrier_weight > 0:
-            _ignored.append("barrier_weight>0")
-        if config.moment_matching.enabled:
-            _ignored.append("moment_matching.enabled")
-        if _ignored:
-            _surgery = " + gradient_surgery='pcgrad'" if _is_pcgrad else ""
-            raise ValueError(
-                f"optimizer '{config.optimizer.name}'{_surgery} ignores these "
-                f"configured options on its update path: {', '.join(_ignored)}. "
-                "They appear in logs/config but do NOT affect parameter updates "
-                "(PCGrad/MAO/GN/IGN/LM update from base, unweighted MSE "
-                "residuals). Use a STANDARD optimizer (adam/muon/"
-                "ngd/shampoo with gradient_surgery='none') or 'lbfgs' to use "
-                "these options, or remove them."
-            )
-
     if config.coverage.enabled:
         # coverage × composite COMPOSES since 2026-07-06: the composite
         # loss's base residual term becomes the coverage mixture
         # (composite ∘ coverage in _build_custom_loss_fn); anchor/jac
         # terms are added once on top. The v1 mutual exclusion is gone.
-        _cov_bad = {"mao", "lm", "gn", "ign", "lbfgs"}
-        _cov_pcgrad = config.gradient_surgery == "pcgrad"
-        if config.optimizer.name.lower() in _cov_bad or _cov_pcgrad:
-            raise ValueError(
-                f"coverage.enabled requires a STANDARD optimizer; "
-                f"'{config.optimizer.name}'"
-                + (" + gradient_surgery='pcgrad'" if _cov_pcgrad else "")
-                + " differentiates the per-equation/residual vector, so the "
-                "stress/local pools (folded into the scalar total) would be "
-                "silently dropped from the gradient. Use adam/"
-                "muon/ngd/shampoo."
-            )
         if config.loss_type != "composite" and (
             config.barrier_weight > 0 or config.loss_choice != "mse"
         ):
@@ -566,13 +572,6 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
                 f"not in model.state_names {model.state_names!r} (model={model.name})."
             )
 
-    # GN-family optimizers build their residual vector from equations_fn
-    # averaged over shocks, ignoring a model's two-stage inside_fn/combine_fn
-    # hooks — on a two-stage model they would minimize the biased E[f(r)]
-    # objective (the exact bias the two-stage path exists to remove) while
-    # LOGGING the correct f(E[r]) loss. Reject rather than silently training
-    # the wrong objective. MAO/LBFGS differentiate compute_loss (which takes
-    # the two-stage path) and are fine.
     if config.loss_type == "composite" and config.composite_loss.res_sobolev_weight > 0:
         if model.combine_fn is not None:
             raise ValueError(
@@ -586,16 +585,23 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
                 "discrete-chain shock models in v1 (Gaussian quadrature only)."
             )
 
+    # GN-family optimizers build their residual vector from equations_fn
+    # averaged over shocks, ignoring a model's two-stage inside_fn/combine_fn
+    # hooks — on a two-stage model they would minimize the biased E[f(r)]
+    # objective (the exact bias the two-stage path exists to remove) while
+    # LOGGING the correct f(E[r]) loss. Reject rather than silently training
+    # the wrong objective. MAO/LBFGS differentiate compute_loss (which takes
+    # the two-stage path) and are fine.
     if (
-        config.optimizer.name.lower() in {"gn", "lm", "ign"}
+        create_optimizer(config.optimizer)[1] == OptimizerKind.GN
         and model.combine_fn is not None
     ):
         raise ValueError(
-            f"optimizer '{config.optimizer.name}' is not supported on two-stage "
-            f"model '{model.name}' (combine_fn set): the GN residual vector uses "
-            "equations_fn averaged over shocks, which optimizes the biased "
-            "E[f(r)] objective while the logged loss is the correct f(E[r]). "
-            "Use a STANDARD optimizer, MAO, or LBFGS."
+            f"optimizer '{config.optimizer.name}' (gn step) is not supported on "
+            f"two-stage model '{model.name}' (combine_fn set): the GN residual "
+            "vector uses equations_fn averaged over shocks, which optimizes the "
+            "biased E[f(r)] objective while the logged loss is the correct "
+            "f(E[r]). Use a STANDARD optimizer, MAO, or LBFGS."
         )
 
     if config.constants:
