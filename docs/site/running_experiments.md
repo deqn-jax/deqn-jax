@@ -39,7 +39,7 @@ uv run deqn-jax train brock_mirman --fp64
 
 # post-training diagnostics
 uv run deqn-jax evaluate <checkpoint.eqx>
-uv run deqn-jax irf <checkpoint.eqx> --shock-name eps_z --horizon 40
+uv run deqn-jax irf <checkpoint.eqx> --shock eps_z --horizon 40
 
 # introspection
 uv run deqn-jax info brock_mirman   # model details
@@ -190,8 +190,12 @@ No training required:
 ```bash
 uv run deqn-jax evaluate runs/brock_mirman_2026_04/checkpoint_best.eqx
 uv run deqn-jax irf runs/brock_mirman_2026_04/checkpoint_best.eqx \
-    --shock-name eps_z --horizon 40 --csv runs/brock_mirman_2026_04/irf.csv
+    --shock eps_z --horizon 40 -o runs/brock_mirman_2026_04/irf
 ```
+
+`irf` writes one CSV per shock into the `-o` directory (default `irf_results`):
+`irf_eps_z.csv`, or `irf_eps_z_girf.csv` with `--girf`. Without `--shock` it runs
+every shock of the model; `deqn-jax info <model>` lists their names.
 
 Config is auto-detected from the checkpoint's sibling `config.yaml` unless `--config` is passed explicitly.
 
