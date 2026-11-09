@@ -27,6 +27,16 @@ in any minor version bump.
   drawn shock (16 Gauss–Hermite nodes for one shock, else 5 per dimension);
   the path still advances on the drawn shock. Default `False` leaves the rows
   unchanged.
+- Model folders: `deqn-jax train <folder>` trains a model kept outside the
+  package (`model.py`, `train.yaml`, optional `model.md`, `exact.py`) into a new
+  `<folder>/runs/NN/`; `deqn-jax verify <folder>` checks the latest run and writes
+  `report.html` with figures. Example: `tests/data/model_folder/`.
+- `check_solution` (`deqn_jax.evaluate.solution`, in `deqn_jax.api`): a fixed
+  verdict on a trained policy: equation errors with the conditional
+  expectation, finiteness, staying inside the training draws, and the gap to a
+  known exact policy.
+- `deqn_jax.plots.solution`: equation-error histograms, policies on the
+  simulated path, network against the exact solution, simulated states.
 
 ### Removed
 

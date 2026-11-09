@@ -74,6 +74,11 @@ from deqn_jax.evaluate.irf import (
     run_irf,
     save_irf_csv,
 )
+from deqn_jax.evaluate.solution import (
+    SolutionCheck,
+    check_solution,
+    print_solution_check,
+)
 
 # --- Discovery ---------------------------------------------------------
 # --- Registration ------------------------------------------------------
@@ -187,6 +192,9 @@ __all__ = [
     "simulated_moments",
     "print_moments",
     "market_clearing_errors",
+    "check_solution",
+    "print_solution_check",
+    "SolutionCheck",
     # IRF
     "run_irf",
     "run_girf",

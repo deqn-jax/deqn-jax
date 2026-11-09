@@ -30,9 +30,10 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    from deqn_jax.cli import evaluate, init_config, irf, models, train
+    from deqn_jax.cli import evaluate, init_config, irf, models, train, verify
 
     train.add_parser(subparsers)
+    verify.add_parser(subparsers)
     models.add_parser(subparsers)
     irf.add_parser(subparsers)
     evaluate.add_parser(subparsers)

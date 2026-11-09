@@ -77,6 +77,8 @@ uv run deqn-jax train brock_mirman -n 1000 -q           # smoke train
 uv run deqn-jax train --config configs/disaster.yaml -n 50000
 uv run deqn-jax evaluate runs/disaster/checkpoint_best.eqx
 uv run deqn-jax irf runs/disaster/checkpoint_best.eqx --shock eps_z --horizon 40
+uv run deqn-jax train models/my_model                  # a model folder, see "Path C"
+uv run deqn-jax verify models/my_model                 # solved or not, report.html
 ```
 
 ---
@@ -429,6 +431,32 @@ The two paths are orthogonal: a deployed agent stack typically uses Path B
 to register codegen'd models at import time, while in-tree shipped models
 (brock_mirman, disaster, …) live in Path A so they stay version-controlled
 under deqn-jax.
+
+### Path C — Model folder (your own model, outside the package)
+
+A folder with `model.py` (defines `MODEL = ModelSpec(...)`), `train.yaml`
+(`TrainConfig` fields; `model` is filled in), optionally `model.md` (the model
+in words, shown in the report) and `exact.py` (`exact_policy(state, constants)`
+for a model with a known solution). `tests/data/model_folder/` is a complete
+example: Brock–Mirman with full depreciation, written as a Lagrangian.
+
+- `deqn-jax train <folder>` registers the model under the folder's name and
+  trains into a new `<folder>/runs/NN/` holding a frozen copy of the files,
+  `history.csv` and `checkpoints/`.
+- `deqn-jax verify <folder> [--run NN]` runs `check_solution` on the run's best
+  checkpoint against the run's own copy of the model, prints the verdict
+  (exit code 0 only when solved) and writes `check.json`, `figures/*.png` and a
+  self-contained `report.html`.
+
+`check_solution(policy_net, model, exact_policy=None, n_quadrature_points=None)`
+(`deqn_jax.api`) is the verdict: on a 10,000-period simulation, with next
+period's expectation by quadrature, each equation's mean |error| ≤ 1e-3 and
+99th percentile ≤ 1e-2; no NaN; at most 1% of periods outside the training
+draws of `init_state_fn`; and, with `exact_policy`, a relative gap ≤ 1%
+everywhere on the path. The thresholds are module constants in
+`deqn_jax.evaluate.solution`, fixed for every model. A shock that takes a few
+discrete values (drawn as ±1, as in `olg_analytic_6`) is declared in `model.py`
+as `SHOCK_NODES_PER_DIM = 2`; the check then integrates over exactly those values.
 
 ### Validation gates a new model should pass
 
