@@ -44,7 +44,8 @@ def _build_lr_schedule(config, total_steps: int):
     when ``lr_schedule`` is not ``constant``; the training loop then calls
     it once per episode with the episode number
     (``training.loop_control._episode_lr_scale``), so ``total_steps`` and
-    ``lr_warmup`` count episodes.
+    ``lr_warmup`` count episodes. A cosine warm-up must be shorter than the
+    run: the decay spans the episodes left after it.
     """
     lr = float(config.learning_rate)
     schedule = getattr(config, "lr_schedule", "constant")
@@ -56,6 +57,13 @@ def _build_lr_schedule(config, total_steps: int):
 
     if schedule == "cosine":
         end_value = lr * min_factor
+        if warmup >= total_steps:
+            raise ValueError(
+                f"optimizer.lr_warmup={warmup} is not shorter than the run "
+                f"({total_steps} episodes); the cosine schedule decays over the "
+                f"episodes after the warm-up. Set --set optimizer.lr_warmup=<n> "
+                f"with n < {total_steps}, or train for more than {warmup} episodes."
+            )
         if warmup > 0:
             return optax.warmup_cosine_decay_schedule(
                 init_value=0.0,
