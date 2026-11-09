@@ -66,13 +66,16 @@ def run_evaluate_cli(args):
         print("\n  FATAL: Simulation produced NaN. Cannot continue evaluation.")
         sys.exit(1)
 
-    # 2. Euler equation errors
+    # 2. Euler equation errors, graded on E[residual | state] where the model
+    # supports it (single draws overstate the error by the forecast noise);
+    # the table names the measure it used.
     print(f"\n[2/4] Euler equation errors ({args.periods} periods)...")
     ee_result = euler_equation_errors(
         policy_net,
         model,
         n_periods=args.periods,
         seed=args.seed,
+        conditional_expectation=True,
         **expectation_kwargs,
     )
     print_euler_errors(ee_result, label=label)

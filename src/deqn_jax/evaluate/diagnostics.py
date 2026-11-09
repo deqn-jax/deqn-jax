@@ -114,6 +114,9 @@ def euler_equation_errors(
             "residuals": [n_periods - burn_in, n_equations] array of residuals
             "equation_names": list of equation names
             "states": [n_periods - burn_in, n_states] simulated states
+            "measure": plain-language name of what each row is (single draw,
+                conditional expectation, chain expectation, ...), printed by
+                ``print_euler_errors`` as the basis of its grade
     """
     if burn_in is None:
         burn_in = min(500, max(0, n_periods // 5))
@@ -306,26 +309,37 @@ def euler_equation_errors(
     # Pick the per-step function once; the rollout loop itself lives in
     # evaluate/simulate.py (one loop for every eval primitive).
     if use_two_stage:
+        measure = "expectation over the next shock (quadrature, two-stage model)"
 
         def step(state, shock, _d):
             return _sim_step_two_stage(state, shock)
 
     elif use_conditional:
+        measure = "conditional expectation E[residual | state] over the next shock (quadrature)"
 
         def step(state, shock, _d):
             return _sim_step_conditional(state, shock)
 
     elif use_discrete:
+        measure = "exact expectation over the discrete chain"
 
         def step(state, shock, _d):
             return _sim_step_discrete(state, shock)
 
     elif p_disaster > 0.0:
+        measure = (
+            "single draw (residual at the drawn shock; the conditional "
+            "expectation is not supported with disaster draws)"
+        )
 
         def step(state, shock, d):
             return _sim_step_with_d(state, shock, d)
 
     else:
+        if n_shocks == 0:
+            measure = "exact (deterministic model, no shock to integrate)"
+        else:
+            measure = "single draw (residual at the drawn shock)"
 
         def step(state, shock, _d):
             return _sim_step_no_d(state, shock)
@@ -355,11 +369,16 @@ def euler_equation_errors(
         "residuals": residuals_array,
         "equation_names": eq_names,
         "states": states_array,
+        "measure": measure,
     }
 
 
 def print_euler_errors(result: Dict, label: str = ""):
-    """Print Euler equation error table in the standard format."""
+    """Print Euler equation error table in the standard format.
+
+    The grade rests on the rows of ``result``; the line under the header names
+    their measure (``result["measure"]``).
+    """
     residuals = result["residuals"]  # [T, n_eq]
     eq_names = result["equation_names"]
 
@@ -370,6 +389,7 @@ def print_euler_errors(result: Dict, label: str = ""):
     if label:
         header += f" — {label}"
     print(f"\n{header}")
+    print(f"Measure (basis of the grade): {result['measure']}")
     print("=" * 100)
     print(
         f"{'Equation':>30s}  {'Mean':>7s}  {'p50':>7s}  {'p95':>7s}  {'p99':>7s}  {'p99.9':>7s}  {'Max':>7s}  {'Grade':>12s}"
