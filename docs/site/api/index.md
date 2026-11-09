@@ -202,9 +202,12 @@ registered* and *what to import*.
       `load_policy_from_checkpoint`, `save_irf_csv`, `print_irf_summary`.
     - **Steady state & codegen backbone:** `solve_steady_state` /
       `verify_steady_state` (L-BFGS fallback when no analytical SS exists, with
-      per-equation residuals to gate on), and `euler_from_period_return` —
+      per-equation residuals to gate on), `euler_from_period_return` —
       synthesizes the Euler residual from a scalar period-return via `jax.grad`
-      (the `*_autodiff` models' backbone).
+      (the `*_autodiff` models' backbone) — and the general
+      `residuals_from_lagrangian` / `Constraint` it delegates to.
+    - **First-order solution:** `linearize_model` (Blanchard–Kahn policy and
+      transition matrices at the steady state).
 
     See [Diagnostics](../method-zoo/index.md#cabinet-diagnostic) for *what each
     number tells you* and the [Gallery](../gallery/index.md) for worked models

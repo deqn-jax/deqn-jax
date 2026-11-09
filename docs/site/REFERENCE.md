@@ -95,6 +95,8 @@ Everything below is re-exported from `deqn_jax.api`. Import from there.
 | **Evaluation** | `euler_equation_errors`, `print_euler_errors`, `stability_check`, `simulated_moments`, `print_moments`, `market_clearing_errors` |
 | **IRF** | `run_irf`, `run_girf`, `load_policy_from_checkpoint`, `save_irf_csv`, `print_irf_summary` |
 | **Steady state** | `solve_steady_state`, `verify_steady_state`, `euler_from_period_return` |
+| **Lagrangian residuals** | `residuals_from_lagrangian`, `Constraint` (see [autodiff](autodiff.md)) |
+| **First-order solution** | `linearize_model(model, verbose=True) -> (P, Q)` (Blanchard–Kahn / QZ at the steady state) |
 | **Networks (advanced)** | `MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`, `create_mlp`, `create_lstm`, `create_transformer`, `create_linear_plus_mlp` |
 
 If you find yourself importing from `deqn_jax.training.*` or `deqn_jax.optimizers.*`
@@ -878,11 +880,11 @@ identically and to both the loss path and the rollout path.
 
 The standard verification panel for a trained DEQN policy.
 
-### `euler_equation_errors(policy_net, model, n_periods=10_000, seed=123, burn_in=None) -> dict`
+### `euler_equation_errors(policy_net, model, n_periods=10_000, seed=123, burn_in=None, expectation_type="gauss_hermite", n_quadrature_points=None, conditional_expectation=False) -> dict`
 
-Simulates a long stochastic path under the trained policy, computes Euler
-residuals at every period, returns the `log10(|residual|)` distribution per
-equation. Gold standard for global accuracy (Azinovic et al. 2022).
+Simulates a long stochastic path under the trained policy and computes Euler
+residuals at every period; `print_euler_errors` reports the `log10(|residual|)`
+distribution per equation. Gold standard for global accuracy (Azinovic et al. 2022).
 
 ```python
 from deqn_jax.api import euler_equation_errors, print_euler_errors, load_model
@@ -891,8 +893,15 @@ diag = euler_equation_errors(params, load_model("brock_mirman"))
 print_euler_errors(diag)
 ```
 
-`diag` keys: `"residuals"` (raw `[n_periods, n_eq]`), `"log10_abs"` (per-eq
-distribution stats), `"states"`, `"policies"`. CLI exits with code 2 if
+`diag` keys: `"residuals"` (raw `[n_periods - burn_in, n_eq]`),
+`"equation_names"`, `"states"`. By default a Gaussian single-stage model's row
+is the residual at the shock drawn that period, so forecast noise floors the
+reported error; `conditional_expectation=True` reports instead the
+quadrature-weighted mean over next-shock nodes at each visited state,
+`E[residual | state]` (Gauss–Hermite, 16 nodes for one shock, else 5 per
+dimension unless `n_quadrature_points` is set), while the path still advances
+on the drawn shock. Discrete-chain and two-stage models are always scored by
+their expectation; disaster models stay single-draw. CLI exits with code 2 if
 configurable thresholds aren't met (see `evaluate.run_evaluate_cli`).
 
 ### `stability_check(policy_net, model, ...) -> dict[str, bool]`

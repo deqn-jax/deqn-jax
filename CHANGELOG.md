@@ -19,6 +19,14 @@ in any minor version bump.
   the reference solution of the authors' replication package.
 - Policy outputs may be declared unbounded per output: a lower bound of `-inf`
   in `policy_lower` passes that output through (others keep softplus/sigmoid).
+- `deqn_jax.api` exports `residuals_from_lagrangian`, `Constraint` and
+  `linearize_model`.
+- `euler_equation_errors(..., conditional_expectation=True)`: for Gaussian
+  single-stage models each row is the quadrature-weighted mean of the residual
+  over next-shock nodes at the visited state instead of the residual at the
+  drawn shock (16 Gauss–Hermite nodes for one shock, else 5 per dimension);
+  the path still advances on the drawn shock. Default `False` leaves the rows
+  unchanged.
 
 ### Removed
 

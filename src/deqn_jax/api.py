@@ -106,6 +106,17 @@ from deqn_jax.training.autodiff import euler_from_period_return
 # --- Impulse response functions ---------------------------------------
 from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 
+# --- Lagrangian residuals (model-writing backbone) ---------------------
+# Builds equations_fn (Euler/FOC/complementarity residuals) from a period
+# objective and constraints via jax.grad. Stable because
+# euler_from_period_return and olg_analytic_6_autodiff delegate to it.
+from deqn_jax.training.lagrangian import Constraint, residuals_from_lagrangian
+
+# --- First-order solution (Blanchard-Kahn / QZ at the steady state) -----
+# Linear policy rule P and state transition Q; agents use it as a
+# perturbation cross-check of a trained policy near the steady state.
+from deqn_jax.training.linearize import linearize_model
+
 # --- Numerical steady-state helpers ------------------------------------
 # When no analytical steady_state_fn is available, codegen / agent stacks
 # can fall back to the framework's L-BFGS solver. ``verify_steady_state``
@@ -164,6 +175,9 @@ __all__ = [
     "create_train_state",
     "make_train_step",
     "euler_from_period_return",
+    "residuals_from_lagrangian",
+    "Constraint",
+    "linearize_model",
     "solve_steady_state",
     "verify_steady_state",
     # Evaluation
