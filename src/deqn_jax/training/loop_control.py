@@ -17,9 +17,9 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from deqn_jax.optimizers.registry import OptimizerKind, create_optimizer
-from deqn_jax.training.state_init import make_train_step
-from deqn_jax.types import ModelSpec, TrainState
+from deqn_jax.optimizers.registry import OptimizerKind
+from deqn_jax.training.state_init import build_optimizer, switch_optimizer_config
+from deqn_jax.types import TrainState
 
 
 @dataclass
@@ -66,25 +66,20 @@ class _SaveBestTracker:
 
 def _maybe_switch_optimizer(
     config,
-    model: ModelSpec,
     n_equations: int,
-    history_len: int,
-    gradient_surgery: str,
-    quad_nodes_jax: Optional[Array],
-    quad_weights_jax: Optional[Array],
-    custom_loss_fn: Optional[Callable],
-    use_target: bool,
+    build_step: Callable[[Any, OptimizerKind], Callable],
     state: TrainState,
     runtime: _OptimizerRuntime,
     ep_num: int,
 ) -> Tuple[TrainState, bool]:
     """Swap optimizer + train_step at config.switch_episode.
 
-    Returns ``(state, did_switch)``. Mutates ``runtime`` in place. The
-    caller resets early-stop counters when did_switch is True.
+    The new optimizer is built from ``switch_optimizer_config(config)``
+    (validated at setup) and the new step by ``build_step(opt, kind)``, the
+    constructor of the initial step. Returns ``(state, did_switch)``.
+    Mutates ``runtime`` in place. The caller resets early-stop counters when
+    did_switch is True.
     """
-    from deqn_jax.config import OptimizerConfig
-
     if (
         runtime.switched
         or config.switch_optimizer is None
@@ -93,15 +88,8 @@ def _maybe_switch_optimizer(
     ):
         return state, False
 
-    switch_lr = config.switch_lr or config.optimizer.learning_rate
-    switch_cfg = OptimizerConfig(
-        name=config.switch_optimizer,
-        learning_rate=switch_lr,
-        grad_clip=config.optimizer.grad_clip,
-    )
-    new_opt, new_kind = create_optimizer(switch_cfg)
-    if new_kind == OptimizerKind.MAO and hasattr(new_opt, "with_num_tasks"):
-        new_opt = new_opt.with_num_tasks(n_equations)
+    switch_cfg = switch_optimizer_config(config)
+    new_opt, new_kind = build_optimizer(switch_cfg, n_equations)
     new_opt_state = new_opt.init(eqx.filter(state.params, eqx.is_array))
     state = state._replace(opt_state=new_opt_state)
 
@@ -109,33 +97,12 @@ def _maybe_switch_optimizer(
     runtime.kind = new_kind
     # Disable schedule after mid-training switch (uses constant LR).
     runtime.lr_schedule_fn = None
-    runtime.train_step = make_train_step(
-        model,
-        new_opt,
-        config.episode_length,
-        config.mc_samples,
-        config.batch_size,
-        loss_reweight=config.loss_reweight,
-        reweight_alpha=config.reweight_alpha,
-        kind=new_kind,
-        gradient_surgery=gradient_surgery,
-        grad_clip=config.optimizer.grad_clip,
-        quad_nodes=quad_nodes_jax,
-        quad_weights=quad_weights_jax,
-        history_len=history_len,
-        compute_loss_fn=custom_loss_fn,
-        ss_reset_frac=config.ss_reset_frac,
-        use_target_network=use_target,
-        n_epochs_per_rollout=config.n_epochs_per_rollout,
-        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
-        initialize_each_episode=config.initialize_each_episode,
-        sorted_within_batch=config.sorted_within_batch,
-        replay_cfg=config.replay_buffer,
-    )
+    runtime.train_step = build_step(new_opt, new_kind)
     runtime.switched = True
     if config.verbose:
         print(
-            f"  >> Switched to {config.switch_optimizer} (lr={switch_lr:.0e}) at episode {ep_num}"
+            f"  >> Switched to {switch_cfg.name} "
+            f"(lr={switch_cfg.learning_rate:.0e}) at episode {ep_num}"
         )
     return state, True
 
