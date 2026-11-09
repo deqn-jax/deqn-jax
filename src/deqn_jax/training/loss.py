@@ -11,8 +11,10 @@ where the expectation is over:
 Expectation methods:
 - **MC**: Antithetic variates (pair each ε with -ε for variance reduction)
 - **Quadrature**: Gauss-Hermite tensor-product or degree-3 monomial nodes
-- **Discrete chain**: exact enumeration of next-period states, used whenever
-  the model sets ``transition_matrix`` and ``z_state_idx``
+- **Discrete chain**: exact enumeration of next-period states, for a model
+  that sets ``transition_matrix`` and ``z_state_idx``
+  (``check_expectation_matches_model`` resolves the configured rule against
+  the model before tracing)
 
 Residual aggregation uses (E[r])² (average THEN square):
 - Correct loss for E[r]=0 equilibrium conditions
@@ -187,6 +189,43 @@ def build_quadrature(
     if expectation_type in {"mc", "discrete"}:
         return None
     raise ValueError(f"Unknown expectation_type {expectation_type!r}")
+
+
+def _has_discrete_chain(model: ModelSpec) -> bool:
+    """Whether the model's shock is a finite-state Markov chain."""
+    return (
+        getattr(model, "transition_matrix", None) is not None
+        and getattr(model, "z_state_idx", None) is not None
+    )
+
+
+def check_expectation_matches_model(expectation_type: str, model: ModelSpec) -> str:
+    """Resolve a configured ``expectation_type`` against the model it trains.
+
+    A model with a discrete shock chain is integrated by exact enumeration
+    over the chain, and a chain-free model never is. Returns the rule that
+    will run: ``'discrete'`` for a chain model configured ``'discrete'`` or
+    left at the default ``'mc'`` (Monte Carlo is not implemented for a
+    chain), otherwise ``expectation_type`` unchanged. Raises when the model
+    cannot honour the configured rule: a deterministic Gaussian rule on a
+    chain model, or ``'discrete'`` on a chain-free model.
+    """
+    if _has_discrete_chain(model):
+        if expectation_type in {"mc", "discrete"}:
+            return "discrete"
+        raise ValueError(
+            f"expectation_type={expectation_type!r} cannot be honoured by model "
+            f"{model.name!r}: it carries a discrete shock chain "
+            "(transition_matrix, z_state_idx), whose expectation is exact "
+            "enumeration over the chain. Use expectation_type='discrete'."
+        )
+    if expectation_type == "discrete":
+        raise ValueError(
+            f"expectation_type='discrete' cannot be honoured by model "
+            f"{model.name!r}: it has no discrete shock chain (transition_matrix "
+            "and z_state_idx unset). Use 'mc', 'gauss_hermite' or 'monomial'."
+        )
+    return expectation_type
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +407,13 @@ def compute_loss(
     """
     batch_size = states.shape[0]
     use_quadrature = quad_nodes is not None and quad_weights is not None
-    transition_matrix = getattr(model, "transition_matrix", None)
-    z_state_idx = getattr(model, "z_state_idx", None)
-    use_discrete = transition_matrix is not None and z_state_idx is not None
+    use_discrete = _has_discrete_chain(model)
+    if use_discrete and use_quadrature:
+        raise ValueError(
+            f"model {model.name!r} carries a discrete shock chain, whose "
+            "expectation is exact enumeration (expectation_type='discrete'); "
+            "it cannot be integrated with the quadrature nodes passed here."
+        )
 
     # All-in-one (AiO) estimator (Maliar-Maliar-Winant 2021): replaces the
     # biased (sample mean)^2 aggregation with the product of TWO independent
@@ -419,14 +462,14 @@ def compute_loss(
             (jnp.ones(n_samples) / n_samples)[:, None], (n_samples, batch_size)
         )
     elif use_discrete:
-        Π = jnp.asarray(transition_matrix)
+        Π = jnp.asarray(model.transition_matrix)
         K = Π.shape[0]
         # Read current z-index per batch element from state (works for both
         # MLP states [batch, n_states] and history windows [batch, H,
         # n_states] — for the latter, the policy is evaluated against the
         # most-recent slice).
         cur = states[:, -1, :] if states.ndim == 3 else states
-        current_z = cur[:, int(z_state_idx)].astype(jnp.int32)  # [batch]
+        current_z = cur[:, int(model.z_state_idx)].astype(jnp.int32)  # [batch]
         # Enumerate next-z values: shocks[k, b] = k for all b. step_fn
         # treats the integer shock as the next-period categorical index.
         shocks = jnp.broadcast_to(

@@ -56,7 +56,7 @@ class TrainConfig(_ConfigBase):
     )
     mc_samples: int = Field(
         default=5,
-        description="Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and any model with a discrete shock chain. `expectation_type='discrete'` on a model without a chain runs MC with this sample count.",
+        description="Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and on a model with a discrete shock chain, whose expectation is exact enumeration.",
     )
     seed: int = Field(
         default=42,
@@ -221,12 +221,13 @@ class TrainConfig(_ConfigBase):
             "(deterministic tensor-product grid, uses `n_quadrature_points`) "
             "or `monomial` (degree-3, 2*n_shocks nodes, practical when "
             "n_shocks > 6) "
-            "or `discrete`. A model that sets `transition_matrix` and "
-            "`z_state_idx` always gets exact enumeration over its finite-state "
-            "Markov chain, in the residual expectation and categorical draws "
-            "from `Π[z_t]` in the rollout, whatever this field says; "
-            "`discrete` names that case and on a model without a chain runs "
-            "MC. Other models roll out with Gaussian draws."
+            "or `discrete` (exact enumeration over a finite-state Markov "
+            "chain). A model that sets `transition_matrix` and `z_state_idx` "
+            "is integrated by enumerating its chain, with categorical draws "
+            "from `Π[z_t]` in the rollout: it takes `discrete`, the default "
+            "`mc` resolves to `discrete` on it, and a deterministic rule is "
+            "rejected. `discrete` on a model without a chain is rejected. "
+            "Other models roll out with Gaussian draws."
         ),
     )
     n_quadrature_points: int = Field(
