@@ -11,8 +11,10 @@ where the expectation is over:
 Expectation methods:
 - **MC**: Antithetic variates (pair each ε with -ε for variance reduction)
 - **Quadrature**: Gauss-Hermite tensor-product or degree-3 monomial nodes
-- **Discrete chain**: exact enumeration of next-period states, used whenever
-  the model sets ``transition_matrix`` and ``z_state_idx``
+- **Discrete chain**: exact enumeration of next-period states, for a model
+  that sets ``transition_matrix`` and ``z_state_idx``
+  (``check_expectation_matches_model`` resolves the configured rule against
+  the model before tracing)
 
 Residual aggregation uses (E[r])² (average THEN square):
 - Correct loss for E[r]=0 equilibrium conditions
@@ -22,7 +24,7 @@ Residual aggregation uses (E[r])² (average THEN square):
 
 import math
 from functools import lru_cache
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -189,6 +191,43 @@ def build_quadrature(
     raise ValueError(f"Unknown expectation_type {expectation_type!r}")
 
 
+def _has_discrete_chain(model: ModelSpec) -> bool:
+    """Whether the model's shock is a finite-state Markov chain."""
+    return (
+        getattr(model, "transition_matrix", None) is not None
+        and getattr(model, "z_state_idx", None) is not None
+    )
+
+
+def check_expectation_matches_model(expectation_type: str, model: ModelSpec) -> str:
+    """Resolve a configured ``expectation_type`` against the model it trains.
+
+    A model with a discrete shock chain is integrated by exact enumeration
+    over the chain, and a chain-free model never is. Returns the rule that
+    will run: ``'discrete'`` for a chain model configured ``'discrete'`` or
+    left at the default ``'mc'`` (Monte Carlo is not implemented for a
+    chain), otherwise ``expectation_type`` unchanged. Raises when the model
+    cannot honour the configured rule: a deterministic Gaussian rule on a
+    chain model, or ``'discrete'`` on a chain-free model.
+    """
+    if _has_discrete_chain(model):
+        if expectation_type in {"mc", "discrete"}:
+            return "discrete"
+        raise ValueError(
+            f"expectation_type={expectation_type!r} cannot be honoured by model "
+            f"{model.name!r}: it carries a discrete shock chain "
+            "(transition_matrix, z_state_idx), whose expectation is exact "
+            "enumeration over the chain. Use expectation_type='discrete'."
+        )
+    if expectation_type == "discrete":
+        raise ValueError(
+            f"expectation_type='discrete' cannot be honoured by model "
+            f"{model.name!r}: it has no discrete shock chain (transition_matrix "
+            "and z_state_idx unset). Use 'mc', 'gauss_hermite' or 'monomial'."
+        )
+    return expectation_type
+
+
 # ---------------------------------------------------------------------------
 # Residual computation
 # ---------------------------------------------------------------------------
@@ -318,6 +357,67 @@ def huber(x: Array, delta: float) -> Array:
     )
 
 
+def _equation_order(
+    model: ModelSpec, residuals: Dict[str, Array], weights: Optional[Array]
+) -> Tuple[str, ...]:
+    """Order in which per-equation losses are weighted, summed and returned.
+
+    ``weights`` (the config's ``loss_weights``, the reweighted
+    ``TrainState.loss_weights``) is positional in ``model.equation_names``.
+    The residual dicts arrive in another order: vmapped dicts come back
+    with sorted keys, a ``combine_fn`` returns its own insertion order. So
+    the terms are lined up by name; a model without ``equation_names`` keeps
+    the residual order. Raises when the residual names and
+    ``equation_names`` differ, or when ``weights`` has the wrong length.
+    """
+    declared = tuple(model.equation_names)
+    if not declared:
+        order = tuple(residuals)
+    elif set(residuals) != set(declared):
+        unknown = sorted(set(residuals) - set(declared))
+        missing = sorted(set(declared) - set(residuals))
+        raise ValueError(
+            f"model {model.name!r} returns residuals {unknown} not in its "
+            f"equation_names {declared} (missing: {missing})."
+        )
+    else:
+        order = declared
+    if weights is not None and jnp.shape(weights)[0] != len(order):
+        raise ValueError(
+            f"{jnp.shape(weights)[0]} loss weights for {len(order)} equations "
+            f"{order} of model {model.name!r}."
+        )
+    return order
+
+
+def _aggregate_equations(
+    model: ModelSpec,
+    terms: Dict[str, Any],
+    weights: Optional[Array],
+    eq_loss_fn: Callable[[Any], Array],
+) -> Tuple[Array, Dict[str, Array]]:
+    """Per-equation losses and their weighted mean over equations.
+
+    ``eq_loss_fn`` maps one equation's term to its scalar loss; it runs
+    inside the loop, one equation at a time, so every expectation path
+    traces the same op sequence. Cross-equation aggregation is the mean over
+    equations (DEQN-MAO convention): the loss magnitude is decoupled from
+    equation count so one LR transfers across model sizes.
+    """
+    order = _equation_order(model, terms, weights)
+    eq_losses = {}
+    total_loss = 0.0
+    for i, eq_name in enumerate(order):
+        eq_loss = eq_loss_fn(terms[eq_name])
+        eq_losses[eq_name] = eq_loss
+        w = 1.0 if weights is None else weights[i]
+        total_loss = total_loss + w * eq_loss
+    n_eq = len(order)
+    if n_eq > 1:
+        total_loss = total_loss / n_eq
+    return total_loss, eq_losses
+
+
 def compute_loss(
     model: ModelSpec,
     policy_fn: Callable[[Array], Array],
@@ -343,7 +443,7 @@ def compute_loss(
     means of two independent shock groups. The total is the weighted sum of
     the per-equation losses divided by the number of equations, plus the
     undivided state-barrier and bound penalties; the returned per-equation
-    losses are unweighted.
+    losses are unweighted and come in ``model.equation_names`` order.
 
     For MC:        shocks ~ N(0, shock_scale²), uniform weights 1/N
     For quadrature: shocks = nodes * shock_scale, deterministic rule weights
@@ -357,7 +457,8 @@ def compute_loss(
         states: State batch [batch, n_states] or history windows [batch, H, n_states]
         key: PRNG key for MC shock sampling (ignored for quadrature)
         mc_samples: Number of Monte Carlo samples (ignored for quadrature)
-        weights: Per-equation loss weights [n_eq] (default: uniform)
+        weights: Per-equation loss weights [n_eq], positional in
+            ``model.equation_names`` (default: uniform)
         shock_scale: Curriculum scaling for shocks (0→1 ramp)
         quad_nodes: Quadrature nodes [n_nodes, shock_dim] (None -> use MC)
         quad_weights: Quadrature weights [n_nodes] (None -> use MC)
@@ -368,9 +469,13 @@ def compute_loss(
     """
     batch_size = states.shape[0]
     use_quadrature = quad_nodes is not None and quad_weights is not None
-    transition_matrix = getattr(model, "transition_matrix", None)
-    z_state_idx = getattr(model, "z_state_idx", None)
-    use_discrete = transition_matrix is not None and z_state_idx is not None
+    use_discrete = _has_discrete_chain(model)
+    if use_discrete and use_quadrature:
+        raise ValueError(
+            f"model {model.name!r} carries a discrete shock chain, whose "
+            "expectation is exact enumeration (expectation_type='discrete'); "
+            "it cannot be integrated with the quadrature nodes passed here."
+        )
 
     # All-in-one (AiO) estimator (Maliar-Maliar-Winant 2021): replaces the
     # biased (sample mean)^2 aggregation with the product of TWO independent
@@ -419,14 +524,14 @@ def compute_loss(
             (jnp.ones(n_samples) / n_samples)[:, None], (n_samples, batch_size)
         )
     elif use_discrete:
-        Π = jnp.asarray(transition_matrix)
+        Π = jnp.asarray(model.transition_matrix)
         K = Π.shape[0]
         # Read current z-index per batch element from state (works for both
         # MLP states [batch, n_states] and history windows [batch, H,
         # n_states] — for the latter, the policy is evaluated against the
         # most-recent slice).
         cur = states[:, -1, :] if states.ndim == 3 else states
-        current_z = cur[:, int(z_state_idx)].astype(jnp.int32)  # [batch]
+        current_z = cur[:, int(model.z_state_idx)].astype(jnp.int32)  # [batch]
         # Enumerate next-z values: shocks[k, b] = k for all b. step_fn
         # treats the integer shock as the next-period categorical index.
         shocks = jnp.broadcast_to(
@@ -478,13 +583,14 @@ def compute_loss(
     # vmap over samples/nodes: Dict[str, [n_samples, batch]]
     all_residuals = jax.vmap(compute_sample_residuals)(shocks)
 
-    # Aggregate per equation. Two paths, BRANCHED so the standard path is the
-    # original code verbatim -- identical XLA graph, hence bit-identical results.
-    # (A restructure that merely *looks* equivalent can shift the last bit via
-    # different fusion and bifurcate a chaotic run like disaster.) Cross-equation
-    # aggregation is the mean over equations (DEQN-MAO convention): the loss
-    # magnitude is decoupled from equation count so one LR transfers across
-    # model sizes (brock_mirman=1, bm_labor=2, olg=5, disaster=11).
+    def _residual_loss(mean_residual):
+        if loss_choice == "huber":
+            return jnp.mean(huber(mean_residual, huber_delta))
+        return jnp.mean(mean_residual**2)
+
+    # Aggregate per equation. The shared loop traces one op sequence for every
+    # path; a restructure that merely *looks* equivalent can shift the last
+    # bit via different fusion and bifurcate a chaotic run like disaster.
     if use_aio:
         # AiO aggregation: per equation, average each independent group
         # separately and take the batch mean of the PRODUCT of group means.
@@ -509,16 +615,9 @@ def compute_loss(
                 for k, v in all_residuals.items()
             }
 
-        eq_losses = {}
-        total_loss = 0.0
-        for i, (eq_name, (m1, m2)) in enumerate(group_means.items()):
-            eq_loss = jnp.mean(m1 * m2)
-            eq_losses[eq_name] = eq_loss
-            w = 1.0 if weights is None else weights[i]
-            total_loss = total_loss + w * eq_loss
-        n_eq = len(group_means)
-        if n_eq > 1:
-            total_loss = total_loss / n_eq
+        total_loss, eq_losses = _aggregate_equations(
+            model, group_means, weights, lambda m: jnp.mean(m[0] * m[1])
+        )
     elif _two_stage:
         # Average the inside terms -> E[inside], then apply the nonlinear
         # combine_fn (the expectation lives INSIDE the residual). MC-correct for
@@ -532,36 +631,17 @@ def compute_loss(
         residuals_by_eq = model.combine_fn(
             cur_states, policy_fn(states), expectations, model.constants
         )
-        eq_losses = {}
-        total_loss = 0.0
-        for i, (eq_name, mean_residual) in enumerate(residuals_by_eq.items()):
-            if loss_choice == "huber":
-                eq_loss = jnp.mean(huber(mean_residual, huber_delta))
-            else:
-                eq_loss = jnp.mean(mean_residual**2)
-            eq_losses[eq_name] = eq_loss
-            w = 1.0 if weights is None else weights[i]
-            total_loss = total_loss + w * eq_loss
-        n_eq = len(residuals_by_eq)
-        if n_eq > 1:
-            total_loss = total_loss / n_eq
+        total_loss, eq_losses = _aggregate_equations(
+            model, residuals_by_eq, weights, _residual_loss
+        )
     else:
-        # Standard (E[residual])^2 path -- VERBATIM original code so the XLA
-        # graph (and thus the result to the last bit) is unchanged.
-        eq_losses = {}
-        total_loss = 0.0
-        for i, (eq_name, residuals) in enumerate(all_residuals.items()):
-            mean_residual = jnp.einsum("sb,sb->b", sample_weights, residuals)
-            if loss_choice == "huber":
-                eq_loss = jnp.mean(huber(mean_residual, huber_delta))
-            else:
-                eq_loss = jnp.mean(mean_residual**2)
-            eq_losses[eq_name] = eq_loss
-            w = 1.0 if weights is None else weights[i]
-            total_loss = total_loss + w * eq_loss
-        n_eq = len(all_residuals)
-        if n_eq > 1:
-            total_loss = total_loss / n_eq
+        # Standard (E[residual])^2 path.
+        total_loss, eq_losses = _aggregate_equations(
+            model,
+            all_residuals,
+            weights,
+            lambda r: _residual_loss(jnp.einsum("sb,sb->b", sample_weights, r)),
+        )
 
     # State barrier: penalize next_states outside plausible bounds
     if barrier_weight > 0 and model.state_barrier_fn is not None:
@@ -619,9 +699,11 @@ def _compute_bound_penalty(
 
     Values whose names don't appear in ``bounds_spec`` are skipped.
     Values whose arrays are not scalar-per-batch are handled via
-    ``jnp.mean`` over all axes.
+    ``jnp.mean`` over all axes. The penalty carries the values' precision
+    (default float dtype when no bound names a present variable).
     """
-    penalty = jnp.array(0.0, dtype=jnp.float32)
+    # Weakly typed zero: adopts the dtype of the first penalised value.
+    penalty = jnp.asarray(0.0)
     for name, spec in bounds_spec.items():
         if name not in values:
             continue
