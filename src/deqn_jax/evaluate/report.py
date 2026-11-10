@@ -46,11 +46,12 @@ pre{background:#f6f6f6;padding:1em;white-space:pre-wrap}"""
 def check_run(run: Path):
     """Check the run against the frozen model files it was trained with."""
     run = Path(run)
-    model, module = load_model_file(run, folder_model_name(run.parent.parent))
+    _, module = load_model_file(run, folder_model_name(run.parent.parent))
     ckpts = run / "checkpoints"
     best = Path(best_checkpoint_path(str(ckpts)))
     ckpt = best if best.exists() else sorted(ckpts.glob("checkpoint_*.eqx"))[-1]
-    net, _ = load_policy_from_checkpoint(str(ckpt))
+    # The loader's model carries the run's calibration (config.yaml constants).
+    net, model = load_policy_from_checkpoint(str(ckpt))
     check = check_solution(
         net, model, load_exact_policy(run), getattr(module, "SHOCK_NODES_PER_DIM", None)
     )

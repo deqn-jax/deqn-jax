@@ -9,6 +9,7 @@ checkpoint trained with a non-default ``memory_size`` then could not be loaded.
 """
 
 import os
+import shutil
 
 from deqn_jax.config import TrainConfig
 from deqn_jax.training.checkpointing import load_policy_from_checkpoint
@@ -36,4 +37,13 @@ def test_post_switch_checkpoint_loads_with_configured_fields(tmp_path):
 
     path = os.path.join(ckpt_dir, "checkpoint_000003.eqx")
     net, _ = load_policy_from_checkpoint(path)
+    assert net is not None
+
+    # checkpoint_best.eqx carries no episode in its name; the loader reads it
+    # from the sidecar, or it would build the pre-switch optimizer's state.
+    best = os.path.join(ckpt_dir, "checkpoint_best.eqx")
+    shutil.copy(path, best)
+    with open(os.path.join(ckpt_dir, "checkpoint_best.meta"), "w") as f:
+        f.write("episode 3\nloss 1.000000e-03\n")
+    net, _ = load_policy_from_checkpoint(best)
     assert net is not None

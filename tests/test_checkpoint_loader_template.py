@@ -93,3 +93,19 @@ def test_inert_removed_fields_in_a_saved_config_are_tolerated(tmp_path):
     with pytest.warns(UserWarning, match="ignoring removed field"):
         net, _ = load_policy_from_checkpoint(ckpt)
     assert net is not None
+
+
+def test_loader_returns_the_runs_calibration(tmp_path):
+    ckpt = _save_run(tmp_path)
+    cfg = yaml.safe_load((tmp_path / "config.yaml").read_text())
+    cfg["constants"] = {"alpha": 0.3}
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
+    _, model = load_policy_from_checkpoint(ckpt)
+    assert model.constants["alpha"] == 0.3
+    assert load_model("brock_mirman").constants["alpha"] != 0.3
+
+
+def test_missing_checkpoint_is_not_called_a_layout_mismatch(tmp_path):
+    ckpt = _save_run(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        load_policy_from_checkpoint(ckpt.replace("000010", "000011"))

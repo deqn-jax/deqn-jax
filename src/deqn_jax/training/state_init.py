@@ -605,6 +605,36 @@ def _validate_train_config(config) -> None:
             )
 
 
+def calibrate_model(model: ModelSpec, config) -> ModelSpec:
+    """Apply a run's calibration to the registered model.
+
+    ``config.constants`` overrides the model's constants, then the model's
+    ``setup_fn`` adapts it to the run (the disaster model swaps in the risky
+    steady state). Shared by training and ``load_policy_from_checkpoint``:
+    whatever is built from the model at construction time and kept outside
+    the parameter tree (the disaster network's anchors) comes from this
+    model, so a loader that skipped it would rebuild another policy.
+    ``config`` is a TrainConfig or any object with the saved run's fields.
+    """
+    constants = getattr(config, "constants", None)
+    if constants:
+        # Surface exactly which calibration constants change (old -> new). A
+        # silent override here shifts the analytical SS / warm-start anchor and
+        # was a source of the historical Brock-Mirman "SS mismatch" confusion
+        # (audit bm-ss-02).
+        prev = {k: model.constants.get(k) for k in constants}
+        model = model._replace(constants={**model.constants, **constants})
+        if getattr(config, "verbose", False):
+            changes = ", ".join(
+                f"{k}: {prev[k]} -> {v}" for k, v in dict(constants).items()
+            )
+            print(f"  Constants override ({model.name}): {changes}")
+
+    if model.setup_fn is not None:
+        model = model.setup_fn(model, config)
+    return model
+
+
 def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
     """Load the model, validate sizes, apply constants override and setup_fn.
 
@@ -683,21 +713,7 @@ def _resolve_model_for_training(config) -> Tuple[ModelSpec, int]:
                 "is the correct f(E[r]). Use a STANDARD optimizer, MAO, or LBFGS."
             )
 
-    if config.constants:
-        # Surface exactly which calibration constants change (old -> new). A
-        # silent override here shifts the analytical SS / warm-start anchor and
-        # was a source of the historical Brock-Mirman "SS mismatch" confusion
-        # (audit bm-ss-02).
-        prev = {k: model.constants.get(k) for k in config.constants}
-        model = model._replace(constants={**model.constants, **config.constants})
-        if config.verbose:
-            changes = ", ".join(
-                f"{k}: {prev[k]} -> {v}" for k, v in dict(config.constants).items()
-            )
-            print(f"  Constants override ({model.name}): {changes}")
-
-    if model.setup_fn is not None:
-        model = model.setup_fn(model, config)
+    model = calibrate_model(model, config)
 
     # Declarative definition_bounds add their soft penalty to the scalar loss
     # as the ``aux_definition_bounds`` term (training/loss.py). Variants that

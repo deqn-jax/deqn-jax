@@ -93,6 +93,7 @@ def make_grad_step_standard(
             loss_reweight=loss_reweight,
             reweight_alpha=reweight_alpha,
             n_eq=n_eq,
+            equation_names=model.equation_names,
         )
 
     return grad_step

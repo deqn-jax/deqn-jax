@@ -64,9 +64,15 @@ def _update_weights_relobralo(
     return weights, new_rw
 
 
-def update_reweighting(eq_losses, state, loss_reweight, reweight_alpha, n_eq):
-    """Apply adaptive loss reweighting and return ``(new_weights, new_rw)``."""
-    eq_loss_arr = eq_losses_to_array(eq_losses)
+def update_reweighting(
+    eq_losses, state, loss_reweight, reweight_alpha, n_eq, equation_names=()
+):
+    """Apply adaptive loss reweighting and return ``(new_weights, new_rw)``.
+
+    The weights are positional in ``equation_names`` (``model.equation_names``),
+    the order ``compute_loss`` reads ``TrainState.loss_weights`` in.
+    """
+    eq_loss_arr = eq_losses_to_array(eq_losses, equation_names)
 
     if loss_reweight == "lr_annealing":
         new_weights, new_rw = _update_weights_lr_annealing(

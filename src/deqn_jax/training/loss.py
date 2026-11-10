@@ -728,11 +728,19 @@ def _compute_bound_penalty(
 # ---------------------------------------------------------------------------
 
 
-def eq_losses_to_array(eq_losses: Dict[str, Array]) -> Array:
+def eq_losses_to_array(
+    eq_losses: Dict[str, Array], equation_names: Tuple[str, ...] = ()
+) -> Array:
     """Convert per-equation loss dict to stacked array [n_eq].
 
     Filters out aux_ prefixed keys so that adaptive reweighting
     (lr_annealing, relobralo) and per-equation gradient surgery
     (PCGrad, MAO) only see base equilibrium equation losses.
+
+    With ``equation_names`` the array follows that order; without, the
+    dict's own. A dict that crossed a JAX transformation (``has_aux``,
+    ``jit``) comes back with sorted keys, so a caller whose result is
+    positional in ``model.equation_names`` must pass the names.
     """
-    return jnp.stack([v for k, v in eq_losses.items() if not k.startswith("aux_")])
+    names = equation_names or [k for k in eq_losses if not k.startswith("aux_")]
+    return jnp.stack([eq_losses[k] for k in names])

@@ -965,12 +965,12 @@ verifier; the data is in the dicts returned by the calls above.
 ```python
 from deqn_jax.api import (
     load_policy_from_checkpoint, run_irf, run_girf,
-    save_irf_csv, print_irf_summary, load_model,
+    save_irf_csv, print_irf_summary,
 )
 
-# returns the network and the run's config (read from the checkpoint's directory)
-policy_net, config = load_policy_from_checkpoint("checkpoints/disaster/checkpoint_best.eqx")
-model = load_model("disaster")
+# returns the network and the model with the run's calibration applied
+# (config.yaml is read from the checkpoint's directory)
+policy_net, model = load_policy_from_checkpoint("checkpoints/disaster/checkpoint_best.eqx")
 
 # Plain IRF (path - SS):
 irf = run_irf(policy_net, model, shock_name="eps", shock_size=1.0, horizon=40)

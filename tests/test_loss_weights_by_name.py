@@ -131,3 +131,23 @@ def test_irbc_losses_come_back_in_equation_names_order():
     _, eq = compute_loss(model, policy_fn, states, jax.random.PRNGKey(0), mc_samples=2)
     base = [k for k in eq if not k.startswith("aux_")]
     assert base == list(model.equation_names)
+
+
+def test_reweighting_weights_follow_equation_names():
+    """The per-equation losses reach the reweighting through ``has_aux``,
+    where JAX hands the dict back alphabetically; the new weights must still
+    be positional in equation_names (b, a), the order compute_loss reads."""
+    from types import SimpleNamespace
+
+    from deqn_jax.training.reweighting import update_reweighting
+    from deqn_jax.types import make_reweight_state
+
+    state = SimpleNamespace(
+        loss_weights=jnp.ones(2), reweight_state=make_reweight_state(2)
+    )
+    sorted_losses = {"a": jnp.array(1.0), "b": jnp.array(4.0)}
+    weights, _ = update_reweighting(
+        sorted_losses, state, "lr_annealing", 0.5, 2, ("b", "a")
+    )
+    # EMA from 1: a -> 1.0, b -> 2.5; inverse, normalized to sum 2.
+    assert weights.tolist() == pytest.approx([0.8 / 1.4, 2.0 / 1.4], rel=1e-6)

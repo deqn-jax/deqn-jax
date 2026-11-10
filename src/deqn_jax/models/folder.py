@@ -77,7 +77,8 @@ def run_dirs(folder: Path) -> list[Path]:
     runs = Path(folder) / "runs"
     if not runs.exists():
         return []
-    return sorted(p for p in runs.iterdir() if p.is_dir() and p.name.isdigit())
+    numbered = (p for p in runs.iterdir() if p.is_dir() and p.name.isdigit())
+    return sorted(numbered, key=lambda p: int(p.name))
 
 
 def new_run_dir(folder: Path) -> Path:

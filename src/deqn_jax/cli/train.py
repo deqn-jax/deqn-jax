@@ -227,11 +227,20 @@ def run(args):
 
     from deqn_jax.cli._common import enable_fp64
 
-    # Precision first, from the flag or the YAML this run reads (--config, else
-    # a model folder's train.yaml): importing deqn_jax.models.folder loads every
-    # model package, and arrays built at import keep the precision then in force.
+    # Precision first, from the flag, a `--set fp64=...` or the YAML this run
+    # reads (--config, else a model folder's train.yaml): importing
+    # deqn_jax.models.folder loads every model package, and arrays built at
+    # import keep the precision then in force.
     folder_yaml = Path(args.model) / "train.yaml" if args.model else None
-    enable_fp64(args.fp64, args.config or folder_yaml)
+    set_fp64 = [
+        o.partition("=")[2].strip().lower()
+        for o in args.overrides or []
+        if o.partition("=")[0].strip() == "fp64"
+    ]
+    if set_fp64 and set_fp64[-1] not in ("true", "1"):
+        enable_fp64(False)  # --set outranks the YAML
+    else:
+        enable_fp64(args.fp64 or bool(set_fp64), args.config or folder_yaml)
 
     from deqn_jax.models.folder import is_model_folder
 

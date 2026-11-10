@@ -41,9 +41,12 @@ def plot_equation_errors(check: SolutionCheck) -> plt.Figure:
         names = check.equation_names[:MAX_PANELS]
         fig, axes = _grid(len(names))
         for i, (ax, name) in enumerate(zip(axes, names)):
-            ax.hist(
-                np.log10(np.maximum(check.errors[:, i], 1e-16)), bins=60, color=NETWORK
-            )
+            errors = check.errors[:, i]
+            errors = errors[np.isfinite(errors)]
+            if errors.size:
+                ax.hist(np.log10(np.maximum(errors, 1e-16)), bins=60, color=NETWORK)
+            else:
+                ax.text(0.5, 0.5, "no finite errors", ha="center", va="center")
             ax.axvline(np.log10(MEAN_ERROR_MAX), color="green", ls="--", label="0.1%")
             ax.axvline(np.log10(WORST_ERROR_MAX), color="red", ls="--", label="1%")
             ax.set_title(name)
@@ -57,6 +60,9 @@ def plot_equation_errors(check: SolutionCheck) -> plt.Figure:
 def _span(values: np.ndarray, rel: float = 0.05) -> tuple:
     """Axis limits at least ``rel`` of the level wide, so a nearly constant
     policy is not blown up into noise."""
+    values = values[np.isfinite(values)]
+    if not values.size:
+        return 0.0, 1.0
     lo, hi = float(values.min()), float(values.max())
     mid = (lo + hi) / 2
     half = max(hi - lo, rel * abs(mid), 1e-12) / 2 * 1.1

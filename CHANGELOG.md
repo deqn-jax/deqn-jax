@@ -68,11 +68,12 @@ in any minor version bump.
 - `tensorboardX` is a core dependency (the `logging` extra is gone): configs
   that set `tensorboard_dir` run on a plain `uv sync`.
 - Setup rejects, instead of silently ignoring: bound penalties under PCGrad,
-  MAO and Gauss–Newton; a warm start on a sequence network; an LR warm-up at
-  least as long as the run; an expectation type the model's shock process
-  contradicts; a disaster-network prior whose state or constant is missing.
+  MAO and Gauss–Newton; a linearized or Dynare warm start on a sequence
+  network; an LR warm-up at least as long as the run; an expectation type the
+  model's shock process contradicts; a disaster-network prior whose state or
+  constant is missing.
 - `deqn-jax evaluate` exits 1 when the simulation produces NaN; `deqn-jax irf`
-  refuses a model without a steady state with a one-line error.
+  refuses a model without a steady state, naming what is missing.
 
 ### Fixed
 
@@ -86,6 +87,16 @@ in any minor version bump.
   resume from a finished run returned `None`.
 - Documentation examples and `irf` flags that no longer matched the code;
   `tests/test_documented_commands.py` now runs them.
+- `load_policy_from_checkpoint` rebuilt the model at the registry calibration,
+  ignoring the run's `constants` and the model's setup hook (risky steady
+  state); it now returns the run's model. It also reads the episode of
+  `checkpoint_best.eqx` from its sidecar, so a best checkpoint saved after an
+  optimizer switch loads, and a missing file raises `FileNotFoundError`.
+- Adaptive reweighting (`lr_annealing`, `relobralo`) wrote its weights in
+  alphabetical order of equation names.
+- `--set fp64=true` enabled x64 after the models were imported; the disaster
+  simulation bounds were float32 under a late x64 switch.
+- `verify` crashed drawing the error histograms of a run with non-finite errors.
 
 ## [0.2.0] — 2026-04-17
 
