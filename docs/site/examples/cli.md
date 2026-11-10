@@ -1,8 +1,8 @@
 # CLI examples
 
-The `deqn-jax` CLI exposes eight subcommands: `train`, `list`, `info`,
-`check`, `evaluate`, `irf`, `optimizers`, `init-config`
-(plus `--version`).
+The `deqn-jax` CLI exposes nine subcommands: `train`, `verify`, `list`,
+`info`, `check`, `evaluate`, `irf`, `optimizers`, `init-config`
+(plus `--version`); `deqn-jax --help` lists them.
 
 ## Discovery
 

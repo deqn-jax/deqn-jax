@@ -19,6 +19,24 @@ in any minor version bump.
   the reference solution of the authors' replication package.
 - Policy outputs may be declared unbounded per output: a lower bound of `-inf`
   in `policy_lower` passes that output through (others keep softplus/sigmoid).
+- `deqn_jax.api` exports `residuals_from_lagrangian`, `Constraint` and
+  `linearize_model`.
+- `euler_equation_errors(..., conditional_expectation=True)`: for Gaussian
+  single-stage models each row is the quadrature-weighted mean of the residual
+  over next-shock nodes at the visited state instead of the residual at the
+  drawn shock (16 Gauss–Hermite nodes for one shock, else 5 per dimension);
+  the path still advances on the drawn shock. Default `False` leaves the rows
+  unchanged.
+- Model folders: `deqn-jax train <folder>` trains a model kept outside the
+  package (`model.py`, `train.yaml`, optional `model.md`, `exact.py`) into a new
+  `<folder>/runs/NN/`; `deqn-jax verify <folder>` checks the latest run and writes
+  `report.html` with figures. Example: `tests/data/model_folder/`.
+- `check_solution` (`deqn_jax.evaluate.solution`, in `deqn_jax.api`): a fixed
+  verdict on a trained policy: equation errors with the conditional
+  expectation, finiteness, staying inside the training draws, and the gap to a
+  known exact policy.
+- `deqn_jax.plots.solution`: equation-error histograms, policies on the
+  simulated path, network against the exact solution, simulated states.
 
 ### Removed
 
@@ -27,8 +45,8 @@ in any minor version bump.
   figures stay under `docs/dev/figures/interp/`.
 - Dormant research code no shipped configuration used: the `kf_anchored_mlp`
   network and its validation sweep, the `ResMLP` / `MultiHeadMLP` variants
-  (`network.multi_head`, `network.skip_connections`), the `mao_kfac`, `sgd`,
-  `adamw` and `lion` optimizers, the `reduce_on_plateau` LR schedule and its
+  (`network.multi_head`, `network.skip_connections`), the `mao_kfac`
+  optimizer, the `reduce_on_plateau` LR schedule and its
   four `optimizer.lr_reduce_*` fields, the one-shot AIO and anchor diagnostics
   and the second-order sweep. The last commit carrying them is tagged
   `pre-prune-2026-09-15`.
@@ -43,6 +61,47 @@ in any minor version bump.
 - `scripts/` is tracked as a whole and organized by purpose: `scripts/cert/`
   (certification probes), `scripts/dgx/` (container sweeps), `scripts/dev/`
   (plots, config reference, module graph). `scripts/local/` is ignored scratch.
+- **Checkpoints of the disaster network saved before this release do not
+  load.** Its Blanchard–Kahn anchors (`P`, `ss_state`, `ss_policy`) are no
+  longer leaves of the parameter tree, so weight decay cannot move them; the
+  loader names the mismatch. Retrain to get a loadable checkpoint.
+- `tensorboardX` is a core dependency (the `logging` extra is gone): configs
+  that set `tensorboard_dir` run on a plain `uv sync`.
+- Setup rejects, instead of silently ignoring: bound penalties under PCGrad,
+  MAO and Gauss–Newton; a linearized or Dynare warm start on a sequence
+  network; an LR warm-up at least as long as the run; an expectation type the
+  model's shock process contradicts; a disaster-network prior whose state or
+  constant is missing.
+- A `network.*` field the chosen `network.type` does not read is rejected
+  when set away from its default (`activations` or `history_len` on a
+  residual network, `init` or `activation` on `lstm`/`transformer`, ...); it
+  used to be dropped without a word. `NetworkConfig.FIELDS_READ` lists the
+  fields per type.
+- `deqn-jax evaluate` exits 1 when the simulation produces NaN; `deqn-jax irf`
+  refuses a model without a steady state, naming what is missing.
+
+### Fixed
+
+- `fp64: true` gave a float32 steady state and bounds for the disaster model
+  when the model was imported before x64 was enabled (Python API; some CLI
+  paths), crashing the pinned network. The steady state is solved on first
+  use and cached per precision.
+- `loss_weights` were matched to equations by position in an alphabetically
+  sorted dict, not by name (`irbc`, `cdice_bau`).
+- An optimizer switch dropped every optimizer field but name, LR and clip; a
+  resume from a finished run returned `None`.
+- Documentation examples and `irf` flags that no longer matched the code;
+  `tests/test_documented_commands.py` now runs them.
+- `load_policy_from_checkpoint` rebuilt the model at the registry calibration,
+  ignoring the run's `constants` and the model's setup hook (risky steady
+  state); it now returns the run's model. It also reads the episode of
+  `checkpoint_best.eqx` from its sidecar, so a best checkpoint saved after an
+  optimizer switch loads, and a missing file raises `FileNotFoundError`.
+- Adaptive reweighting (`lr_annealing`, `relobralo`) wrote its weights in
+  alphabetical order of equation names.
+- `--set fp64=true` enabled x64 after the models were imported; the disaster
+  simulation bounds were float32 under a late x64 switch.
+- `verify` crashed drawing the error histograms of a run with non-finite errors.
 
 ## [0.2.0] — 2026-04-17
 

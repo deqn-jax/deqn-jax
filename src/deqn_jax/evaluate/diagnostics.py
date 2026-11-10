@@ -33,6 +33,27 @@ def _sim_seed_state(model, key):
     return state0, None, None
 
 
+def _evaluator_quadrature(expectation_type, n_shocks, nodes_per_dim):
+    """Deterministic shock rule for the evaluator's expectations.
+
+    Deterministic rules (`gauss_hermite`/`quadrature`/`gh`, `monomial`) are
+    honored; anything else (`mc`, the training default) gets Gauss-Hermite.
+    Returns ``(nodes [n_nodes, n_shocks], weights [n_nodes])`` as jnp arrays.
+    """
+    if expectation_type not in QUADRATURE_EXPECTATION_TYPES:
+        # 'mc' and anything else non-deterministic: keep the evaluator's
+        # own deterministic operator (see euler_equation_errors).
+        expectation_type = "gauss_hermite"
+    quadrature = build_quadrature(expectation_type, n_shocks, nodes_per_dim)
+    if quadrature is None:
+        # The Gauss-Hermite grid exceeds its safety cap; the linear-cost
+        # degree-3 monomial rule is the deterministic fallback here (the
+        # trainer falls back to Monte Carlo instead).
+        quadrature = build_quadrature("monomial", n_shocks, nodes_per_dim)
+    qn, qw = quadrature
+    return jnp.asarray(qn), jnp.asarray(qw)
+
+
 # ---------------------------------------------------------------------------
 # 1. Euler Equation Errors
 # ---------------------------------------------------------------------------
@@ -46,14 +67,16 @@ def euler_equation_errors(
     burn_in: Optional[int] = None,
     expectation_type: str = "gauss_hermite",
     n_quadrature_points: Optional[int] = None,
+    conditional_expectation: bool = False,
 ) -> Dict[str, Any]:
     """Simulate a long stochastic path and compute Euler residuals everywhere.
 
     This is the gold standard for DEQN accuracy (Azinovic et al. 2022);
     ``print_euler_errors`` reports the log10(|residual|) distribution.
     Each row is the residual at the shock drawn that period, except for
-    discrete-chain models (exact expectation over the chain) and
-    two-stage models (expectation by the deterministic rule below).
+    discrete-chain models (exact expectation over the chain), two-stage
+    models (expectation by the deterministic rule below) and, with
+    ``conditional_expectation=True``, Gaussian single-stage models.
 
     Args:
         policy_net: Trained policy network
@@ -63,21 +86,37 @@ def euler_equation_errors(
         burn_in: Discard first N periods (reach ergodic distribution). If
             None, uses min(500, n_periods // 5) so short simulations still
             produce some output.
-        expectation_type: Expectation rule for two-stage models. Deterministic
-            rules (`gauss_hermite`/`quadrature`/`gh`, `monomial`) are honored so
+        expectation_type: Expectation rule for two-stage models and for
+            ``conditional_expectation``. Deterministic rules
+            (`gauss_hermite`/`quadrature`/`gh`, `monomial`) are honored so
             a monomial-trained checkpoint is evaluated under its own operator;
             `mc` (the training default) keeps the evaluator's deterministic
             Gauss-Hermite default — replicating training-time Monte Carlo noise
             is a worse estimate of the same expectation, not parity.
         n_quadrature_points: Points per shock dimension for Gauss-Hermite. If
-            omitted, the historical evaluator defaults apply (16 in one
-            dimension, otherwise 3). Ignored by monomial.
+            omitted: two-stage keeps the historical evaluator default (16 in
+            one dimension, otherwise 3); ``conditional_expectation`` uses 16
+            in one dimension, otherwise 5. Ignored by monomial.
+        conditional_expectation: For Gaussian single-stage models (no
+            discrete chain, no inside_fn/combine_fn, no disaster support),
+            report at each visited state the quadrature-weighted mean of the
+            residuals over next-shock nodes, E[residual | state], instead of
+            the residual at the drawn shock; the simulated path still
+            advances on the drawn shock. Removes the forecast noise that
+            otherwise floors the reported error. No effect on the other
+            model classes: discrete-chain and two-stage rows are already
+            expectations, deterministic (``n_shocks == 0``) rows are exact,
+            disaster rows stay single-draw. Default False keeps the
+            historical single-draw rows.
 
     Returns:
         Dict with:
             "residuals": [n_periods - burn_in, n_equations] array of residuals
             "equation_names": list of equation names
             "states": [n_periods - burn_in, n_states] simulated states
+            "measure": plain-language name of what each row is (single draw,
+                conditional expectation, chain expectation, ...), printed by
+                ``print_euler_errors`` as the basis of its grade
     """
     if burn_in is None:
         burn_in = min(500, max(0, n_periods // 5))
@@ -202,18 +241,7 @@ def euler_equation_errors(
         nodes_per_dim = n_quadrature_points
         if nodes_per_dim is None:
             nodes_per_dim = 16 if n_shocks == 1 else 3
-        if expectation_type not in QUADRATURE_EXPECTATION_TYPES:
-            # 'mc' and anything else non-deterministic: keep the evaluator's
-            # own deterministic operator (see the docstring).
-            expectation_type = "gauss_hermite"
-        quadrature = build_quadrature(expectation_type, n_shocks, nodes_per_dim)
-        if quadrature is None:
-            # The Gauss-Hermite grid exceeds its safety cap; the linear-cost
-            # degree-3 monomial rule is the deterministic fallback here (the
-            # trainer falls back to Monte Carlo instead).
-            quadrature = build_quadrature("monomial", n_shocks, nodes_per_dim)
-        qn, qw = quadrature
-        qn, qw = jnp.asarray(qn), jnp.asarray(qw)
+        qn, qw = _evaluator_quadrature(expectation_type, n_shocks, nodes_per_dim)
 
         @eqx.filter_jit
         def _sim_step_two_stage(state, shock):
@@ -242,24 +270,76 @@ def euler_equation_errors(
             )
             return next_state, row, state[0]
 
+    # Gaussian single-stage models on request: score E[residual | state] by
+    # quadrature over the next shock instead of the drawn shock's residual.
+    use_conditional = (
+        conditional_expectation
+        and n_shocks > 0
+        and not use_discrete
+        and not use_two_stage
+        and p_disaster == 0.0
+    )
+    if use_conditional:
+        nodes_per_dim = n_quadrature_points
+        if nodes_per_dim is None:
+            nodes_per_dim = 16 if n_shocks == 1 else 5
+        cqn, cqw = _evaluator_quadrature(expectation_type, n_shocks, nodes_per_dim)
+
+        @eqx.filter_jit
+        def _sim_step_conditional(state, shock):
+            policy = policy_net(state)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+            if policy.ndim == 1:
+                policy = policy[None, :]
+            next_state = model.step_fn(state, policy, shock, constants)
+
+            def _residual_at(node):
+                ns = model.step_fn(state, policy, node[None, :], constants)
+                npol = policy_net(ns)  # pyright: ignore[reportCallIssue]  # ty: ignore[call-non-callable]
+                if npol.ndim == 1:
+                    npol = npol[None, :]
+                r = model.equations_fn(state, policy, ns, npol, constants)
+                return jnp.stack(
+                    [r[name][0] if r[name].ndim > 0 else r[name] for name in eq_names]
+                )
+
+            all_r = jax.vmap(_residual_at)(cqn)  # [n_nodes, n_eq]
+            row = jnp.einsum("k,kn->n", cqw, all_r)  # [n_eq]
+            return next_state, row, state[0]
+
     # Pick the per-step function once; the rollout loop itself lives in
     # evaluate/simulate.py (one loop for every eval primitive).
     if use_two_stage:
+        measure = "expectation over the next shock (quadrature, two-stage model)"
 
         def step(state, shock, _d):
             return _sim_step_two_stage(state, shock)
 
+    elif use_conditional:
+        measure = "conditional expectation E[residual | state] over the next shock (quadrature)"
+
+        def step(state, shock, _d):
+            return _sim_step_conditional(state, shock)
+
     elif use_discrete:
+        measure = "exact expectation over the discrete chain"
 
         def step(state, shock, _d):
             return _sim_step_discrete(state, shock)
 
     elif p_disaster > 0.0:
+        measure = (
+            "single draw (residual at the drawn shock; the conditional "
+            "expectation is not supported with disaster draws)"
+        )
 
         def step(state, shock, d):
             return _sim_step_with_d(state, shock, d)
 
     else:
+        if n_shocks == 0:
+            measure = "exact (deterministic model, no shock to integrate)"
+        else:
+            measure = "single draw (residual at the drawn shock)"
 
         def step(state, shock, _d):
             return _sim_step_no_d(state, shock)
@@ -289,11 +369,16 @@ def euler_equation_errors(
         "residuals": residuals_array,
         "equation_names": eq_names,
         "states": states_array,
+        "measure": measure,
     }
 
 
 def print_euler_errors(result: Dict, label: str = ""):
-    """Print Euler equation error table in the standard format."""
+    """Print Euler equation error table in the standard format.
+
+    The grade rests on the rows of ``result``; the line under the header names
+    their measure (``result["measure"]``).
+    """
     residuals = result["residuals"]  # [T, n_eq]
     eq_names = result["equation_names"]
 
@@ -304,6 +389,7 @@ def print_euler_errors(result: Dict, label: str = ""):
     if label:
         header += f" — {label}"
     print(f"\n{header}")
+    print(f"Measure (basis of the grade): {result['measure']}")
     print("=" * 100)
     print(
         f"{'Equation':>30s}  {'Mean':>7s}  {'p50':>7s}  {'p95':>7s}  {'p99':>7s}  {'p99.9':>7s}  {'Max':>7s}  {'Grade':>12s}"

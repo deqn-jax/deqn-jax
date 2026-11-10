@@ -1,6 +1,6 @@
 """Variable specification and constants for Disaster (NK-DSGE) model."""
 
-import jax.numpy as jnp
+import numpy as np
 
 from deqn_jax.models.variable_spec import VariableSpec
 
@@ -153,9 +153,12 @@ OMEGA_BAR_SS = 0.488466
 # Policy:     lambda_z  i     pi    c     w_tilda  h     F_w   F_p   q     K_p   K_w
 # SS:         0.602     0.795 1.012 1.594 1.920    0.944 0.885 4.736 1.000 4.78  2.18
 # Bounding:   softplus  soft  sigm  soft  softplus soft  soft  soft  soft  soft  soft
-POLICY_LOWER = jnp.array([0.2, 0.4, 0.95, 0.3, 1.0, 0.6, 0.3, 2.0, 0.5, 1.0, 0.5])
+#
+# numpy float64, not jnp: a jnp array built here takes the precision in force
+# at import, so an fp64 run imported before x64 would bound at float32 values.
+POLICY_LOWER = np.array([0.2, 0.4, 0.95, 0.3, 1.0, 0.6, 0.3, 2.0, 0.5, 1.0, 0.5])
 _inf = float("inf")
-POLICY_UPPER = jnp.array(
+POLICY_UPPER = np.array(
     [_inf, _inf, 1.1, _inf, _inf, _inf, _inf, _inf, _inf, _inf, _inf]
 )
 

@@ -11,7 +11,7 @@ from deqn_jax.api import ModelSpec, register_model, TrainConfig, train_from_conf
 
 MODEL = ModelSpec(name="my_model", ...)   # states, equations, dynamics, SS, calibration
 register_model(MODEL, description="my custom model")
-state, history = train_from_config(TrainConfig(model="my_model", episodes=2000))
+policy_net, history = train_from_config(TrainConfig(model="my_model", episodes=2000))
 ```
 
 ## Two ways in
@@ -35,15 +35,16 @@ utility/payoff via `jax.grad` (POC models `brock_mirman_autodiff`,
 
 ## Models that ship in-tree
 
-Ten are registered (`uv run deqn-jax list`); the [gallery](../gallery/index.md)
+`uv run deqn-jax list` prints the registered models; the [gallery](../gallery/index.md)
 is the worked tour. Two carry full reference pages:
 
 - [Brock-Mirman](brock_mirman.md) -- the canonical smoke test (1 eq, 2 states, 1 policy).
 - [Disaster (NK-DSGE)](disaster.md) -- financial frictions and disaster risk (11 eq, 13 states, 11 policies).
 
-The rest (deterministic and labor Brock-Mirman variants incl. two autodiff POCs,
-two OLG models, the 2-country IRBC) are documented through their gallery
-notebooks and the autodiff page.
+The rest (the Brock-Mirman variants and autodiff POCs, the OLG models, the
+2-country IRBC, the CDICE climate-economy model, the three-country RSS trade model) are
+described by `uv run deqn-jax info <name>`; several have gallery notebooks, and
+the autodiff page covers the autodiff POCs.
 
 !!! note "Maturity"
     deqn-jax is **alpha**. The `ModelSpec` fields surfaced through

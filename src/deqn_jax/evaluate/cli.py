@@ -1,5 +1,6 @@
 """evaluate CLI entry point."""
 
+import sys
 from pathlib import Path
 
 import jax
@@ -27,7 +28,7 @@ from deqn_jax.training.checkpointing import load_policy_from_checkpoint
 
 
 def run_evaluate_cli(args):
-    """CLI handler for 'deqn-jax evaluate'."""
+    """CLI handler for 'deqn-jax evaluate'; exits 1 if the simulation produces NaN."""
     # Enable fp64 if config says so
     ckpt_dir = Path(args.checkpoint).parent
     config_path = args.config or str(ckpt_dir / "config.yaml")
@@ -63,15 +64,18 @@ def run_evaluate_cli(args):
 
     if not stab["nan_free"]:
         print("\n  FATAL: Simulation produced NaN. Cannot continue evaluation.")
-        return
+        sys.exit(1)
 
-    # 2. Euler equation errors
+    # 2. Euler equation errors, graded on E[residual | state] where the model
+    # supports it (single draws overstate the error by the forecast noise);
+    # the table names the measure it used.
     print(f"\n[2/4] Euler equation errors ({args.periods} periods)...")
     ee_result = euler_equation_errors(
         policy_net,
         model,
         n_periods=args.periods,
         seed=args.seed,
+        conditional_expectation=True,
         **expectation_kwargs,
     )
     print_euler_errors(ee_result, label=label)

@@ -10,7 +10,8 @@ def add_parser(subparsers):
         type=str,
         nargs="?",
         default=None,
-        help="Model to train; see 'deqn-jax list' for available models.",
+        help="Model to train; see 'deqn-jax list' for available models. Or a model "
+        "folder (model.py, train.yaml): each call trains into a new <folder>/runs/NN.",
     )
     train_parser.add_argument(
         "-n",
@@ -222,21 +223,37 @@ def add_parser(subparsers):
 
 def run(args):
     """Run training."""
-    # Set precision before importing JAX — check both CLI flag and config file
-    if args.fp64:
-        import jax
+    from pathlib import Path
 
-        jax.config.update("jax_enable_x64", True)
-    elif hasattr(args, "config") and args.config:
-        # Check if YAML config has fp64: true (before full config load)
-        import yaml
+    from deqn_jax.cli._common import enable_fp64
 
-        with open(args.config) as _f:
-            _raw = yaml.safe_load(_f) or {}
-        if _raw.get("fp64", False):
-            import jax
+    # Precision first, from the flag, a `--set fp64=...` or the YAML this run
+    # reads (--config, else a model folder's train.yaml): importing
+    # deqn_jax.models.folder loads every model package, and arrays built at
+    # import keep the precision then in force.
+    folder_yaml = Path(args.model) / "train.yaml" if args.model else None
+    set_fp64 = [
+        o.partition("=")[2].strip().lower()
+        for o in args.overrides or []
+        if o.partition("=")[0].strip() == "fp64"
+    ]
+    if set_fp64 and set_fp64[-1] not in ("true", "1"):
+        enable_fp64(False)  # --set outranks the YAML
+    else:
+        enable_fp64(args.fp64 or bool(set_fp64), args.config or folder_yaml)
 
-            jax.config.update("jax_enable_x64", True)
+    from deqn_jax.models.folder import is_model_folder
+
+    folder = Path(args.model) if args.model and is_model_folder(args.model) else None
+    if folder is not None and args.config is None and (folder / "train.yaml").exists():
+        args.config = str(folder / "train.yaml")
+
+    run_dir = None
+    if folder is not None:
+        from deqn_jax.models.folder import start_run
+
+        args.model, run_dir = start_run(folder)
+        args.checkpoint_dir = str(run_dir / "checkpoints")
 
     from deqn_jax.config import load_config
     from deqn_jax.training.trainer import train_from_config
@@ -330,4 +347,9 @@ def run(args):
             update={"loss_weights": [float(x) for x in args.loss_weights.split(",")]}
         )
 
-    train_from_config(config)
+    result = train_from_config(config)
+    if run_dir is not None:
+        from deqn_jax.models.folder import write_history
+
+        write_history(run_dir, result[1])
+        print(f"\nRun: {run_dir}\nNext: deqn-jax verify {folder}")

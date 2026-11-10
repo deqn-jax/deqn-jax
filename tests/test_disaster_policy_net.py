@@ -320,7 +320,7 @@ def test_zlb_kink_feature_is_zero_below_floor():
 def test_qm_reparam_off_by_default():
     """Without explicit reparam_q_as_m, the flag is off."""
     net = _build(kf_names=KF_NAMES)
-    assert net.reparam_q_as_m is False
+    assert net.q_as_m is None
 
 
 def test_qm_reparam_factory_resolves_indices():
@@ -333,15 +333,15 @@ def test_qm_reparam_factory_resolves_indices():
         reparam_q_as_m=True,
         key=jr.PRNGKey(0),
     )
-    assert net.reparam_q_as_m is True
+    assert net.q_as_m is not None
     pn = list(model.policy_names)
     sn = list(model.state_names)
-    assert net.q_idx == pn.index("q")
-    assert net.i_idx == pn.index("i")
-    assert net.i_lag_idx == sn.index("i_lag")
-    assert net.mu_z_idx == sn.index("mu_z")
-    assert net.kappa == float(model.constants["kappa"])
-    assert net.mu_z_ss == float(model.constants["mu_z_ss"])
+    assert net.q_as_m.q_idx == pn.index("q")
+    assert net.q_as_m.i_idx == pn.index("i")
+    assert net.q_as_m.i_lag_idx == sn.index("i_lag")
+    assert net.q_as_m.mu_z_idx == sn.index("mu_z")
+    assert net.q_as_m.kappa == float(model.constants["kappa"])
+    assert net.q_as_m.mu_z_ss == float(model.constants["mu_z_ss"])
 
 
 def test_qm_reparam_exact_bk_at_ss():

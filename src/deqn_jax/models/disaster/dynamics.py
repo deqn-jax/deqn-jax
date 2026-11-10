@@ -4,6 +4,7 @@ from typing import Dict
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from deqn_jax.models.disaster.equations import definitions
@@ -88,11 +89,13 @@ def step(
 # ---------- State bounds ----------
 # Hard clip bounds for eval/irf simulation safety (clip_state, NOT training).
 # compute_state_barrier uses the same box for the training-loss barrier.
+# NumPy float64, not jnp: a jnp array built at import keeps the precision in
+# force then, and x64 may be switched on later (variables.py, same rule).
 #          pi    k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
-_SIM_LOWER = jnp.array(
+_SIM_LOWER = np.array(
     [0.8, 5.0, 0.1, 0.3, 0.1, 0.99, 0.5, 0.5, 0.7, 0.8, 0.3, 0.97, -3.0]
 )
-_SIM_UPPER = jnp.array(
+_SIM_UPPER = np.array(
     [1.3, 80.0, 5.0, 3.0, 3.0, 1.15, 5.0, 8.0, 1.4, 1.3, 1.2, 1.04, 3.0]
 )
 
@@ -111,10 +114,10 @@ _SIM_UPPER = jnp.array(
 #
 #              pi     k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
 # SS values: 1.012  27.42  1.59  1.00  0.79  1.02  1.92  1.97  1.00  1.00  0.62  1.00  0.00
-_SOFT_LOWER = jnp.array(
+_SOFT_LOWER = np.array(
     [-1.0, 1.0, -1.0, -1.5, -1.5, -1.0, -0.5, -0.5, -1.5, -1.5, -2.0, -1.5, -5.0]
 )
-_SOFT_UPPER = jnp.array(
+_SOFT_UPPER = np.array(
     [3.5, 100.0, 8.0, 5.0, 5.0, 3.5, 6.0, 10.0, 3.5, 3.5, 3.0, 3.5, 5.0]
 )
 

@@ -1,0 +1,22 @@
+# Fresh random states every step (episode_length 1, initialize_each_episode),
+# expectation over the shock by 5-point Gauss-Hermite quadrature.
+episodes: 10000
+batch_size: 128
+episode_length: 1
+initialize_each_episode: true
+expectation_type: gauss_hermite
+n_quadrature_points: 5
+
+network:
+  type: mlp
+  hidden_sizes: [50, 50]
+  activation: tanh
+
+optimizer:
+  name: adam
+  learning_rate: 1.0e-3
+  lr_schedule: cosine
+  lr_min_factor: 0.05
+
+warm_start: true
+log_every: 500

@@ -16,12 +16,12 @@ lists each registered name with its kind); PCGRAD is selected by
 - GN: Gauss-Newton / Levenberg-Marquardt on the residual Jacobian
 """
 
+import functools
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import Array
 
 from deqn_jax.optimizers.registry import OptimizerKind
 from deqn_jax.training.checkpointing import (
@@ -63,6 +63,7 @@ from deqn_jax.training.loop_control import (  # noqa: E402  (re-export)
 from deqn_jax.training.loss import (
     QUADRATURE_EXPECTATION_TYPES,
     build_quadrature,
+    check_expectation_matches_model,
 )
 from deqn_jax.training.metrics import create_logger
 from deqn_jax.training.reporting import (
@@ -96,10 +97,13 @@ from deqn_jax.training.state_init import (  # noqa: E402  (re-export)
     _build_initial_state,
     _resolve_model_for_training,
     _validate_train_config,
-    make_train_step,
+    make_config_train_step,
 )
 from deqn_jax.training.state_init import (
     create_train_state as create_train_state,  # re-export (not used internally)
+)
+from deqn_jax.training.state_init import (
+    make_train_step as make_train_step,  # re-export (not used internally)
 )
 from deqn_jax.types import ModelSpec, TrainState
 
@@ -119,18 +123,15 @@ def _run_training_loop(
     state: TrainState,
     opt: Any,
     kind: OptimizerKind,
-    gradient_surgery: str,
     train_step: Callable,
+    build_step: Callable[[Any, OptimizerKind], Callable],
     lr_schedule_fn: Optional[Callable],
-    quad_nodes_jax: Optional[Array],
-    quad_weights_jax: Optional[Array],
     history_len: int,
-    custom_loss_fn: Optional[Callable],
     use_target: bool,
     n_equations: int,
     start_episode: int,
     logger,
-) -> Optional[Tuple[Any, Dict[str, list]]]:
+) -> Tuple[Any, Dict[str, list]]:
     """Run the per-episode train loop.
 
     Orchestrates the per-episode phase helpers (mid-training switch,
@@ -144,11 +145,6 @@ def _run_training_loop(
         raise ValueError("--switch-optimizer requires --switch-episode")
 
     total_episodes = config.episodes
-    if start_episode >= total_episodes:
-        print(
-            f"WARNING: checkpoint episode {start_episode} >= config.episodes {total_episodes}. Nothing to do."
-        )
-        return None
 
     runtime = _OptimizerRuntime(
         opt=opt,
@@ -177,23 +173,16 @@ def _run_training_loop(
     history: Dict[str, list] = {"loss": [], "grad_norm": []}
     t_start = time.perf_counter()
     last_metrics = None
+    # Episodes whose train step ran this session (incl. rolled-back ones),
+    # for the final speed: an early stop or a resume runs fewer than
+    # config.episodes.
+    episodes_run = 0
     ep_width = len(str(total_episodes))
     current_lr = config.optimizer.learning_rate
 
     for ep_num in range(start_episode + 1, total_episodes + 1):
         state, did_switch = _maybe_switch_optimizer(
-            config,
-            model,
-            n_equations,
-            history_len,
-            gradient_surgery,
-            quad_nodes_jax,
-            quad_weights_jax,
-            custom_loss_fn,
-            use_target,
-            state,
-            runtime,
-            ep_num,
+            config, n_equations, build_step, state, runtime, ep_num
         )
         if did_switch:
             es_best, es_patience = float("inf"), 0
@@ -204,6 +193,7 @@ def _run_training_loop(
         shock_scale = _episode_shock_scale(config, ep_num)
 
         state, metrics = runtime.train_step(state, lr_scale, shock_scale)
+        episodes_run += 1
         last_metrics = metrics
         state = _maybe_update_target(config, state, ep_num, use_target)
 
@@ -253,7 +243,7 @@ def _run_training_loop(
         elapsed = time.perf_counter() - t_start
         _print_final(
             elapsed=elapsed,
-            episodes=config.episodes,
+            episodes=episodes_run,
             final_loss=float(last_metrics.loss),
             final_residuals=last_metrics.residuals,
         )
@@ -283,8 +273,11 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         config (TrainConfig): the training configuration.
 
     Returns:
-        Tuple of (trained_params, history_dict), or None when a resumed
-        checkpoint is already at or past ``config.episodes``.
+        Tuple of (policy_network, history_dict): the trained network itself
+        (an Equinox module, callable on a batch of states) and a dict of
+        per-episode series. When a resumed checkpoint is already at or past
+        ``config.episodes`` nothing is trained: the loaded network comes
+        back with an empty history.
     """
     _validate_train_config(config)
     model, n_equations = _resolve_model_for_training(config)
@@ -313,6 +306,13 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         n_equations,
         effective_opt_cfg,
     )
+
+    if start_episode >= config.episodes:
+        print(
+            f"WARNING: checkpoint episode {start_episode} >= config.episodes "
+            f"{config.episodes}. Nothing to do."
+        )
+        return state.params, {"loss": [], "grad_norm": []}
 
     # ---- Metric logger ----
     wandb_config = config.to_dict() if config.wandb_project else None
@@ -353,7 +353,9 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
     # ---- Pre-compute deterministic quadrature nodes ----
     quad_nodes_jax = None
     quad_weights_jax = None
-    exp_type = config.expectation_type
+    exp_type = check_expectation_matches_model(config.expectation_type, model)
+    if config.verbose and exp_type != config.expectation_type:
+        print(f"  Expectation: {exp_type} (model carries a discrete shock chain)")
     n_qp = config.n_quadrature_points
     quad = build_quadrature(exp_type, model.n_shocks, n_qp)
     if quad is not None:
@@ -400,35 +402,24 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
             )
 
     # ---- Create JIT-compiled train step ----
-    gradient_surgery = config.gradient_surgery
-    train_step = make_train_step(
+    # One constructor for the initial step and the step after a mid-run
+    # optimizer switch: only the optimizer and its kind differ.
+    build_step = functools.partial(
+        make_config_train_step,
+        config,
         model,
-        opt,
-        config.episode_length,
-        config.mc_samples,
-        config.batch_size,
-        loss_reweight=config.loss_reweight,
-        reweight_alpha=config.reweight_alpha,
-        kind=kind,
-        gradient_surgery=gradient_surgery,
-        grad_clip=config.optimizer.grad_clip,
+        history_len=history_len,
         quad_nodes=quad_nodes_jax,
         quad_weights=quad_weights_jax,
-        history_len=history_len,
         compute_loss_fn=custom_loss_fn,
-        ss_reset_frac=config.ss_reset_frac,
         use_target_network=use_target,
-        n_epochs_per_rollout=config.n_epochs_per_rollout,
-        n_minibatches_per_epoch=config.n_minibatches_per_epoch,
-        initialize_each_episode=config.initialize_each_episode,
-        sorted_within_batch=config.sorted_within_batch,
-        replay_cfg=config.replay_buffer,
     )
+    train_step = build_step(opt, kind)
 
     if (
         config.verbose
         and kind == OptimizerKind.STANDARD
-        and gradient_surgery != "pcgrad"
+        and config.gradient_surgery != "pcgrad"
     ):
         # Compute and report the effective schedule so users can see what
         # the trainer is actually doing per outer iteration.
@@ -458,13 +449,10 @@ def train_from_config(config) -> Tuple[Any, Dict[str, list]]:
         state=state,
         opt=opt,
         kind=kind,
-        gradient_surgery=gradient_surgery,
         train_step=train_step,
+        build_step=build_step,
         lr_schedule_fn=lr_schedule_fn,
-        quad_nodes_jax=quad_nodes_jax,
-        quad_weights_jax=quad_weights_jax,
         history_len=history_len,
-        custom_loss_fn=custom_loss_fn,
         use_target=use_target,
         n_equations=n_equations,
         start_episode=start_episode,

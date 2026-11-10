@@ -17,6 +17,7 @@ import glob as glob_mod
 import math
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional, Tuple
 
 import equinox as eqx
@@ -94,13 +95,26 @@ def prune_checkpoints(checkpoint_dir: str, max_keep: int) -> None:
 def resume_from(template_state: Any, checkpoint_path: str) -> Any:
     """Load a serialised TrainState from disk into the given template.
 
-    Thin wrapper around ``eqx.tree_deserialise_leaves``, shared by resume
+    Wrapper around ``eqx.tree_deserialise_leaves``, shared by resume
     (``state_init._build_initial_state``) and
     ``load_policy_from_checkpoint``. ``template_state`` must
     have the same pytree structure as the saved state -- typically built
-    from the config that produced the checkpoint.
+    from the config that produced the checkpoint. A file that does not fit
+    the template raises ``ValueError`` naming the checkpoint; a file that
+    cannot be read at all (missing, no permission) raises its own ``OSError``.
     """
-    return eqx.tree_deserialise_leaves(checkpoint_path, template_state)
+    try:
+        return eqx.tree_deserialise_leaves(checkpoint_path, template_state)
+    except OSError:
+        raise
+    except Exception as err:
+        raise ValueError(
+            f"Checkpoint {checkpoint_path} does not fit the state built from its "
+            "config: it was saved with a different network, optimizer or precision, "
+            "or by a version of deqn-jax with another checkpoint layout (the "
+            "disaster network's anchors left the parameter tree after 0.2.0). Retrain "
+            f"with the current code. Underlying error: {err}"
+        ) from err
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +247,13 @@ def load_policy_from_checkpoint(
         jax.config.update("jax_enable_x64", True)
 
     from deqn_jax.models import load_model
+    from deqn_jax.training.state_init import calibrate_model
 
-    model = load_model(cfg["model"])
+    # The run's calibration, not the registry default: the disaster network's
+    # anchors are rebuilt from this model and are not in the checkpoint.
+    model = calibrate_model(
+        load_model(cfg["model"]), SimpleNamespace(**{**cfg, "verbose": False})
+    )
 
     # Extract network config
     net_cfg = cfg.get("network", {})
@@ -258,12 +277,17 @@ def load_policy_from_checkpoint(
     # If checkpoint was saved after optimizer switch, use the switched optimizer
     switch_opt = cfg.get("switch_optimizer", None)
     switch_ep = cfg.get("switch_episode", 0)
-    # Extract episode number from checkpoint filename (e.g. checkpoint_010000.eqx)
+    # Episode of the checkpoint: from the numbered filename, or from the
+    # sidecar of checkpoint_best.eqx.
     ckpt_ep = 0
-    try:
-        ckpt_ep = int(Path(checkpoint_path).stem.split("_")[-1])
-    except (ValueError, IndexError):
-        pass
+    stem = Path(checkpoint_path).stem.split("_")[-1]
+    meta = Path(checkpoint_path).with_name(BEST_CHECKPOINT_META_FILENAME)
+    if stem.isdigit():
+        ckpt_ep = int(stem)
+    elif Path(checkpoint_path).name == BEST_CHECKPOINT_FILENAME and meta.exists():
+        first = meta.read_text().split()
+        if first[:1] == ["episode"]:
+            ckpt_ep = int(first[1])
     if switch_opt and ckpt_ep >= switch_ep:
         opt_cfg_dict = dict(opt_cfg_dict)
         opt_cfg_dict["name"] = switch_opt

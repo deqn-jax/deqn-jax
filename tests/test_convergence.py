@@ -132,7 +132,7 @@ class TestBrockMirmanLinearPlusMLP:
     blow up, doesn't regress, behaves sensibly".
     """
 
-    def _train(self, episodes: int = 200, kf_names=()):
+    def _train(self, episodes: int = 200):
         from deqn_jax.config import NetworkConfig, OptimizerConfig, TrainConfig
         from deqn_jax.training.trainer import train_from_config
 
@@ -149,7 +149,6 @@ class TestBrockMirmanLinearPlusMLP:
                 activation="tanh",
                 init="xavier_normal",
                 init_scale=0.0,
-                kf_names=tuple(kf_names),
             ),
             optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
             verbose=False,

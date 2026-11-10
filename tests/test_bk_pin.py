@@ -53,8 +53,8 @@ def test_pin_survives_parameter_perturbation():
     import equinox as eqx
 
     _, ss, net_pin, net_ref = _nets()
-    # brutalize every MLP parameter (what training updates; the BK buffers
-    # ss_state/ss_policy/P are stop-gradient'd constants) — the pin must
+    # brutalize every MLP parameter (what training updates; the BK anchors
+    # ss_state/ss_policy/P sit outside the parameter tree) — the pin must
     # hold by construction
     mlp_arrays = eqx.filter(net_pin.mlp, eqx.is_array)
     shaken_mlp = jax.tree.map(lambda a: a + 0.1, mlp_arrays)

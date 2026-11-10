@@ -93,9 +93,9 @@ policy trained and certified.
         network=NetworkConfig(type="mlp", hidden_sizes=(64, 64)),
         optimizer=OptimizerConfig(name="adam", learning_rate=1e-3),
     )
-    state, history = train_from_config(cfg)            # the global solve
+    policy_net, history = train_from_config(cfg)       # the global solve
 
-    diag = euler_equation_errors(state.params, load_model("brock_mirman"))
+    diag = euler_equation_errors(policy_net, load_model("brock_mirman"))
     print_euler_errors(diag)                           # the errREE you'd quote
     ```
     `adam` + `mlp` + MSE residual + antithetic-MC — the **validated stack**. The
@@ -140,7 +140,7 @@ registered* and *what to import*.
     ---
 
     The inner solve. `create_optimizer(config)` resolves a name from the
-    registry of **9**. `adam` is validated; `gn`/`ign`/`lm`/`lbfgs`
+    registry. `adam` is validated; `gn`/`ign`/`lm`/`lbfgs`
     are the Newton-style polish you know from GMM/MLE; `mao` is
     multi-equation. `list_optimizers()` is the source of truth.
 
@@ -148,13 +148,14 @@ registered* and *what to import*.
 
 </div>
 
-??? abstract "The 13 registered optimizers (`uv run deqn-jax optimizers`)"
+??? abstract "The registered optimizers (`uv run deqn-jax optimizers`)"
     The canonical list is always the live registry. Status and *when to reach for
     it* are in the [Method Zoo optimizer cabinet](../method-zoo/index.md#cabinet-optimizer).
 
     | Name | Family | Status |
     |---|---|---|
     | `adam` | first-order (STANDARD) | **validated — the default** |
+    | `adamw`, `sgd`, `lion` | first-order (STANDARD) | available; not part of the validated stack |
     | `gn`, `ign`, `lm` | Gauss-Newton / Levenberg-Marquardt | experimental — Newton-style polish (anchor to GMM/MLE) |
     | `lbfgs` | quasi-Newton | experimental — also the steady-state warm-start engine |
     | `mao` | multi-equation (per-equation moments) | experimental |
@@ -202,9 +203,12 @@ registered* and *what to import*.
       `load_policy_from_checkpoint`, `save_irf_csv`, `print_irf_summary`.
     - **Steady state & codegen backbone:** `solve_steady_state` /
       `verify_steady_state` (L-BFGS fallback when no analytical SS exists, with
-      per-equation residuals to gate on), and `euler_from_period_return` —
+      per-equation residuals to gate on), `euler_from_period_return` —
       synthesizes the Euler residual from a scalar period-return via `jax.grad`
-      (the `*_autodiff` models' backbone).
+      (the `*_autodiff` models' backbone) — and the general
+      `residuals_from_lagrangian` / `Constraint` it delegates to.
+    - **First-order solution:** `linearize_model` (Blanchard–Kahn policy and
+      transition matrices at the steady state).
 
     See [Diagnostics](../method-zoo/index.md#cabinet-diagnostic) for *what each
     number tells you* and the [Gallery](../gallery/index.md) for worked models

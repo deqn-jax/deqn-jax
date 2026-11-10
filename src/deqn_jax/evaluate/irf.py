@@ -33,7 +33,7 @@ def run_irf(
     shock_name: str,
     shock_size: float = 1.0,
     horizon: int = 40,
-) -> Dict[str, List[float]]:
+) -> Dict[str, Any]:
     """Run impulse response from steady state.
 
     Args:
@@ -45,8 +45,24 @@ def run_irf(
 
     Returns:
         Dict mapping variable names to time series lists.
-        Keys: "period", state names, policy names, definition names, equation names.
+        Keys: "period", state names, policy names, definition names, equation
+        names, plus the metadata key ``_equation_names`` (which series are
+        equation residuals). Residuals start at t=1: the period-t residual
+        uses the transition t -> t+1, and the transition out of t=0 is the
+        shock itself, so t=0 holds NaN ("not computed").
+
+    Raises:
+        ValueError: the model has no closed-form steady state
+            (``steady_state_fn is None``) to start the IRF from.
+        NotImplementedError: the model's shock is a discrete chain.
     """
+    if model.steady_state_fn is None:
+        raise ValueError(
+            f"IRF needs a steady state to start from, and model '{model.name}' "
+            "has no closed-form steady state (steady_state_fn is None). "
+            "Its ergodic diagnostics (deqn-jax evaluate) start from a simulated "
+            "path instead; IRFs from such a start point are not implemented."
+        )
     constants = model.constants
     ss_state, ss_policy = model.steady_state_fn(constants)
 
@@ -82,7 +98,7 @@ def run_irf(
     shock_idx = shock_names.index(shock_name)
 
     # Collect results
-    results: Dict[str, List[float]] = {"period": []}
+    results: Dict[str, Any] = {"period": []}
 
     # State/policy/equation names
     state_names = list(model.state_names)
@@ -189,6 +205,7 @@ def run_irf(
 
     deterministic_rollout(model, state, horizon, step, record_period)
 
+    results["_equation_names"] = eq_names
     return results
 
 
@@ -231,7 +248,7 @@ def run_girf(
 
     out: Dict[str, Any] = {"_mode": "girf"}
     for key, series in shocked.items():
-        if key == "period":
+        if key == "period" or key.startswith("_"):
             out[key] = list(series)
             continue
         base = baseline.get(key)
@@ -270,12 +287,15 @@ def save_irf_csv(results: Dict[str, List[float]], path: str):
             writer.writerow([*(results[k][i] for k in keys), mode_flag])
 
 
-def print_irf_summary(results: Dict[str, List[float]], shock_name: str):
-    """Print a concise IRF summary to stdout."""
+def print_irf_summary(results: Dict[str, Any], shock_name: str):
+    """Print a concise IRF summary to stdout.
+
+    Equation residuals (named by the results' ``_equation_names``) get their
+    own block; their pre-shock period prints as ``---`` because ``run_irf``
+    computes no residual there.
+    """
     periods = results["period"]
-    # Find which keys are states, policies, equations
-    # (equations have "eq" prefix)
-    eq_keys = [k for k in results if k.startswith("eq")]
+    eq_keys = list(results["_equation_names"])
     var_keys = [
         k
         for k in results

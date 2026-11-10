@@ -43,9 +43,6 @@ def test_network_types_match_factory():
     source = inspect.getsource(factory.build_policy_net)
     for net_type in NetworkConfig.VALID_TYPES - {"mlp"}:
         assert f'net_type == "{net_type}"' in source, net_type
-    # The factory's module docstring tables the fields each type honors.
-    for net_type in NetworkConfig.VALID_TYPES:
-        assert f"``{net_type}``" in factory.__doc__, net_type
 
 
 def test_activations_match_network_table():

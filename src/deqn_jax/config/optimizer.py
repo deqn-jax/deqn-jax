@@ -72,7 +72,7 @@ class OptimizerConfig(_ConfigBase):
     )
     weight_decay: float = Field(
         default=0.0,
-        description="Decoupled weight decay for `adamw` (ignored by every other optimizer). At 0.0, `adamw` is `adam`.",
+        description="Decoupled weight decay for `adamw`. At 0.0, `adamw` is `adam`. Not read by any other optimizer; note that `lion` applies optax's own default decay (1e-3) whatever this field says.",
     )
     lr_min_factor: float = Field(
         default=0.0,

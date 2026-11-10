@@ -63,6 +63,42 @@ def _quartic_two_stage_model(n_shocks=4):
     )
 
 
+def _bm_full_depreciation(gamma):
+    """brock_mirman with delta=1 and CRRA ``gamma``; savings rate s = alpha*beta.
+
+    At gamma=1 (log utility) s = alpha*beta is the exact policy and the Euler
+    equation holds draw by draw (Z' cancels in u'(c') * mpk'). At gamma != 1
+    the same policy leaves a residual whose conditional expectation has a
+    closed form (lognormal moment of Z'^(1-gamma)), see ``_bm_expected_euler``.
+    """
+    model = load_model("brock_mirman")
+    constants = dict(model.constants, delta=1.0, gamma=gamma)
+    model = model._replace(constants=constants)
+    s = constants["alpha"] * constants["beta"]
+
+    def policy(states):
+        return jnp.full((*states.shape[:-1], 1), s)
+
+    return model, policy, s
+
+
+def _bm_expected_euler(states, s, constants):
+    """E[u'(c) - beta u'(c') mpk' | k, z] and u'(c), constant savings rate, delta=1."""
+    alpha, beta, gamma = constants["alpha"], constants["beta"], constants["gamma"]
+    rho, sigma = constants["rho_z"], constants["sigma_z"]
+    k, z = states[:, 0], states[:, 1]
+    y = jnp.exp(z) * k**alpha
+    k_next = s * y
+    u_c = ((1.0 - s) * y) ** (-gamma)
+    e_z = jnp.exp((1.0 - gamma) * rho * z + 0.5 * (1.0 - gamma) ** 2 * sigma**2)
+    e_uc_mpk = alpha * (1.0 - s) ** (-gamma) * k_next ** (alpha * (1.0 - gamma) - 1.0)
+    return u_c - beta * e_uc_mpk * e_z, u_c
+
+
+def _mean_log10(x):
+    return float(jnp.mean(jnp.log10(jnp.maximum(jnp.abs(x), 1e-20))))
+
+
 @pytest.fixture
 def tiny_model_and_net():
     """brock_mirman + 4-unit MLP: fast enough for short evaluations."""
@@ -156,6 +192,83 @@ class TestEulerEquationErrors:
         result = euler_equation_errors(net, model, n_periods=50, seed=0)
         residuals = np.asarray(result["residuals"])
         assert np.any(np.abs(residuals) > 1e-6)
+
+    def test_conditional_expectation_removes_forecast_noise(self):
+        """Each row is E[residual | visited state], not the drawn-shock residual.
+
+        Known answer: brock_mirman, delta=1, gamma=2, s = alpha*beta, where
+        the conditional expectation of the Euler residual is closed-form.
+        """
+        model, policy, s = _bm_full_depreciation(gamma=2.0)
+        kwargs = dict(n_periods=300, seed=0, burn_in=50)
+        expected = euler_equation_errors(
+            policy, model, conditional_expectation=True, **kwargs
+        )
+        single = euler_equation_errors(policy, model, **kwargs)
+
+        closed, u_c = _bm_expected_euler(expected["states"], s, model.constants)
+        # Relative to u'(c), the scale of each Euler term.
+        rel_expected = (expected["residuals"][:, 0] - closed) / u_c
+        rel_single = (single["residuals"][:, 0] - closed) / u_c
+        assert float(jnp.max(jnp.abs(rel_expected))) < 1e-10
+        # Single draws scatter by ~(gamma-1)*sigma_z*|eps| around the mean.
+        assert float(jnp.mean(jnp.abs(rel_single))) > 1e-4
+        assert _mean_log10(rel_expected) < -5
+        assert _mean_log10(rel_single) > -4
+
+    def test_conditional_expectation_analytic_policy_is_exact(self):
+        """Log utility, delta=1: s = alpha*beta zeroes the expected residual."""
+        model, policy, _ = _bm_full_depreciation(gamma=1.0)
+        result = euler_equation_errors(
+            policy,
+            model,
+            n_periods=300,
+            seed=0,
+            burn_in=50,
+            conditional_expectation=True,
+        )
+        assert _mean_log10(result["residuals"]) < -5
+
+    def test_conditional_expectation_rollout_follows_drawn_shocks(self):
+        """The flag changes what is scored, never the simulated path."""
+        model, policy, _ = _bm_full_depreciation(gamma=2.0)
+        kwargs = dict(n_periods=100, seed=3, burn_in=10)
+        expected = euler_equation_errors(
+            policy, model, conditional_expectation=True, **kwargs
+        )
+        single = euler_equation_errors(policy, model, **kwargs)
+        np.testing.assert_array_equal(expected["states"], single["states"])
+
+    def test_conditional_expectation_leaves_two_stage_path_alone(self):
+        model = _quartic_two_stage_model()
+        result = euler_equation_errors(
+            _ZeroPolicy(),
+            model,
+            n_periods=1,
+            burn_in=0,
+            n_quadrature_points=3,
+            conditional_expectation=True,
+        )
+        np.testing.assert_allclose(result["residuals"], [[12.0]])
+
+    def test_conditional_expectation_deterministic_model_is_single_row(self):
+        """No shocks, nothing to integrate: the flag leaves the rows as they are."""
+        model = load_model("bm_deterministic")
+        assert model.n_shocks == 0
+        net = create_mlp(
+            n_states=model.n_states,
+            n_policies=model.n_policies,
+            hidden_sizes=(4,),
+            policy_lower=model.policy_lower,
+            policy_upper=model.policy_upper,
+            key=jax.random.PRNGKey(0),
+        )
+        kwargs = dict(n_periods=20, seed=0, burn_in=5)
+        expected = euler_equation_errors(
+            net, model, conditional_expectation=True, **kwargs
+        )
+        single = euler_equation_errors(net, model, **kwargs)
+        np.testing.assert_array_equal(expected["residuals"], single["residuals"])
 
 
 def test_cli_threads_checkpoint_expectation_rule(tmp_path, monkeypatch):

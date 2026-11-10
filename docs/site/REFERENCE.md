@@ -74,9 +74,11 @@ print_euler_errors(diag)   # log10|residual| distribution; mean < -3 = converged
 uv run deqn-jax list                                    # available models
 uv run deqn-jax optimizers                              # available optimizers
 uv run deqn-jax train brock_mirman -n 1000 -q           # smoke train
-uv run deqn-jax train --config configs/disaster.yaml -n 50000
-uv run deqn-jax evaluate runs/disaster/checkpoint_best.eqx
-uv run deqn-jax irf runs/disaster/checkpoint_best.eqx --shock eps_z --horizon 40
+uv run deqn-jax train --config configs/disaster.yaml -n 50000   # checkpoints/disaster/
+uv run deqn-jax evaluate checkpoints/disaster/checkpoint_best.eqx
+uv run deqn-jax irf checkpoints/disaster/checkpoint_best.eqx --shock eps --girf
+uv run deqn-jax train models/my_model                  # a model folder, see "Path C"
+uv run deqn-jax verify models/my_model                 # solved or not, report.html
 ```
 
 ---
@@ -95,6 +97,8 @@ Everything below is re-exported from `deqn_jax.api`. Import from there.
 | **Evaluation** | `euler_equation_errors`, `print_euler_errors`, `stability_check`, `simulated_moments`, `print_moments`, `market_clearing_errors` |
 | **IRF** | `run_irf`, `run_girf`, `load_policy_from_checkpoint`, `save_irf_csv`, `print_irf_summary` |
 | **Steady state** | `solve_steady_state`, `verify_steady_state`, `euler_from_period_return` |
+| **Lagrangian residuals** | `residuals_from_lagrangian`, `Constraint` (see [autodiff](autodiff.md)) |
+| **First-order solution** | `linearize_model(model, verbose=True) -> (P, Q)` (Blanchard–Kahn / QZ at the steady state) |
 | **Networks (advanced)** | `MLP`, `LSTMPolicy`, `TransformerPolicy`, `LinearPlusMLP`, `create_mlp`, `create_lstm`, `create_transformer`, `create_linear_plus_mlp` |
 
 If you find yourself importing from `deqn_jax.training.*` or `deqn_jax.optimizers.*`
@@ -427,6 +431,34 @@ The two paths are orthogonal: a deployed agent stack typically uses Path B
 to register codegen'd models at import time, while in-tree shipped models
 (brock_mirman, disaster, …) live in Path A so they stay version-controlled
 under deqn-jax.
+
+### Path C — Model folder (your own model, outside the package)
+
+A folder with `model.py` (defines `MODEL = ModelSpec(...)`), `train.yaml`
+(`TrainConfig` fields; `model` is filled in), optionally `model.md` (the model
+in words, shown in the report) and `exact.py` (`exact_policy(state, constants)`
+for a model with a known solution). `tests/data/model_folder/` is a complete
+example: Brock–Mirman with full depreciation, written as a Lagrangian.
+
+- `deqn-jax train <folder>` registers the model under the folder's name and
+  trains into a new `<folder>/runs/NN/` holding a frozen copy of the files,
+  `history.csv` and `checkpoints/`.
+- `deqn-jax verify <folder> [--run NN]` runs `check_solution` on the run's best
+  checkpoint against the run's own copy of the model, prints the verdict
+  (exit code 0 only when solved) and writes `check.json`, `figures/*.png` and a
+  self-contained `report.html`.
+
+`check_solution(policy_net, model, exact_policy=None, n_quadrature_points=None)`
+(`deqn_jax.api`) is the verdict: on a 10,000-period simulation, with next
+period's expectation by quadrature, each equation's mean |error| ≤ 1e-3 and
+99th percentile ≤ 1e-2; no NaN; at most 1% of periods outside the training
+draws of `init_state_fn`; and, with `exact_policy`, a relative gap ≤ 1%
+everywhere on the path. The thresholds are module constants in
+`deqn_jax.evaluate.solution`, fixed for every model. A shock that takes a few
+discrete values (drawn as ±1, as in `olg_analytic_6`) is declared in `model.py`
+as `SHOCK_NODES_PER_DIM = 2`; the check then integrates over exactly those values.
+The simulation still draws normal shocks, so such a model's `step_fn` reads
+`jnp.sign(shock)` (±1 with probability ½).
 
 ### Validation gates a new model should pass
 
@@ -878,11 +910,11 @@ identically and to both the loss path and the rollout path.
 
 The standard verification panel for a trained DEQN policy.
 
-### `euler_equation_errors(policy_net, model, n_periods=10_000, seed=123, burn_in=None) -> dict`
+### `euler_equation_errors(policy_net, model, n_periods=10_000, seed=123, burn_in=None, expectation_type="gauss_hermite", n_quadrature_points=None, conditional_expectation=False) -> dict`
 
-Simulates a long stochastic path under the trained policy, computes Euler
-residuals at every period, returns the `log10(|residual|)` distribution per
-equation. Gold standard for global accuracy (Azinovic et al. 2022).
+Simulates a long stochastic path under the trained policy and computes Euler
+residuals at every period; `print_euler_errors` reports the `log10(|residual|)`
+distribution per equation. Gold standard for global accuracy (Azinovic et al. 2022).
 
 ```python
 from deqn_jax.api import euler_equation_errors, print_euler_errors, load_model
@@ -891,9 +923,16 @@ diag = euler_equation_errors(params, load_model("brock_mirman"))
 print_euler_errors(diag)
 ```
 
-`diag` keys: `"residuals"` (raw `[n_periods, n_eq]`), `"log10_abs"` (per-eq
-distribution stats), `"states"`, `"policies"`. CLI exits with code 2 if
-configurable thresholds aren't met (see `evaluate.run_evaluate_cli`).
+`diag` keys: `"residuals"` (raw `[n_periods - burn_in, n_eq]`),
+`"equation_names"`, `"states"`. By default a Gaussian single-stage model's row
+is the residual at the shock drawn that period, so forecast noise floors the
+reported error; `conditional_expectation=True` reports instead the
+quadrature-weighted mean over next-shock nodes at each visited state,
+`E[residual | state]` (Gauss–Hermite, 16 nodes for one shock, else 5 per
+dimension unless `n_quadrature_points` is set), while the path still advances
+on the drawn shock. Discrete-chain and two-stage models are always scored by
+their expectation; disaster models stay single-draw. `deqn-jax evaluate` prints
+these grades but does not enforce a threshold (see *Exit codes* below).
 
 ### `stability_check(policy_net, model, ...) -> dict[str, bool]`
 
@@ -926,20 +965,21 @@ verifier; the data is in the dicts returned by the calls above.
 ```python
 from deqn_jax.api import (
     load_policy_from_checkpoint, run_irf, run_girf,
-    save_irf_csv, print_irf_summary, load_model,
+    save_irf_csv, print_irf_summary,
 )
 
-policy_net = load_policy_from_checkpoint("runs/disaster/checkpoint_best.eqx")
-model = load_model("disaster")
+# returns the network and the model with the run's calibration applied
+# (config.yaml is read from the checkpoint's directory)
+policy_net, model = load_policy_from_checkpoint("checkpoints/disaster/checkpoint_best.eqx")
 
 # Plain IRF (path - SS):
-irf = run_irf(policy_net, model, shock_name="eps_z", shock_size=1.0, horizon=40)
+irf = run_irf(policy_net, model, shock_name="eps", shock_size=1.0, horizon=40)
 
 # Generalized IRF (shocked - no-shock counterfactual):
-girf = run_girf(policy_net, model, shock_name="eps_z", shock_size=1.0, horizon=40)
+girf = run_girf(policy_net, model, shock_name="eps", shock_size=1.0, horizon=40)
 
-print_irf_summary(girf, "eps_z")
-save_irf_csv(girf, "/tmp/eps_z.csv")
+print_irf_summary(girf, "eps")
+save_irf_csv(girf, "/tmp/eps.csv")
 ```
 
 Both return `dict[str, list[float]]` with keys: `"period"`, every state, every
@@ -984,11 +1024,15 @@ snapshot is never deleted.
 ## CLI reference
 
 ```bash
-deqn-jax train MODEL [-n EPISODES] [--config YAML] [--set KEY=VALUE ...] [-q]
+deqn-jax train [MODEL|FOLDER] [-n EPISODES] [--config YAML] [--set KEY=VALUE ...] [-q]
+deqn-jax verify FOLDER [--run NN] [--exact]
 deqn-jax list                       # all registered models
+deqn-jax info MODEL                 # dimensions, names (incl. shock names), constants
 deqn-jax optimizers                 # all registered optimizers
-deqn-jax evaluate CKPT [opts]       # see evaluate.run_evaluate_cli
-deqn-jax irf CKPT --shock NAME [--horizon N] [--mode irf|girf]
+deqn-jax evaluate CKPT [-n PERIODS] [--config YAML]
+deqn-jax irf CKPT [--shock NAME ...] [--horizon N] [--girf] [-o DIR]
+deqn-jax check                      # installation sanity check
+deqn-jax init-config [PATH]         # write a default YAML
 ```
 
 Common flags:
@@ -1002,9 +1046,14 @@ Common flags:
 | `--checkpoint-dir <path>` | Sets `checkpoint_dir` |
 | `--resume <ckpt>` | Resume from a `.eqx` checkpoint |
 
-Exit codes: 0 = success, non-zero = config / training / verification failure.
-Use `deqn-jax evaluate` exit code as the integration gate for an autonomous
-outer loop.
+Every subcommand's full flag list: `deqn-jax --help`, then `--help` after the
+subcommand (`deqn-jax irf --help`).
+
+Exit codes: 0 = success, non-zero = a config or training failure.
+`deqn-jax evaluate` exits 1 when the simulated path produces NaN and 0
+otherwise; it prints the Euler-error grades without enforcing them. An
+autonomous outer loop applies its own thresholds to the dicts returned by
+`euler_equation_errors` / `stability_check` (see *Suggested verification gates*).
 
 ---
 

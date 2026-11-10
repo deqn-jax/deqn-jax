@@ -28,12 +28,18 @@ uv pip install -U "jax[cuda12]"  # CUDA 12
 
 ## Optional dependencies
 
+TensorBoard logging (`--tensorboard`, or `tensorboard_dir` in a config such as
+`configs/disaster.yaml`) works on the plain `uv sync` install: `tensorboardX`
+is a core dependency.
+
 | Group     | Purpose                                       | Install                        |
 |-----------|-----------------------------------------------|--------------------------------|
-| `logging` | TensorBoard / Orbax checkpoints               | `uv pip install -e ".[logging]"`|
-| `wandb`   | Weights & Biases experiment tracking          | `uv pip install -e ".[wandb]"`  |
-| `docs`    | mkdocs-material site (this site)              | `uv pip install -e ".[docs]"`   |
-| `all`     | Everything                                    | `uv pip install -e ".[all]"`    |
+| `wandb`   | Weights & Biases experiment tracking (`--wandb`) | `uv sync --extra wandb`     |
+| `docs`    | mkdocs-material site (this site)              | `uv sync --extra docs`         |
+| `all`     | Everything above                              | `uv sync --all-extras`         |
+
+For an editable install outside `uv sync`, the same extras work as
+`uv pip install -e ".[wandb]"`.
 
 ## Verify
 

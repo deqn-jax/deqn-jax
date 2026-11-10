@@ -158,6 +158,26 @@ class TestNetworkConfigValidation:
     def test_disaster_only_flag_on_disaster_type_passes(self):
         NetworkConfig(type="disaster_policy_net", bk_pin=True, use_zlb_feature=True)
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"type": "lstm", "init": "he_normal"},
+            {"type": "transformer", "activation": "relu"},
+            {"type": "linear_plus_mlp", "activations": ("tanh", "relu")},
+            {"type": "mlp", "history_len": 4},
+            {"type": "mlp", "init_scale": 0.1},
+            {"type": "lstm", "output_links": ("linear",)},
+            {"type": "rss_market_clearing_net", "activation": "relu"},
+            {"type": "linear_plus_mlp", "kf_names": ("F_p",)},
+        ],
+    )
+    def test_field_the_network_type_does_not_read_raises(self, kwargs):
+        with pytest.raises(ValueError, match="silently ignored"):
+            NetworkConfig(**kwargs)
+
+    def test_every_network_type_declares_the_fields_it_reads(self):
+        assert set(NetworkConfig.FIELDS_READ) == set(NetworkConfig.VALID_TYPES)
+
     def test_empty_hidden_sizes_raises(self):
         with pytest.raises(ValueError, match="hidden_sizes must be non-empty"):
             NetworkConfig(hidden_sizes=())
@@ -372,19 +392,19 @@ class TestTrainConfigValidation:
     def test_history_len_exceeds_episode_length_raises(self):
         with pytest.raises(ValueError, match="history_len.*must be <= episode_length"):
             TrainConfig(
-                network=NetworkConfig(history_len=50),
+                network=NetworkConfig(type="lstm", history_len=50),
                 episode_length=10,
             )
 
     def test_history_len_equals_episode_length_ok(self):
         TrainConfig(
-            network=NetworkConfig(history_len=10),
+            network=NetworkConfig(type="lstm", history_len=10),
             episode_length=10,
         )
 
     def test_history_len_less_than_episode_length_ok(self):
         TrainConfig(
-            network=NetworkConfig(history_len=5),
+            network=NetworkConfig(type="lstm", history_len=5),
             episode_length=100,
         )
 

@@ -56,7 +56,7 @@ class TrainConfig(_ConfigBase):
     )
     mc_samples: int = Field(
         default=5,
-        description="Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and any model with a discrete shock chain. `expectation_type='discrete'` on a model without a chain runs MC with this sample count.",
+        description="Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and on a model with a discrete shock chain, whose expectation is exact enumeration.",
     )
     seed: int = Field(
         default=42,
@@ -108,11 +108,11 @@ class TrainConfig(_ConfigBase):
     )
     warm_start_linearize: bool = Field(
         default=False,
-        description="With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Not used by sequence networks.",
+        description="With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Rejected at setup for sequence networks.",
     )
     warm_start_dynare: Optional[str] = Field(
         default=None,
-        description="With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Not used by sequence networks. Rare.",
+        description="With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Rejected at setup for sequence networks. Rare.",
     )
     loss_weights: Optional[List[float]] = Field(
         default=None,
@@ -170,7 +170,7 @@ class TrainConfig(_ConfigBase):
     )
     switch_optimizer: Optional[str] = Field(
         default=None,
-        description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Only the name, `switch_lr` and `optimizer.grad_clip` carry over (other optimizer fields take their defaults), and the LR schedule is not applied after the switch.",
+        description="If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Every `optimizer` field carries over except the name and, when `switch_lr` is set, the learning rate; the switched combination is validated at setup like the configured one. The LR schedule is not applied after the switch.",
     )
     switch_episode: Optional[int] = Field(
         default=None,
@@ -221,12 +221,13 @@ class TrainConfig(_ConfigBase):
             "(deterministic tensor-product grid, uses `n_quadrature_points`) "
             "or `monomial` (degree-3, 2*n_shocks nodes, practical when "
             "n_shocks > 6) "
-            "or `discrete`. A model that sets `transition_matrix` and "
-            "`z_state_idx` always gets exact enumeration over its finite-state "
-            "Markov chain, in the residual expectation and categorical draws "
-            "from `Π[z_t]` in the rollout, whatever this field says; "
-            "`discrete` names that case and on a model without a chain runs "
-            "MC. Other models roll out with Gaussian draws."
+            "or `discrete` (exact enumeration over a finite-state Markov "
+            "chain). A model that sets `transition_matrix` and `z_state_idx` "
+            "is integrated by enumerating its chain, with categorical draws "
+            "from `Π[z_t]` in the rollout: it takes `discrete`, the default "
+            "`mc` resolves to `discrete` on it, and a deterministic rule is "
+            "rejected. `discrete` on a model without a chain is rejected. "
+            "Other models roll out with Gaussian draws."
         ),
     )
     n_quadrature_points: int = Field(

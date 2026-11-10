@@ -98,6 +98,7 @@ def finalize_step(
     loss_reweight: str,
     reweight_alpha: float,
     n_eq: int,
+    equation_names: Tuple[str, ...] = (),
 ) -> Tuple[TrainState, Metrics]:
     """Advance the loss reweighting, rebuild the state, and build Metrics."""
     new_weights, new_rw = update_reweighting(
@@ -106,6 +107,7 @@ def finalize_step(
         loss_reweight,
         reweight_alpha,
         n_eq,
+        equation_names,
     )
     new_state = state._replace(
         params=params,

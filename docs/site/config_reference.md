@@ -22,7 +22,7 @@ Top-level training configuration.
 | `episodes` | `int` | `1000` | Number of outer training cycles (rollout + minibatch sweep). |
 | `batch_size` | `int` | `64` | Minibatch size used for each gradient step. |
 | `episode_length` | `int` | `100` | Trajectory length per rollout (T). With T=1 you must set `initialize_each_episode=True` (checked when training starts). |
-| `mc_samples` | `int` | `5` | Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and any model with a discrete shock chain. `expectation_type='discrete'` on a model without a chain runs MC with this sample count. |
+| `mc_samples` | `int` | `5` | Monte Carlo shock samples per state for the residual expectation. Ignored when a deterministic rule is in use: `expectation_type` `quadrature`/`gh`/`gauss_hermite` (unless the grid exceeds 4096 nodes and falls back to MC) or `monomial`, and on a model with a discrete shock chain, whose expectation is exact enumeration. |
 | `seed` | `int` | `42` | Top-level PRNG seed. Controls network init and the rollout/loss shock streams. |
 | `network` | `NetworkConfig` | `NetworkConfig()` | Policy network architecture; see NetworkConfig. |
 | `optimizer` | `OptimizerConfig` | `OptimizerConfig()` | Optimizer and LR schedule; see OptimizerConfig. |
@@ -34,8 +34,8 @@ Top-level training configuration.
 | `loss_choice` | `str` | `'mse'` | Residual aggregation: `mse` (square the shock-mean residual), `huber` (Huber of the shock-mean; caps gradient at ±huber_delta when rare pathological states dominate), or `aio` (all-in-one, Maliar-Maliar-Winant 2021: product of two independent shock-group means -- unbiased for (E[r])², removing the Var(r̄)/N bias of `mse` under MC (on two-stage models the Jensen bias of a nonlinear `combine_fn` remains); requires expectation_type='mc' and mc_samples>=2; per-eq losses can be transiently negative, so prefer loss_reweight='none'). |
 | `huber_delta` | `float` | `1.0` | Cutoff for Huber loss (`loss_choice='huber'`). Ignored for `loss_choice='mse'`. |
 | `warm_start` | `bool` | `False` | If True, pre-fit the network to a target policy before gradient-based training: by default an L-BFGS fit to the constant steady-state policy (see `warm_start_linearize` and `warm_start_dynare` for the other targets). Skipped for networks anchored at the linear policy (`linear_plus_mlp`, `disaster_policy_net`). Speeds early convergence; can mask Euler-equation bugs. |
-| `warm_start_linearize` | `bool` | `False` | With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Not used by sequence networks. |
-| `warm_start_dynare` | `Union[str, None]` | `None` | With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Not used by sequence networks. Rare. |
+| `warm_start_linearize` | `bool` | `False` | With `warm_start=True`, fit the network to the Blanchard-Kahn linear policy (from linearizing the model around SS) at sampled states near SS instead of to the constant SS policy. Rejected at setup for sequence networks. |
+| `warm_start_dynare` | `Union[str, None]` | `None` | With `warm_start=True`, directory holding Dynare's `dynare_ghx.csv` and `dynare_ghu.csv`; the network is fitted (with Adam) to the Dynare first-order policy instead. Takes precedence over `warm_start_linearize`. Rejected at setup for sequence networks. Rare. |
 | `loss_weights` | `Union[list[float], None]` | `None` | Manual per-equation weight vector of length `n_equations`. Default None = uniform weight 1.0. |
 | `loss_reweight` | `str` | `'none'` | Adaptive reweighting: `none` (default), `lr_annealing` (inverse-EMA), `relobralo` (softmax of loss ratios). |
 | `reweight_alpha` | `float` | `0.9` | For `lr_annealing`: EMA decay of the per-equation losses (higher = slower adaptation). For `relobralo`: weight on the balancing term built from the ratio to the previous step's losses, against the ratio to the first step's losses. |
@@ -49,7 +49,7 @@ Top-level training configuration.
 | `max_checkpoints` | `Union[int, None]` | `None` | Keep only the N most recent periodic checkpoints (best is never deleted). |
 | `gradient_surgery` | `str` | `'none'` | Multi-equation gradient conflict resolution: `none` or `pcgrad` (projecting conflicting gradients). |
 | `resume` | `Union[str, None]` | `None` | Path to a `.eqx` checkpoint to resume from. Reads the sibling `config.yaml` to rebuild the correct pytree template. |
-| `switch_optimizer` | `Union[str, None]` | `None` | If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Only the name, `switch_lr` and `optimizer.grad_clip` carry over (other optimizer fields take their defaults), and the LR schedule is not applied after the switch. |
+| `switch_optimizer` | `Union[str, None]` | `None` | If set, switch to this optimizer name at `switch_episode`. Old optimizer state is discarded; the new optimizer is initialized at the current params. Every `optimizer` field carries over except the name and, when `switch_lr` is set, the learning rate; the switched combination is validated at setup like the configured one. The LR schedule is not applied after the switch. |
 | `switch_episode` | `Union[int, None]` | `None` | Episode at which to activate `switch_optimizer` and `switch_lr`. |
 | `switch_lr` | `Union[float, None]` | `None` | Learning rate for the switched optimizer. None = keep the original optimizer's LR. |
 | `early_stop_patience` | `Union[int, None]` | `None` | Stop training if loss hasn't improved by `early_stop_min_delta` for this many episodes. None = no early stopping. |
@@ -58,7 +58,7 @@ Top-level training configuration.
 | `curriculum_start` | `float` | `0.1` | Initial `shock_scale` when curriculum is active. |
 | `ss_reset_frac` | `float` | `0.0` | Fraction of batch re-initialized to SS-neighborhood each rollout (prevents trajectory drift). Not applied when `initialize_each_episode` redraws the whole batch. |
 | `initialize_each_episode` | `bool` | `False` | If True, replace episode_state with a fresh `init_state_fn` draw at the start of every rollout cycle (non-ergodic training, matches DEQN-MAO's flag of the same name). False = continue trajectory across cycles (ergodic). Required True when `episode_length=1`. Has no effect on a model without `init_state_fn`. |
-| `expectation_type` | `str` | `'mc'` | How to integrate over shocks in the residual: `mc` (antithetic Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` (deterministic tensor-product grid, uses `n_quadrature_points`) or `monomial` (degree-3, 2*n_shocks nodes, practical when n_shocks > 6) or `discrete`. A model that sets `transition_matrix` and `z_state_idx` always gets exact enumeration over its finite-state Markov chain, in the residual expectation and categorical draws from `Π[z_t]` in the rollout, whatever this field says; `discrete` names that case and on a model without a chain runs MC. Other models roll out with Gaussian draws. |
+| `expectation_type` | `str` | `'mc'` | How to integrate over shocks in the residual: `mc` (antithetic Monte Carlo, uses `mc_samples`) or `quadrature`/`gh`/`gauss_hermite` (deterministic tensor-product grid, uses `n_quadrature_points`) or `monomial` (degree-3, 2*n_shocks nodes, practical when n_shocks > 6) or `discrete` (exact enumeration over a finite-state Markov chain). A model that sets `transition_matrix` and `z_state_idx` is integrated by enumerating its chain, with categorical draws from `Π[z_t]` in the rollout: it takes `discrete`, the default `mc` resolves to `discrete` on it, and a deterministic rule is rejected. `discrete` on a model without a chain is rejected. Other models roll out with Gaussian draws. |
 | `n_quadrature_points` | `int` | `3` | Quadrature points per shock dimension when `expectation_type` is `quadrature`/`gh`/`gauss_hermite` (total nodes = n_quadrature_points^n_shocks). Ignored by `monomial`, whose node count is always 2*n_shocks. |
 | `barrier_weight` | `float` | `0.0` | Legacy state-barrier penalty weight. 0 disables. Applies only to models that define `state_barrier_fn`, and only under `loss_type='mse'` (rejected with `composite`). Prefer `definition_bounds` on the ModelSpec for new models. |
 | `shock_mask` | `Union[list[float], None]` | `None` | Per-dimension multiplicative mask over shocks (length must equal `model.n_shocks`). Values in [0, 1]; 0 zeroes that shock entirely. Applied to BOTH the residual expectation and the rollout state path. |
@@ -93,7 +93,7 @@ Optimizer choice and hyperparameters; nested under ``optimizer:`` in YAML.
 | `cg_tol` | `float` | `1e-06` | Implicit Gauss-Newton relative conjugate-gradient residual tolerance. |
 | `lr_schedule` | `str` | `'constant'` | LR schedule: `constant` or `cosine`. |
 | `lr_warmup` | `int` | `0` | With `lr_schedule='cosine'`: episodes of linear warmup from 0 to `learning_rate`, counted inside the schedule's `episodes` horizon. Ignored by `constant`. |
-| `weight_decay` | `float` | `0.0` | Decoupled weight decay for `adamw` (ignored by every other optimizer). At 0.0, `adamw` is `adam`. |
+| `weight_decay` | `float` | `0.0` | Decoupled weight decay for `adamw`. At 0.0, `adamw` is `adam`. Not read by any other optimizer; note that `lion` applies optax's own default decay (1e-3) whatever this field says. |
 | `lr_min_factor` | `float` | `0.0` | Minimum LR as a fraction of peak (cosine floor). |
 
 ## `NetworkConfig`
@@ -107,7 +107,7 @@ Policy network architecture; nested under ``network:`` in YAML.
 | `activation` | `str` | `'tanh'` | Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `softplus`. Read by `mlp`, `linear_plus_mlp` and `disaster_policy_net`. |
 | `activations` | `Union[tuple[str, Ellipsis], None]` | `None` | Per-layer activations if different per layer. None = use `activation` uniformly. Length = `len(hidden_sizes)`. Read by `mlp` only. |
 | `init` | `str` | `'default'` | Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`. Read by `mlp`, `linear_plus_mlp` and `disaster_policy_net`. |
-| `history_len` | `int` | `1` | History window length for the sequence networks (`lstm`, `transformer`); other network types ignore it. 1 = no history. |
+| `history_len` | `int` | `1` | History window length for the sequence networks (`lstm`, `transformer`); rejected on other network types. 1 = no history. |
 | `num_heads` | `int` | `4` | Transformer: attention heads per layer. |
 | `n_layers` | `int` | `2` | Transformer: number of transformer blocks. |
 | `init_scale` | `float` | `0.0` | `linear_plus_mlp` and `disaster_policy_net`: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution. |

@@ -255,9 +255,9 @@ fixed point of the equilibrium system to machine precision:
 **All 12 residuals at the corrected steady state are < 1.2e-07** (float32
 machine precision).
 
-The solver runs at module import time and caches the result. It uses
-the hardcoded values as an initial guess (so they need to be approximately
-correct, but not exact).
+The solver runs on first use, at the precision of the run, and caches the
+result per precision. It uses the hardcoded values as an initial guess (so
+they need to be approximately correct, but not exact).
 
 ---
 

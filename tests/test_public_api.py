@@ -136,6 +136,16 @@ class TestPublicSurface:
             obj = getattr(api, name)
             assert obj is not None
 
+    def test_api_exports_lagrangian_and_linearize(self):
+        from deqn_jax.api import (  # noqa: F401
+            Constraint,
+            linearize_model,
+            residuals_from_lagrangian,
+        )
+
+        for name in ("residuals_from_lagrangian", "Constraint", "linearize_model"):
+            assert name in api.__all__, f"{name!r} missing from deqn_jax.api.__all__"
+
     def test_modelspec_is_namedtuple(self):
         # The user-contract type — agents construct this. Must be a NamedTuple.
         assert hasattr(api.ModelSpec, "_fields")

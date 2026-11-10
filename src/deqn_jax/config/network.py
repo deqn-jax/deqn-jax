@@ -48,6 +48,30 @@ class NetworkConfig(_ConfigBase):
         }
     )
 
+    # The fields each network type reads (``networks.factory.build_policy_net``
+    # passes exactly these on). Any other field set away from its default is
+    # rejected below: it would not reach the network.
+    FIELDS_READ: ClassVar[dict] = {
+        "mlp": frozenset({"type", "hidden_sizes", "activation", "activations", "init"}),
+        "lstm": frozenset({"type", "hidden_sizes", "history_len"}),
+        "transformer": frozenset(
+            {"type", "hidden_sizes", "history_len", "num_heads", "n_layers"}
+        ),
+        "linear_plus_mlp": frozenset(
+            {"type", "hidden_sizes", "activation", "init", "init_scale", "output_links"}
+        ),
+        "rss_market_clearing_net": frozenset({"type", "hidden_sizes"}),
+    }
+    FIELDS_READ["disaster_policy_net"] = FIELDS_READ["linear_plus_mlp"] | {
+        "kf_names",
+        "use_zlb_feature",
+        "zlb_feature_kind",
+        "bk_pin",
+        "reparam_q_as_m",
+        "reparam_pi_as_kp_inner",
+        "reparam_wtilda_as_kw_inner",
+    }
+
     type: str = Field(
         default="mlp",
         description="Network architecture: `mlp` (feedforward), `lstm`, `transformer`, `linear_plus_mlp` (generic residual ansatz), `disaster_policy_net` (residual ansatz + disaster-specific shape priors), or `rss_market_clearing_net` (fixed RSS checkpoint-parity architecture).",
@@ -70,7 +94,7 @@ class NetworkConfig(_ConfigBase):
     )
     history_len: int = Field(
         default=1,
-        description="History window length for the sequence networks (`lstm`, `transformer`); other network types ignore it. 1 = no history.",
+        description="History window length for the sequence networks (`lstm`, `transformer`); rejected on other network types. 1 = no history.",
     )
     num_heads: int = Field(
         default=4, description="Transformer: attention heads per layer."
@@ -237,23 +261,14 @@ class NetworkConfig(_ConfigBase):
                     f"For transformer, hidden_dim ({hidden_dim}) must be divisible "
                     f"by num_heads ({self.num_heads})"
                 )
-        if self.type != "disaster_policy_net":
-            dropped = [
-                name
-                for name in (
-                    "bk_pin",
-                    "use_zlb_feature",
-                    "reparam_q_as_m",
-                    "reparam_pi_as_kp_inner",
-                    "reparam_wtilda_as_kw_inner",
-                )
-                if getattr(self, name)
-            ]
-            if dropped:
-                raise ValueError(
-                    f"network.{dropped[0]} is only read by "
-                    f"network.type='disaster_policy_net'; with type='{self.type}' "
-                    f"it would be silently ignored. Remove the flag or switch the "
-                    f"network type."
-                )
+        read = self.FIELDS_READ[self.type]
+        for name, field in type(self).model_fields.items():
+            if name in read or getattr(self, name) == field.default:
+                continue
+            readers = sorted(t for t, f in self.FIELDS_READ.items() if name in f)
+            raise ValueError(
+                f"network.{name} is only read by network.type in {readers}; "
+                f"with type='{self.type}' it would be silently ignored. Remove "
+                f"the field or switch the network type."
+            )
         return self

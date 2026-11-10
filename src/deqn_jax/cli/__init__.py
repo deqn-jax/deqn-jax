@@ -30,9 +30,10 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    from deqn_jax.cli import evaluate, init_config, irf, models, train
+    from deqn_jax.cli import evaluate, init_config, irf, models, train, verify
 
     train.add_parser(subparsers)
+    verify.add_parser(subparsers)
     models.add_parser(subparsers)
     irf.add_parser(subparsers)
     evaluate.add_parser(subparsers)
@@ -43,4 +44,10 @@ def main():
     if handler is None:
         parser.print_help()
         sys.exit(1)
-    handler(args)
+    from deqn_jax.training.metrics import MissingDependencyError
+
+    try:
+        handler(args)
+    except MissingDependencyError as err:
+        print(f"deqn-jax: error: {err}", file=sys.stderr)
+        sys.exit(1)
