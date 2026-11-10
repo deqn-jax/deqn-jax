@@ -392,19 +392,19 @@ class TestTrainConfigValidation:
     def test_history_len_exceeds_episode_length_raises(self):
         with pytest.raises(ValueError, match="history_len.*must be <= episode_length"):
             TrainConfig(
-                network=NetworkConfig(history_len=50),
+                network=NetworkConfig(type="lstm", history_len=50),
                 episode_length=10,
             )
 
     def test_history_len_equals_episode_length_ok(self):
         TrainConfig(
-            network=NetworkConfig(history_len=10),
+            network=NetworkConfig(type="lstm", history_len=10),
             episode_length=10,
         )
 
     def test_history_len_less_than_episode_length_ok(self):
         TrainConfig(
-            network=NetworkConfig(history_len=5),
+            network=NetworkConfig(type="lstm", history_len=5),
             episode_length=100,
         )
 
