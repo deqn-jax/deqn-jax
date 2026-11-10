@@ -1,8 +1,9 @@
-"""NetworkConfig: policy-network architecture + bounds + reparams."""
+"""NetworkConfig: policy-network architecture."""
 
 from __future__ import annotations
 
-from typing import ClassVar, Literal, Optional, Tuple
+from importlib import import_module
+from typing import Any, ClassVar, Dict, Optional, Tuple
 
 from pydantic import (
     Field,
@@ -62,14 +63,15 @@ class NetworkConfig(_ConfigBase):
         ),
         "rss_market_clearing_net": frozenset({"type", "hidden_sizes"}),
     }
-    FIELDS_READ["disaster_policy_net"] = FIELDS_READ["linear_plus_mlp"] | {
-        "kf_names",
-        "use_zlb_feature",
-        "zlb_feature_kind",
-        "bk_pin",
-        "reparam_q_as_m",
-        "reparam_pi_as_kp_inner",
-        "reparam_wtilda_as_kw_inner",
+    FIELDS_READ["disaster_policy_net"] = FIELDS_READ["linear_plus_mlp"] | {"options"}
+
+    # Network types that own an ``options`` block, and the class (next to the
+    # model, imported on use) that defines and validates it.
+    OPTIONS_CLASS: ClassVar[dict] = {
+        "disaster_policy_net": (
+            "deqn_jax.models.disaster.net_options",
+            "DisasterNetOptions",
+        ),
     }
 
     type: str = Field(
@@ -107,39 +109,9 @@ class NetworkConfig(_ConfigBase):
         description="`linear_plus_mlp` and `disaster_policy_net`: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution.",
     )
 
-    use_zlb_feature: bool = Field(
-        default=False,
-        description="`disaster_policy_net` only: append `(R_lag - R_lb)` as an extra MLP input feature.",
-    )
-
-    bk_pin: bool = Field(
-        default=False,
-        description="`disaster_policy_net` only: Blanchard-Kahn selection by construction — subtract the MLP delta's value and tangent at the steady state, so pi(s*)=pi* and dpi/ds(s*)=P hold exactly for every parameter value. The residual loss then shapes only second-order-and-beyond deviations.",
-    )
-
-    zlb_feature_kind: Literal["raw", "kink"] = Field(
-        default="raw",
-        description="`disaster_policy_net` only, when use_zlb_feature=true: 'raw' = signed distance R_lag - R_lb; 'kink' = max(R_lag - R_lb, 0), PINN-style explicit kink at the floor.",
-    )
-
-    kf_names: Tuple[str, ...] = Field(
-        default=("F_p", "K_p", "F_w", "K_w"),
-        description="`disaster_policy_net`: policy names whose MLP delta is masked to zero (a restriction that holds them linear; not a gauge fix — graph @aleph/deqn #34). Default targets the four CMR Calvo Phillips-curve auxiliaries.",
-    )
-
-    reparam_q_as_m: bool = Field(
-        default=False,
-        description="`disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP (𝓑 floored at 1e-3 in the division). Aimed at the eq 7 sign-flip pathology; 𝓑(x) itself is not constrained.",
-    )
-
-    reparam_pi_as_kp_inner: bool = Field(
-        default=False,
-        description="`disaster_policy_net` only: treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner.",
-    )
-
-    reparam_wtilda_as_kw_inner: bool = Field(
-        default=False,
-        description="`disaster_policy_net` only: treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam.",
+    options: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Options owned by a model-specific network type; rejected on the other types. `disaster_policy_net`: the fields of `DisasterNetOptions` (`kf_names`, `use_zlb_feature`, `zlb_feature_kind`, `bk_pin`, `reparam_*`). From the command line: `--set network.options.bk_pin=true`.",
     )
 
     output_links: Optional[Tuple[str, ...]] = Field(
@@ -187,13 +159,6 @@ class NetworkConfig(_ConfigBase):
             return tuple(v)
         return v
 
-    @field_validator("kf_names", mode="before")
-    @classmethod
-    def _coerce_kf_names(cls, v):
-        if isinstance(v, list):
-            return tuple(v)
-        return v
-
     @field_validator("history_len", "num_heads", "n_layers", mode="before")
     @classmethod
     def _coerce_int_reject_bool(cls, v, info):
@@ -210,15 +175,6 @@ class NetworkConfig(_ConfigBase):
         if not isinstance(v, str):
             raise TypeError(
                 f"NetworkConfig.{info.field_name}: expected str, got {type(v).__name__} ({v!r})"
-            )
-        return v
-
-    @field_validator("use_zlb_feature", "bk_pin", mode="before")
-    @classmethod
-    def _check_bool_type(cls, v, info):
-        if not isinstance(v, bool):
-            raise TypeError(
-                f"NetworkConfig.{info.field_name}: expected bool, got {type(v).__name__} ({v!r})"
             )
         return v
 
@@ -263,7 +219,8 @@ class NetworkConfig(_ConfigBase):
                 )
         read = self.FIELDS_READ[self.type]
         for name, field in type(self).model_fields.items():
-            if name in read or getattr(self, name) == field.default:
+            default = field.get_default(call_default_factory=True)
+            if name in read or getattr(self, name) == default:
                 continue
             readers = sorted(t for t, f in self.FIELDS_READ.items() if name in f)
             raise ValueError(
@@ -271,4 +228,11 @@ class NetworkConfig(_ConfigBase):
                 f"with type='{self.type}' it would be silently ignored. Remove "
                 f"the field or switch the network type."
             )
+        if self.type in self.OPTIONS_CLASS:
+            self.typed_options()
         return self
+
+    def typed_options(self):
+        """``options`` validated as the block its network type owns."""
+        module, name = self.OPTIONS_CLASS[self.type]
+        return getattr(import_module(module), name)(**self.options)

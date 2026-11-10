@@ -42,7 +42,8 @@ network:
   activation: tanh
   init: xavier_normal
   init_scale: 0.0
-  kf_names: [F_p, K_p, F_w, K_w]
+  options:
+    kf_names: [F_p, K_p, F_w, K_w]
 
 optimizer:
   name: adam

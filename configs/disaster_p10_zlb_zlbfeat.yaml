@@ -1,5 +1,5 @@
 # v0.3.0 probe (a): regime feature at p=0.1.
-# network.use_zlb_feature=true concatenates (R_lag - R_lb) as an extra
+# network.options.use_zlb_feature=true concatenates (R_lag - R_lb) as an extra
 # MLP input. Linear baseline is unchanged; only the δ correction sees
 # the regime coordinate. Hypothesis: a smooth-tanh delta can represent
 # the ZLB kink if given an explicit regime input.
@@ -25,7 +25,8 @@ network:
   activation: tanh
   init: xavier_normal
   init_scale: 0.0
-  use_zlb_feature: true
+  options:
+    use_zlb_feature: true
 
 optimizer:
   name: adam

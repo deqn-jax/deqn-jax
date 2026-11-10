@@ -161,9 +161,9 @@ correction). Everything else — optimizer, loss, expectation — is the standar
 
 ??? abstract "Disaster-style shape priors (K/F gauge, ELB feature) live one layer up"
     `kf_names`, `use_zlb_feature`, and the q-as-M / Calvo reparameterizations are
-    **not** knobs of the generic `linear_plus_mlp` — the factory routes them only
-    to **`disaster_policy_net`** (experimental), the CMR-NK superset that layers
-    model-specific priors on this core:
+    **not** knobs of the generic `linear_plus_mlp`. They are set under
+    `network.options` and read only by **`disaster_policy_net`** (experimental),
+    the CMR-NK subclass that layers model-specific priors on this core:
 
     - **`kf_names`** — mask the MLP correction to zero on Calvo discounted-sum
       auxiliaries (`F_p`, `K_p`, `F_w`, `K_w`), which carry first-order gauge

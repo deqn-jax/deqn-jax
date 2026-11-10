@@ -1,4 +1,4 @@
-"""BK pin (network.bk_pin): Blanchard-Kahn selection by construction.
+"""BK pin (network.options.bk_pin): Blanchard-Kahn selection by construction.
 
 The pin subtracts the MLP delta's value and tangent at s*, so the policy
 level AND Jacobian at the steady state equal the BK linearization for

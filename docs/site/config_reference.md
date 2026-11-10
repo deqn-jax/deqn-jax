@@ -1,6 +1,6 @@
 # Config reference
 
-Every field on the seven Pydantic config classes (``TrainConfig`` and its nested blocks ``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``, ``ReplayBufferConfig``, ``CoverageConfig``, ``MomentMatchingConfig``) with its type, default, and a one-line description.
+Every field on the eight Pydantic config classes (``TrainConfig`` and its nested blocks ``OptimizerConfig``, ``NetworkConfig``, ``DisasterNetOptions``, ``CompositeLossConfig``, ``ReplayBufferConfig``, ``CoverageConfig``, ``MomentMatchingConfig``) with its type, default, and a one-line description.
 
 Generated from introspection by ``scripts/dev/gen_config_reference.py`` — regenerate after any config change:
 
@@ -111,14 +111,22 @@ Policy network architecture; nested under ``network:`` in YAML.
 | `num_heads` | `int` | `4` | Transformer: attention heads per layer. |
 | `n_layers` | `int` | `2` | Transformer: number of transformer blocks. |
 | `init_scale` | `float` | `0.0` | `linear_plus_mlp` and `disaster_policy_net`: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution. |
-| `use_zlb_feature` | `bool` | `False` | `disaster_policy_net` only: append `(R_lag - R_lb)` as an extra MLP input feature. |
-| `bk_pin` | `bool` | `False` | `disaster_policy_net` only: Blanchard-Kahn selection by construction — subtract the MLP delta's value and tangent at the steady state, so pi(s*)=pi* and dpi/ds(s*)=P hold exactly for every parameter value. The residual loss then shapes only second-order-and-beyond deviations. |
-| `zlb_feature_kind` | `Literal[raw, kink]` | `'raw'` | `disaster_policy_net` only, when use_zlb_feature=true: 'raw' = signed distance R_lag - R_lb; 'kink' = max(R_lag - R_lb, 0), PINN-style explicit kink at the floor. |
-| `kf_names` | `tuple[str, Ellipsis]` | `('F_p', 'K_p', 'F_w', 'K_w')` | `disaster_policy_net`: policy names whose MLP delta is masked to zero (a restriction that holds them linear; not a gauge fix — graph @aleph/deqn #34). Default targets the four CMR Calvo Phillips-curve auxiliaries. |
-| `reparam_q_as_m` | `bool` | `False` | `disaster_policy_net` only: treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP (𝓑 floored at 1e-3 in the division). Aimed at the eq 7 sign-flip pathology; 𝓑(x) itself is not constrained. |
-| `reparam_pi_as_kp_inner` | `bool` | `False` | `disaster_policy_net` only: treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner. |
-| `reparam_wtilda_as_kw_inner` | `bool` | `False` | `disaster_policy_net` only: treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam. |
+| `options` | `dict[str, Any]` | `{}` | Options owned by a model-specific network type; rejected on the other types. `disaster_policy_net`: the fields of `DisasterNetOptions` (`kf_names`, `use_zlb_feature`, `zlb_feature_kind`, `bk_pin`, `reparam_*`). From the command line: `--set network.options.bk_pin=true`. |
 | `output_links` | `Union[tuple[str, Ellipsis], None]` | `None` | Per-policy output parameterization for residual networks. Each entry must be 'linear' (additive: π_i = ss_i + BK + MLP) or 'log' (multiplicative: π_i = ss_i·exp(BK_log + MLP), bakes in positivity). Length must equal n_policies. None = use the model's default_output_links (or all-linear if model doesn't specify). |
+
+## `DisasterNetOptions`
+
+Options of ``network.type: disaster_policy_net``; nested under ``network.options:`` in YAML.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `kf_names` | `tuple[str, Ellipsis]` | `('F_p', 'K_p', 'F_w', 'K_w')` | Policy names whose MLP delta is masked to zero (a restriction that holds them linear; not a gauge fix — graph @aleph/deqn #34). Default targets the four CMR Calvo Phillips-curve auxiliaries. |
+| `use_zlb_feature` | `bool` | `False` | Append `(R_lag - R_lb)` as an extra MLP input feature. |
+| `zlb_feature_kind` | `Literal[raw, kink]` | `'raw'` | When use_zlb_feature=true: 'raw' = signed distance R_lag - R_lb; 'kink' = max(R_lag - R_lb, 0), PINN-style explicit kink at the floor. |
+| `bk_pin` | `bool` | `False` | Blanchard-Kahn selection by construction — subtract the MLP delta's value and tangent at the steady state, so pi(s*)=pi* and dpi/ds(s*)=P hold exactly for every parameter value. The residual loss then shapes only second-order-and-beyond deviations. |
+| `reparam_q_as_m` | `bool` | `False` | Treat the network's `q` output as `M = q · 𝓑(x)` where 𝓑(x) = 1 - S(x) - x·S'(x) is the investment-Euler bracket; recover q = M/𝓑(x) post-MLP (𝓑 floored at 1e-3 in the division). Aimed at the eq 7 sign-flip pathology; 𝓑(x) itself is not constrained. |
+| `reparam_pi_as_kp_inner` | `bool` | `False` | Treat the network's `pi` output as K_p_inner ∈ (0, 1/(1−ξ_p)); derive π via the inverse Calvo formula post-clip. Encodes the Calvo asymptote in the parameterization so the MLP only learns smooth K_p_inner. |
+| `reparam_wtilda_as_kw_inner` | `bool` | `False` | Treat the network's `w_tilda` output as K_w_inner ∈ (0, 1/(1−ξ_w)); derive w_tilda via the inverse eq 4a formula post-clip. Wage-side mirror of reparam_pi_as_kp_inner; combine with that flag for symmetric Calvo reparam. |
 
 ## `CompositeLossConfig`
 

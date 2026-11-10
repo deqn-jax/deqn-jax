@@ -1,5 +1,5 @@
 # Disaster — GATED + SURGERY + BK-PIN arm (exit 3: selection by construction, 2026-07-10).
-# = disaster_gated_pcgrad + network.bk_pin: pi(s*)=pi* and dpi/ds(s*)=P hold EXACTLY
+# = disaster_gated_pcgrad + network.options.bk_pin: pi(s*)=pi* and dpi/ds(s*)=P hold EXACTLY
 # for every parameter value (delta value+tangent subtracted at s*); the residual
 # objective shapes only 2nd-order-and-beyond deviations. Motivated by the GN-polish
 # finding: stability is negatively priced in residual space, so selection must be
@@ -34,7 +34,8 @@ network:
   activation: tanh
   init: xavier_normal
   init_scale: 0.0
-  bk_pin: true      # BK selection by construction (see header)
+  options:
+    bk_pin: true    # BK selection by construction (see header)
 
 optimizer:
   name: adam

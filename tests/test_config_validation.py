@@ -142,21 +142,28 @@ class TestNetworkConfigValidation:
         with pytest.raises(ValueError, match="Unknown init"):
             NetworkConfig(init="glorot")
 
-    def test_disaster_only_flag_on_other_type_raises(self):
-        # Silent-drop gate: these flags are read only by the disaster net
-        # factory branch; on any other type they must be rejected, not ignored.
-        for flag in (
-            "bk_pin",
-            "use_zlb_feature",
-            "reparam_q_as_m",
-            "reparam_pi_as_kp_inner",
-            "reparam_wtilda_as_kw_inner",
-        ):
-            with pytest.raises(ValueError, match="silently ignored"):
-                NetworkConfig(type="linear_plus_mlp", **{flag: True})
+    def test_options_on_a_type_that_owns_none_raise(self):
+        with pytest.raises(ValueError, match="silently ignored"):
+            NetworkConfig(type="linear_plus_mlp", options={"bk_pin": True})
 
-    def test_disaster_only_flag_on_disaster_type_passes(self):
-        NetworkConfig(type="disaster_policy_net", bk_pin=True, use_zlb_feature=True)
+    def test_disaster_options_are_validated_by_their_owner(self):
+        cfg = NetworkConfig(
+            type="disaster_policy_net", options={"bk_pin": True, "kf_names": ["F_p"]}
+        )
+        opts = cfg.typed_options()
+        assert opts.bk_pin and opts.kf_names == ("F_p",) and not opts.use_zlb_feature
+        with pytest.raises(ValueError, match="bk_pinn"):
+            NetworkConfig(type="disaster_policy_net", options={"bk_pinn": True})
+
+    def test_set_override_reaches_one_option_and_keeps_the_rest(self):
+        base = TrainConfig(
+            model="disaster",
+            network=NetworkConfig(
+                type="disaster_policy_net", options={"use_zlb_feature": True}
+            ),
+        )
+        cfg = base.with_overrides({"network.options.bk_pin": "true"})
+        assert cfg.network.options == {"use_zlb_feature": True, "bk_pin": True}
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -168,7 +175,7 @@ class TestNetworkConfigValidation:
             {"type": "mlp", "init_scale": 0.1},
             {"type": "lstm", "output_links": ("linear",)},
             {"type": "rss_market_clearing_net", "activation": "relu"},
-            {"type": "linear_plus_mlp", "kf_names": ("F_p",)},
+            {"type": "mlp", "options": {"bk_pin": True}},
         ],
     )
     def test_field_the_network_type_does_not_read_raises(self, kwargs):
@@ -892,9 +899,9 @@ class TestTypeValidation:
 
     def test_bool_field_int_raises(self):
         with pytest.raises(
-            TypeError, match="NetworkConfig.use_zlb_feature.*expected bool.*got int"
+            TypeError, match="network.options.use_zlb_feature.*expected bool.*got int"
         ):
-            NetworkConfig(use_zlb_feature=1)
+            NetworkConfig(type="disaster_policy_net", options={"use_zlb_feature": 1})
 
     # -- CompositeLossConfig --
     def test_anchor_weight_list_raises(self):

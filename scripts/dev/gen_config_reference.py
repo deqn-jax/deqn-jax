@@ -28,6 +28,7 @@ from deqn_jax.config import (
     ReplayBufferConfig,
     TrainConfig,
 )
+from deqn_jax.models.disaster.net_options import DisasterNetOptions
 
 SECTIONS = [
     ("TrainConfig", TrainConfig, "Top-level training configuration."),
@@ -40,6 +41,11 @@ SECTIONS = [
         "NetworkConfig",
         NetworkConfig,
         "Policy network architecture; nested under ``network:`` in YAML.",
+    ),
+    (
+        "DisasterNetOptions",
+        DisasterNetOptions,
+        "Options of ``network.type: disaster_policy_net``; nested under ``network.options:`` in YAML.",
     ),
     (
         "CompositeLossConfig",
@@ -141,7 +147,7 @@ def main() -> None:
 
     preface = """# Config reference
 
-Every field on the seven Pydantic config classes (``TrainConfig`` and its nested blocks ``OptimizerConfig``, ``NetworkConfig``, ``CompositeLossConfig``, ``ReplayBufferConfig``, ``CoverageConfig``, ``MomentMatchingConfig``) with its type, default, and a one-line description.
+Every field on the eight Pydantic config classes (``TrainConfig`` and its nested blocks ``OptimizerConfig``, ``NetworkConfig``, ``DisasterNetOptions``, ``CompositeLossConfig``, ``ReplayBufferConfig``, ``CoverageConfig``, ``MomentMatchingConfig``) with its type, default, and a one-line description.
 
 Generated from introspection by ``scripts/dev/gen_config_reference.py`` — regenerate after any config change:
 
