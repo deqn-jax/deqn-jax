@@ -72,6 +72,11 @@ in any minor version bump.
   network; an LR warm-up at least as long as the run; an expectation type the
   model's shock process contradicts; a disaster-network prior whose state or
   constant is missing.
+- A `network.*` field the chosen `network.type` does not read is rejected
+  when set away from its default (`activations` or `history_len` on a
+  residual network, `init` or `activation` on `lstm`/`transformer`, ...); it
+  used to be dropped without a word. `NetworkConfig.FIELDS_READ` lists the
+  fields per type.
 - `deqn-jax evaluate` exits 1 when the simulation produces NaN; `deqn-jax irf`
   refuses a model without a steady state, naming what is missing.
 

@@ -107,7 +107,7 @@ Policy network architecture; nested under ``network:`` in YAML.
 | `activation` | `str` | `'tanh'` | Per-layer activation: `tanh`, `relu`, `gelu`, `silu`, `softplus`. Read by `mlp`, `linear_plus_mlp` and `disaster_policy_net`. |
 | `activations` | `Union[tuple[str, Ellipsis], None]` | `None` | Per-layer activations if different per layer. None = use `activation` uniformly. Length = `len(hidden_sizes)`. Read by `mlp` only. |
 | `init` | `str` | `'default'` | Weight init scheme: `default` (Equinox default), `xavier_normal`, `xavier_uniform`, `he_normal`, `he_uniform`, `lecun_normal`. Read by `mlp`, `linear_plus_mlp` and `disaster_policy_net`. |
-| `history_len` | `int` | `1` | History window length for the sequence networks (`lstm`, `transformer`); other network types ignore it. 1 = no history. |
+| `history_len` | `int` | `1` | History window length for the sequence networks (`lstm`, `transformer`); rejected on other network types. 1 = no history. |
 | `num_heads` | `int` | `4` | Transformer: attention heads per layer. |
 | `n_layers` | `int` | `2` | Transformer: number of transformer blocks. |
 | `init_scale` | `float` | `0.0` | `linear_plus_mlp` and `disaster_policy_net`: init scale of the MLP delta's final layer. 0.0 = policy starts exactly at the linear solution. |

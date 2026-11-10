@@ -8,41 +8,11 @@ their template through it with the full config (static fields such as
 ``bk_pin`` change the forward graph and are not repaired by leaf
 deserialization).
 
-Which ``NetworkConfig`` fields each branch actually honors
----------------------------------------------------------
-
-Every branch honors ``type`` and ``hidden_sizes`` (``transformer`` reads
-only its first entry, ``rss_market_clearing_net`` requires exactly two).
-Beyond that the branches differ, and fields a branch does not honor are
-**silently ignored** here:
-
-===================== ==========================================================
-``type``              additionally honored
-===================== ==========================================================
-``mlp``               ``activation``, ``activations`` (per-layer, overrides
-                      ``activation``), ``init``
-``lstm``              ``history_len`` only — ``activation``, ``activations``
-                      and ``init`` are NOT forwarded to ``create_lstm``
-``transformer``       ``history_len``, ``num_heads``, ``n_layers`` — again
-                      ``activation`` / ``activations`` / ``init`` are NOT
-                      forwarded to ``create_transformer``
-``linear_plus_mlp``   ``activation``, ``init``, ``init_scale``,
-                      ``output_links`` (falling back to
-                      ``model.default_output_links``); ``activations`` is
-                      NOT honored (the delta MLP is built with a single
-                      activation repeated per layer)
-``disaster_policy_net`` everything ``linear_plus_mlp`` honors, plus
-                      ``kf_names``, ``use_zlb_feature``, ``zlb_feature_kind``,
-                      ``bk_pin``, ``reparam_q_as_m``,
-                      ``reparam_pi_as_kp_inner``, ``reparam_wtilda_as_kw_inner``
-``rss_market_clearing_net`` nothing else: the reference checkpoint fixes the
-                      activations, init and output transform
-===================== ==========================================================
-
-TODO: reject the ignored combinations (e.g. ``type: lstm`` with a non-default
-``init``, or ``activations`` on any non-``mlp`` type) in
-``deqn_jax.training.state_init._validate_train_config`` rather than dropping
-them here, so a mis-set field fails loudly instead of not taking effect.
+Each branch passes on the fields ``NetworkConfig.FIELDS_READ`` lists for its
+type and no others; ``NetworkConfig`` rejects any other field set away from
+its default, so a field that would not reach the network fails at config
+time. ``transformer`` reads only the first entry of ``hidden_sizes``,
+``rss_market_clearing_net`` requires exactly two.
 """
 
 import jax.numpy as jnp
@@ -67,7 +37,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     Callers that pass None (evaluation smokes, ``scripts/cert/gn_polish.py``)
     depend on the weights this produces, so the divergence is preserved.
 
-    See the module docstring for which config fields each branch honors.
     Every non-``mlp`` branch is only reachable when ``network_config`` is a
     ``NetworkConfig`` (``net_type`` is read off it), so those branches read
     the remaining fields off it directly.
