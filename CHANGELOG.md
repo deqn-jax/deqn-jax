@@ -61,6 +61,31 @@ in any minor version bump.
 - `scripts/` is tracked as a whole and organized by purpose: `scripts/cert/`
   (certification probes), `scripts/dgx/` (container sweeps), `scripts/dev/`
   (plots, config reference, module graph). `scripts/local/` is ignored scratch.
+- **Checkpoints of the disaster network saved before this release do not
+  load.** Its Blanchard–Kahn anchors (`P`, `ss_state`, `ss_policy`) are no
+  longer leaves of the parameter tree, so weight decay cannot move them; the
+  loader names the mismatch. Retrain to get a loadable checkpoint.
+- `tensorboardX` is a core dependency (the `logging` extra is gone): configs
+  that set `tensorboard_dir` run on a plain `uv sync`.
+- Setup rejects, instead of silently ignoring: bound penalties under PCGrad,
+  MAO and Gauss–Newton; a warm start on a sequence network; an LR warm-up at
+  least as long as the run; an expectation type the model's shock process
+  contradicts; a disaster-network prior whose state or constant is missing.
+- `deqn-jax evaluate` exits 1 when the simulation produces NaN; `deqn-jax irf`
+  refuses a model without a steady state with a one-line error.
+
+### Fixed
+
+- `fp64: true` gave a float32 steady state and bounds for the disaster model
+  when the model was imported before x64 was enabled (Python API; some CLI
+  paths), crashing the pinned network. The steady state is solved on first
+  use and cached per precision.
+- `loss_weights` were matched to equations by position in an alphabetically
+  sorted dict, not by name (`irbc`, `cdice_bau`).
+- An optimizer switch dropped every optimizer field but name, LR and clip; a
+  resume from a finished run returned `None`.
+- Documentation examples and `irf` flags that no longer matched the code;
+  `tests/test_documented_commands.py` now runs them.
 
 ## [0.2.0] — 2026-04-17
 

@@ -94,13 +94,23 @@ def prune_checkpoints(checkpoint_dir: str, max_keep: int) -> None:
 def resume_from(template_state: Any, checkpoint_path: str) -> Any:
     """Load a serialised TrainState from disk into the given template.
 
-    Thin wrapper around ``eqx.tree_deserialise_leaves``, shared by resume
+    Wrapper around ``eqx.tree_deserialise_leaves``, shared by resume
     (``state_init._build_initial_state``) and
     ``load_policy_from_checkpoint``. ``template_state`` must
     have the same pytree structure as the saved state -- typically built
-    from the config that produced the checkpoint.
+    from the config that produced the checkpoint. A file that does not fit
+    the template raises ``ValueError`` naming the checkpoint.
     """
-    return eqx.tree_deserialise_leaves(checkpoint_path, template_state)
+    try:
+        return eqx.tree_deserialise_leaves(checkpoint_path, template_state)
+    except Exception as err:
+        raise ValueError(
+            f"Checkpoint {checkpoint_path} does not fit the state built from its "
+            "config: it was saved with a different network, optimizer or precision, "
+            "or by a version of deqn-jax with another checkpoint layout (the "
+            "disaster network's anchors left the parameter tree after 0.2.0). Retrain "
+            f"with the current code. Underlying error: {err}"
+        ) from err
 
 
 # ---------------------------------------------------------------------------

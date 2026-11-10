@@ -8,6 +8,13 @@ disasterless model the certificates irbc earned on 2026-07-06 — closed-loop st
 its section is marked and will be updated. Everything below is measured, fp64, with the in-repo
 probe (`scripts/disaster_ss_probe.py`); raw checkpoints under `runs/disaster_cert/` on the DGX.
 
+> **Superseded for the current code (2026-11-10).** The checkpoints this report measures were
+> trained before the disaster network's Blanchard–Kahn anchors left the parameter tree and before
+> the precision fix for the steady state; the current loader refuses them. The numbers below stand
+> as the record of the July code. No arm is certified on the current code until it is retrained
+> and re-probed at the frozen convention; pictures of the July pinned arm show a policy that is the
+> first-order rule plus seed noise, with equation errors no better than the linear rule.
+
 ## Design
 
 Four arms × 3 seeds × the full 3000-episode production recipe (`configs/disaster.yaml`
