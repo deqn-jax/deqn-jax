@@ -131,6 +131,8 @@ figures). Three years of rewrites did not corrupt the math. What's wrong lives i
    tex's old "financial-friction compounding" story was wrong and is now rewritten — errata
    item 12). The honest calibration exists and is runnable (`configs/disaster_recal.yaml`,
    π* = 1.005918 verified) but doubles ELB exposure — opt-in, decision coupled to the ELB fix.
+   *Decided 2026-11-11: that calibration is the shipped default; the old constants are
+   `configs/disaster_cmr_constants.yaml`.*
 2. **The model lives on its own kink.** The Taylor rate wants to cross its floor one quarter
    in eight; every linear tool is blind exactly there.
 3. **The disaster is a costume.** p = 0 ships (mechanism inert), θ = 5% vs Alex's Barro-sized

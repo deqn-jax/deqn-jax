@@ -14,6 +14,13 @@ probe (`scripts/disaster_ss_probe.py`); raw checkpoints under `runs/disaster_cer
 > as the record of the July code. No arm is certified on the current code until it is retrained
 > and re-probed at the frozen convention; pictures of the July pinned arm show a policy that is the
 > first-order rule plus seed noise, with equation errors no better than the linear rule.
+>
+> **Calibration changed (2026-11-11).** Every number below was measured at `y_ss = 3.0308`,
+> `R_ss = 1.011678`, where the solved steady state has inflation 1.0123 against the 1.006 target.
+> The shipped constants are now `y_ss = 3.006808`, `R_ss = 1.0116421` (solved inflation 1.005918,
+> 13 stable roots, largest 0.98699). "The shipped calibration" in this report means the old pair,
+> runnable as `configs/disaster_cmr_constants.yaml`. Nothing has been trained or probed at the
+> new constants yet.
 
 ## Design
 

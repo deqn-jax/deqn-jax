@@ -495,12 +495,22 @@ the paper; the tex is wrong on these four points.
 
 ## Note on Hardcoded Constants
 
-The constants `pi_ss = 1.006`, `R_ss = 1.011678`, and `y_ss = 3.0308`
-are calibration targets. The numerically solved steady state has
-`pi = 1.012` and `R = 1.018`, which differ from `pi_ss` and `R_ss`
-because the Taylor rule with non-zero `alpha_y` and the financial frictions
-shift the steady-state inflation rate above the target. This is
-economically expected behavior for this class of models and is not a bug.
+**Superseded 2026-11-11.** This note used to say that the solved steady
+state (`pi = 1.012`, `R = 1.018`) differing from `pi_ss = 1.006` was
+"economically expected behavior ... not a bug". It was a calibration
+inconsistency: `y_ss = 3.0308` sat 0.87% above the model's own
+steady-state GDP (3.0044 at those constants), and the Taylor output-gap
+term held inflation above target permanently.
+
+The shipped constants are now the model-consistent pair `y_ss = 3.006808`,
+`R_ss = 1.0116421` (with `pi_ss = 1.006` unchanged). The solved steady
+state has `pi = 1.005918`, `R = 1.011560`, GDP `3.006808`; the 8e-5 left
+under the target is the wedge of the ELB softplus. The old constants stay
+runnable as `configs/disaster_cmr_constants.yaml`.
+
+Cost of the change: the steady-state nominal rate is lower, so the Taylor
+rate sits closer to the floor (about 22% of quarters below it, against
+about 12% before; July 2026 audit figures, not re-measured).
 
 ---
 

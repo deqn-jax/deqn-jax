@@ -365,7 +365,7 @@ All $\xi \sim \mathcal{N}(0,1)$ i.i.d. Plus the disaster Bernoulli $d_t \sim \te
 | Targets | $\pi^{ss}$ | 1.006 | quarterly inflation, 2.4% annual |
 | | $\mu_z^{ss}$ | 1.0041 | quarterly trend, 1.6% annual |
 | | $R^{ss}$ | 1.0117 | quarterly gross rate |
-| | $y^{ss}$ | 3.0308 | output target |
+| | $y^{ss}$ | 3.0068 | output target, the model's own steady-state GDP (3.0308 in the source calibration) |
 | | $g^{ss}$ | 0.616 | gov't spending target |
 | Shocks ($\rho, \sigma$) | $\varepsilon$ | (0.809, 0.0046) | productivity |
 | | $\mu_\Upsilon$ | (0.987, 0.004) | inv-specific tech |

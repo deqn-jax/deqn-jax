@@ -83,11 +83,16 @@ CONSTANTS = {
     "w_e": 0.005,
     "sigma_omega": 0.26822,
     "mu_mon": 0.22,
-    # Steady states
+    # Steady states. y_ss and R_ss are the model-consistent pair: y_ss is the
+    # model's own steady-state GDP and R_ss is Fisher-consistent with pi_ss,
+    # so the solved steady state lands on pi_ss. The constants of the source
+    # calibration (y_ss 3.0308, R_ss 1.011678) put y_ss 0.87% above the
+    # model's GDP; the Taylor output-gap term then holds solved inflation at
+    # 1.0123. They stay runnable as configs/disaster_cmr_constants.yaml.
     "pi_ss": 1.006,
     "mu_z_ss": 1.0041,
-    "R_ss": 1.011678,
-    "y_ss": 3.0308,
+    "R_ss": 1.0116421,
+    "y_ss": 3.006808,
     "g_ss": 0.616,
     # Shock parameters
     "rho_eps": 0.809,
@@ -108,33 +113,34 @@ CONSTANTS = {
 }
 
 STEADY_STATE = {
-    # Numerically solved (max |residual| < 2e-15) with the eq5 habit
-    # soft floor at sharpness 100 (see the eq5 block in equations.py).
-    # Used as the initial guess of the steady-state solver.
-    "pi_lag": 1.012287,
-    "k_lag": 27.421465,
-    "c_lag": 1.593674,
+    # Numerically solved (max |residual| < 2e-15) at CONSTANTS, with the
+    # eq5 habit soft floor at sharpness 100 (see the eq5 block in
+    # equations.py). Used as the initial guess of the steady-state solver.
+    # pi sits 8e-5 under pi_ss: the wedge of the ELB softplus.
+    "pi_lag": 1.005918,
+    "k_lag": 27.495364,
+    "c_lag": 1.593960,
     "q_lag": 1.0,
-    "i_lag": 0.794706,
-    "R_lag": 1.017964,
-    "w_tilda_lag": 1.920213,
-    "L_lag": 1.965712,
+    "i_lag": 0.796848,
+    "R_lag": 1.011560,
+    "w_tilda_lag": 1.923460,
+    "L_lag": 1.965715,
     "eps": 1.0,
     "mu_ups": 1.0,
     "g": 0.616,
     "mu_z": 1.0041,
     "m_p": 0.0,
-    "lambda_z": 0.601832,
-    "i": 0.794706,
-    "pi": 1.012287,
-    "c": 1.593674,
-    "w_tilda": 1.920213,
-    "h": 0.944027,
-    "F_w": 0.885314,
-    "F_p": 4.735946,
+    "lambda_z": 0.601724,
+    "i": 0.796848,
+    "pi": 1.005918,
+    "c": 1.593960,
+    "w_tilda": 1.923460,
+    "h": 0.943405,
+    "F_w": 0.865186,
+    "F_p": 4.535149,
     "q": 1.0,
-    "K_p": 4.777398,
-    "K_w": 2.182547,
+    "K_p": 4.534645,
+    "K_w": 2.070384,
 }
 
 # omega_bar SS value (computed analytically from bank participation constraint)

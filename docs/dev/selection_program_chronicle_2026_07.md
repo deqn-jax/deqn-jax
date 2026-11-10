@@ -44,7 +44,8 @@ record, with all amendments in place).
   model determinate at shipped calibration (boundary ξ_p ≈ 0.79); ELB crossed 1.18σ from
   SS, ~12% of quarters — strongest confirmed finding; recal config exists
   (`configs/disaster_recal.yaml`: y_ss 3.006808, R_ss 1.0116421, opt-in, doubles ELB
-  exposure).
+  exposure). *Since 2026-11-11 these two constants are the shipped default; the old pair
+  is `configs/disaster_cmr_constants.yaml`.*
 - **Model tex vindicated** (07-06/07): all 11 equations re-derived by hand + cross-checked;
   math clean; 5 prose-slop errata fixed (b6fbe6f). ELB floor traced to commit fdfbf2b
   (2026-04-17) — added as a training guardrail, absent from the original model. The

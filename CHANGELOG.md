@@ -53,6 +53,16 @@ in any minor version bump.
 
 ### Changed
 
+- **The disaster model's default calibration changed.** `y_ss` is 3.006808
+  (was 3.0308) and `R_ss` is 1.0116421 (was 1.011678): the model-consistent
+  pair, so the solved steady state has inflation 1.005918 against the 1.006
+  target instead of 1.012287. The old `y_ss` sat 0.87% above the model's own
+  steady-state GDP and the Taylor rule held inflation above target. Every
+  disaster config now solves a different economy than before; results are not
+  comparable across this change. The lower steady-state rate brings the
+  effective lower bound closer (about 22% of quarters against about 12%, July
+  2026 audit figures). `configs/disaster_recal.yaml` is gone (it is the
+  default now); the old constants are `configs/disaster_cmr_constants.yaml`.
 - Module layout: `deqn_jax.irf` → `deqn_jax.evaluate.irf` (IRFs) with
   `load_policy_from_checkpoint` in `deqn_jax.training.checkpointing`;
   `deqn_jax.dynare_io` → `deqn_jax.evaluate.dynare_io`; `deqn_jax.metrics` →

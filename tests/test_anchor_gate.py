@@ -58,7 +58,7 @@ def test_disaster_gate_open_at_ss_closed_at_floor():
     pts = jnp.tile(jnp.asarray(ss_state)[None, :], (3, 1))
     pol = jnp.tile(jnp.asarray(ss_policy)[None, :], (3, 1))
 
-    # row 1: SS as-is (floor slack, R_taylor ≈ 1.018) -> weight ~1
+    # row 1: SS as-is (floor slack, R_taylor ≈ 1.0116) -> weight ~1
     # row 2: monetary shock m_p pushed deep negative -> Taylor rate through
     #        the floor -> weight ~0
     m_p_idx = SPEC.state_names.index("m_p")

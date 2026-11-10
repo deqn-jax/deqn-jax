@@ -1,0 +1,72 @@
+# Disaster model at the constants of the source calibration (the default
+# until 2026-11-11). Kept to reproduce the July 2026 record; not the model
+# the repo ships.
+#
+# = configs/disaster.yaml with two constants set back:
+#
+#   y_ss: 3.0308     0.87% above the model's own steady-state GDP at these
+#                    constants; the Taylor output-gap term reads that gap
+#                    permanently and holds solved inflation at 1.0123
+#                    against the 1.006 target
+#   R_ss: 1.011678
+#
+# Solved steady state (fp64, the repo's own solver):
+#   these constants:  pi* = 1.012287  (~5.0% annual inflation)
+#   shipped default:  pi* = 1.005918  (~2.4% annual; y_ss 3.006808,
+#                     R_ss 1.0116421; the 8e-5 under the target is the
+#                     wedge of the ELB softplus)
+#
+# What differs besides the inflation level: the steady-state nominal rate
+# here is higher, so the Taylor rate is below the floor in about 12% of
+# quarters against about 22% at the shipped default (July 2026 audit
+# figures: distance 1.18 sigma vs 0.77 sigma).
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+constants:
+  y_ss: 3.0308
+  R_ss: 1.011678
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 1.0      # supervised: match linearized policy at anchor points
+  jac_weight: 0.1         # supervised: match dπ/ds(SS) = P
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0    # keep anchor active throughout training
+
+checkpoint_dir: checkpoints/disaster_cmr_constants
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_cmr_constants
