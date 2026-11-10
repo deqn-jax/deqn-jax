@@ -45,8 +45,8 @@ in any minor version bump.
   figures stay under `docs/dev/figures/interp/`.
 - Dormant research code no shipped configuration used: the `kf_anchored_mlp`
   network and its validation sweep, the `ResMLP` / `MultiHeadMLP` variants
-  (`network.multi_head`, `network.skip_connections`), the `mao_kfac`, `sgd`,
-  `adamw` and `lion` optimizers, the `reduce_on_plateau` LR schedule and its
+  (`network.multi_head`, `network.skip_connections`), the `mao_kfac`
+  optimizer, the `reduce_on_plateau` LR schedule and its
   four `optimizer.lr_reduce_*` fields, the one-shot AIO and anchor diagnostics
   and the second-order sweep. The last commit carrying them is tagged
   `pre-prune-2026-09-15`.
