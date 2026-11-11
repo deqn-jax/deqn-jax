@@ -48,10 +48,12 @@ def _setup(model: ModelSpec, config) -> ModelSpec:
     Two adaptations to the run's calibration.
 
     The Taylor-rule targets ``R_ss`` and ``y_ss`` follow the calibration:
-    they are re-derived by ``consistent_targets`` from the run's constants,
-    so a run that changes, say, ``beta`` still has its steady state at
-    ``pi_ss``. A run that sets either target in ``config.constants`` keeps
-    both as given.
+    a run that overrides constants has them re-derived by
+    ``consistent_targets``, so changing, say, ``beta`` still leaves the
+    steady state at ``pi_ss``. A run that sets either target in
+    ``config.constants`` keeps both as given; a run with no overrides uses
+    the shipped values, which are the derived ones for the shipped
+    calibration.
 
     When ``p_disaster > 0`` the equilibrium contains a discrete
     capital-destruction branch and the deterministic steady state is
@@ -69,7 +71,7 @@ def _setup(model: ModelSpec, config) -> ModelSpec:
     ``calibrate_model``, which training and the checkpoint loader share.
     """
     overrides = getattr(config, "constants", None) or {}
-    if not any(name in overrides for name in TARGET_NAMES):
+    if overrides and not any(name in overrides for name in TARGET_NAMES):
         targets = consistent_targets(model.constants)
         model = model._replace(constants={**model.constants, **targets})
         if getattr(config, "verbose", False):
