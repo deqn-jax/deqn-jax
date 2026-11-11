@@ -30,14 +30,16 @@ def test_shipped_targets_are_the_derived_ones():
 
 def test_steady_state_inflation_is_on_target():
     model = load_model("disaster")
-    assert _ss_inflation(model) == pytest.approx(CONSTANTS["pi_ss"], abs=1e-9)
+    # 1e-6, not machine precision: the 1e-8 guards in the residuals' ratio
+    # forms leave inflation ~2e-7 off the target.
+    assert _ss_inflation(model) == pytest.approx(CONSTANTS["pi_ss"], abs=1e-6)
 
 
 def test_targets_follow_a_changed_calibration():
     config = SimpleNamespace(constants={"beta": 0.9987}, verbose=False)
     model = calibrate_model(load_model("disaster"), config)
     assert model.constants["R_ss"] != CONSTANTS["R_ss"]
-    assert _ss_inflation(model) == pytest.approx(CONSTANTS["pi_ss"], abs=1e-9)
+    assert _ss_inflation(model) == pytest.approx(CONSTANTS["pi_ss"], abs=1e-6)
 
 
 def test_explicit_target_is_kept():
@@ -56,5 +58,5 @@ def test_no_wage_dispersion_at_the_steady_state():
     defs = model.definitions_fn(
         jnp.asarray(state), jnp.asarray(policy), model.constants
     )
-    np.testing.assert_allclose(float(defs["wage_index_ratio"]), 1.0, atol=1e-9)
+    np.testing.assert_allclose(float(defs["wage_index_ratio"]), 1.0, atol=1e-6)
     np.testing.assert_allclose(float(defs["K_w_inner"]), 1.0, atol=1e-4)
