@@ -4,9 +4,9 @@
 lstm / transformer) inline and the model-specific types (disaster_policy_net,
 rss_market_clearing_net) via a lazy import. It is the ONE place
 a ``NetworkConfig`` is turned into a module — checkpoint loaders must rebuild
-their template through it with the full config (static fields such as
-``bk_pin`` change the forward graph and are not repaired by leaf
-deserialization).
+their template through it with the full config (static fields such as the
+disaster network's ``bk_pin`` change the forward graph and are not repaired
+by leaf deserialization).
 
 Each branch passes on the fields ``NetworkConfig.FIELDS_READ`` lists for its
 type and no others; ``NetworkConfig`` rejects any other field set away from
@@ -111,12 +111,6 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
         )
     elif net_type == "linear_plus_mlp":
         # Generic residual parameterization: policy = linear(state) + mlp(state).
-        # Model-agnostic; for disaster-specific shape priors (K/F mask, ELB
-        # feature, q-as-M reparam) use network.type='disaster_policy_net'.
-        if model.steady_state_fn is None:
-            raise ValueError(
-                "network.type='linear_plus_mlp' requires model.steady_state_fn"
-            )
         policy_net = create_linear_plus_mlp(
             model=model,
             hidden_sizes=hidden_sizes,
@@ -129,15 +123,10 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             key=net_key,
         )
     elif net_type == "disaster_policy_net":
-        # Disaster-specific residual ansatz: linear_plus_mlp + the three
-        # disaster shape priors (K/F restriction, ELB feature, q-as-M reparam).
-        # Each prior is independently toggleable via NetworkConfig fields.
+        # The residual ansatz plus the disaster model's shape priors, which
+        # arrive as the validated ``network.options`` block.
         from deqn_jax.models.disaster.network import create_disaster_policy_net
 
-        if model.steady_state_fn is None:
-            raise ValueError(
-                "network.type='disaster_policy_net' requires model.steady_state_fn"
-            )
         policy_net = create_disaster_policy_net(
             model=model,
             hidden_sizes=hidden_sizes,
@@ -146,13 +135,7 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
             init_scale=init_scale,
             input_shift=input_shift,
             input_scale=input_scale,
-            kf_names=network_config.kf_names,
-            use_zlb_feature=network_config.use_zlb_feature,
-            bk_pin=network_config.bk_pin,
-            zlb_feature_kind=network_config.zlb_feature_kind,
-            reparam_q_as_m=network_config.reparam_q_as_m,
-            reparam_pi_as_kp_inner=network_config.reparam_pi_as_kp_inner,
-            reparam_wtilda_as_kw_inner=network_config.reparam_wtilda_as_kw_inner,
+            **network_config.typed_options().model_dump(),
             output_links=output_links,
             key=net_key,
         )

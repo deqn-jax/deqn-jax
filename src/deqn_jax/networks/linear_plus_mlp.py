@@ -34,11 +34,11 @@ linear baseline + small MLP corrections keep policies in the valid
 region. Hard clipping to policy bounds happens at the very end to
 prevent catastrophic policy outputs during early training.
 
-This module is **model-agnostic**. Per-model shape priors (e.g.
-the K/F restriction, ELB feature augmentation, output-space reparameterizations
-to encode equation-specific curvature) live in the model's own
-``network.py`` module, not here. See ``models/disaster/network.py`` for
-the disaster-specific shape priors layered on top of this core.
+This module is **model-agnostic**. A model that needs shape priors on top
+(a masked delta, an extra input feature, a reparametrized output slot)
+subclasses ``LinearPlusMLP`` next to the model and overrides the three
+steps of the forward pass (``_bk_term``, ``_delta``, ``_finish``); see
+``models/disaster/network.py``.
 """
 
 from typing import Optional, Sequence
@@ -52,42 +52,44 @@ from deqn_jax.networks.common import (
     _apply_hard_clip,
     _apply_output_links,
     _resolve_activation,
+    _to_array,
     _to_tuple,
 )
 from deqn_jax.networks.mlp import MLP
+
+_LINK_CODES = {"linear": 0, "log": 1}
 
 
 class LinearPlusMLP(eqx.Module):
     """Generic residual ansatz: ``policy = clip(π_BK + δ_θ, lower, upper)``.
 
     Attributes:
-        mlp: Unbounded MLP that outputs the correction (delta) in output space.
-        P: Policy rule matrix from linearization [n_policies, n_states].
+        mlp: Unbounded MLP that outputs the correction (delta) in output
+            space. The only trainable part.
+        P: Policy rule matrix from linearization [n_policies, n_states], each
+            row in its output link's natural space (level for linear rows,
+            log for log rows — the factory converts).
         ss_state: Steady-state state vector [n_states].
         ss_policy: Steady-state policy vector [n_policies].
+        output_links: per-policy link code, 0 = linear, 1 = log.
         policy_lower / policy_upper: Hard clipping bounds (safety fence; the
             linear + delta should normally keep policies well inside these).
 
-    The forward pass is intentionally minimal: linearization, MLP delta,
-    sum, hard clip. Per-model shape priors should be implemented in a
-    model-specific subclass or wrapper that lives next to the model
-    definition, not bolted onto this generic core.
+    ``P`` / ``ss_state`` / ``ss_policy`` are architecture constants stored as
+    static tuples (the ``networks.common`` convention), outside the parameter
+    tree: as array leaves they reach the optimizer, and decoupled weight
+    decay shrinks a leaf even at zero gradient.
+
+    The forward pass is three steps a model-specific subclass may override:
+    ``_bk_term`` (the linear part), ``_delta`` (the MLP correction) and
+    ``_finish`` (what happens to the combined raw policy; here the hard
+    clip).
     """
 
     mlp: MLP
-    # P, ss_state, ss_policy are fixed throughout training but participate
-    # in the forward pass as JAX arrays (not static): marking them static
-    # would cache them as pytree metadata and require stop_gradient.
-    # P is stored *per-policy in the appropriate space*: row i is in level
-    # units for linear-output policies, in log units for log-output policies
-    # (i.e. log-row i = level-row i / ss_i). Conversion happens in the
-    # factory so _forward_single doesn't branch on link type for the BK row.
-    P: Array
-    ss_state: Array
-    ss_policy: Array
-    # output_links: tuple of ints [n_policies], 0=linear, 1=log. Stored as
-    # Python tuple for true staticness (mirrors policy_lower/upper pattern);
-    # _apply_output_links reads it at trace time to pick the combination.
+    _P: tuple = eqx.field(static=True)
+    _ss_state: tuple = eqx.field(static=True)
+    _ss_policy: tuple = eqx.field(static=True)
     output_links: tuple = eqx.field(static=True)
     policy_lower: Optional[tuple] = eqx.field(static=True)
     policy_upper: Optional[tuple] = eqx.field(static=True)
@@ -108,16 +110,26 @@ class LinearPlusMLP(eqx.Module):
         init_scale: float = 0.01,
         input_shift: Optional[Array] = None,
         input_scale: Optional[Array] = None,
+        extra_inputs: int = 0,
         *,
         key: Array,
     ):
-        # UNBOUNDED MLP for the correction. The linear component provides
-        # the "raw" output, so we don't want sigmoid/softplus on top.
-        # eqx-typing: MLP() is typed as returning Module (the base class);
-        # the runtime is MLP and the field annotation is correct.
+        # ``extra_inputs``: features a subclass appends to the state before
+        # the MLP. They are not rescaled (shift 0, scale 1).
+        if extra_inputs and input_shift is not None:
+            input_shift = jnp.concatenate(
+                [jnp.asarray(input_shift), jnp.zeros(extra_inputs)]
+            )
+        if extra_inputs and input_scale is not None:
+            input_scale = jnp.concatenate(
+                [jnp.asarray(input_scale), jnp.ones(extra_inputs)]
+            )
+
+        # UNBOUNDED MLP for the correction: the linear component provides
+        # the level, so no sigmoid/softplus on top.
         act_fn = _resolve_activation(activation)
         self.mlp = MLP(  # pyright: ignore[reportAssignmentType]  # ty: ignore[invalid-assignment]
-            in_features=n_states,
+            in_features=n_states + extra_inputs,
             out_features=n_policies,
             hidden_sizes=hidden_sizes,
             activations=[act_fn] * len(hidden_sizes),
@@ -129,68 +141,78 @@ class LinearPlusMLP(eqx.Module):
             key=key,
         )
 
-        # Shrink final layer so delta ≈ 0 at initialization: the policy IS
-        # the linear policy at init, so training only moves away from it
-        # to the extent that doing so reduces residuals.
+        # Final layer: bias zeroed, weights scaled by init_scale, so with
+        # init_scale=0 the delta is exactly zero at initialization.
         last = self.mlp.layers[-1]
-        scaled_w = last.weight * init_scale
-        zero_b = jnp.zeros_like(last.bias)
         new_last = eqx.tree_at(
             lambda l: (l.weight, l.bias),
             last,
-            (scaled_w, zero_b),
+            (last.weight * init_scale, jnp.zeros_like(last.bias)),
         )
         self.mlp = eqx.tree_at(lambda m: m.layers[-1], self.mlp, new_last)
 
-        self.P = jnp.asarray(P)
-        self.ss_state = jnp.asarray(ss_state)
-        self.ss_policy = jnp.asarray(ss_policy)
-        if output_links is None:
-            link_codes_tuple: tuple = (0,) * n_policies
-        else:
-            if len(output_links) != n_policies:
-                raise ValueError(
-                    f"output_links length {len(output_links)} != n_policies {n_policies}"
-                )
-            mapping = {"linear": 0, "log": 1}
-            try:
-                link_codes_tuple = tuple(mapping[link] for link in output_links)
-            except KeyError as e:
-                raise ValueError(
-                    f"unknown output_link {e.args[0]!r}; "
-                    f"valid choices: {list(mapping.keys())}"
-                ) from None
-            # Log-link requires positive ss_policy at that slot
-            ss_arr = jnp.asarray(ss_policy)
-            bad_idxs = [
-                i
-                for i, code in enumerate(link_codes_tuple)
-                if code == 1 and float(ss_arr[i]) <= 0.0
-            ]
-            if bad_idxs:
-                raise ValueError(
-                    f"output_link='log' requires ss_policy > 0; non-positive at "
-                    f"indices {bad_idxs} (ss values {[float(ss_arr[i]) for i in bad_idxs]})"
-                )
-        self.output_links = link_codes_tuple
+        self._P = tuple(_to_tuple(row) for row in P)
+        self._ss_state = _to_tuple(ss_state)
+        self._ss_policy = _to_tuple(ss_policy)
         self.policy_lower = _to_tuple(policy_lower)
         self.policy_upper = _to_tuple(policy_upper)
 
-    def _forward_single(self, state: Array) -> Array:
-        # stop_gradient on the linearization constants: they are frozen
-        # parameters of the architecture, not trainable. Matches the
-        # pattern used for input_shift/scale and output bounds in MLP.
-        ss_state = jax.lax.stop_gradient(self.ss_state)
-        ss_policy = jax.lax.stop_gradient(self.ss_policy)
-        P = jax.lax.stop_gradient(self.P)
-        bk_corr = P @ (state - ss_state)  # in per-row natural space (level or log)
+        if output_links is None:
+            self.output_links = (0,) * n_policies
+            return
+        if len(output_links) != n_policies:
+            raise ValueError(
+                f"output_links length {len(output_links)} != n_policies {n_policies}"
+            )
+        try:
+            self.output_links = tuple(_LINK_CODES[link] for link in output_links)
+        except KeyError as e:
+            raise ValueError(
+                f"unknown output_link {e.args[0]!r}; valid choices: {list(_LINK_CODES)}"
+            ) from None
+        bad = [
+            i
+            for i, code in enumerate(self.output_links)
+            if code == 1 and self._ss_policy[i] <= 0.0
+        ]
+        if bad:
+            raise ValueError(
+                f"output_link='log' requires ss_policy > 0; non-positive at "
+                f"indices {bad} (ss values {[self._ss_policy[i] for i in bad]})"
+            )
 
-        delta = self.mlp(state)
-        # Per-policy: linear policies use additive, log policies use
-        # multiplicative; resolved at trace time from the static link tuple.
-        raw = _apply_output_links(ss_policy, bk_corr, delta, self.output_links)
+    @property
+    def P(self) -> Array:
+        """BK policy slope, per row in its output link's natural space."""
+        return _to_array(self._P)
 
+    @property
+    def ss_state(self) -> Array:
+        return _to_array(self._ss_state)
+
+    @property
+    def ss_policy(self) -> Array:
+        return _to_array(self._ss_policy)
+
+    def _bk_term(self, state: Array) -> Array:
+        """Linear part, per row in its link's natural space (level or log)."""
+        return self.P @ (state - self.ss_state)
+
+    def _delta(self, state: Array) -> Array:
+        """The trainable correction."""
+        return self.mlp(state)
+
+    def _finish(self, raw: Array, state: Array) -> Array:
+        """Map the combined raw policy to the returned one: the hard clip."""
         return _apply_hard_clip(raw, self.policy_lower, self.policy_upper)
+
+    def _forward_single(self, state: Array) -> Array:
+        bk_corr = self._bk_term(state)
+        delta = self._delta(state)
+        # Linear policies combine additively, log policies multiplicatively;
+        # resolved at trace time from the static link tuple.
+        raw = _apply_output_links(self.ss_policy, bk_corr, delta, self.output_links)
+        return self._finish(raw, state)
 
     def __call__(self, x: Array) -> Array:
         if x.ndim == 1:
@@ -206,8 +228,8 @@ def _convert_p_per_link(
     log-link row i: P_log_i = P_level_i / ss_policy_i  (delta-method)
     linear-link row i: keep P_level_i as-is
 
-    With this conversion, _forward_single can compute bk_corr = P @ ds as
-    a single matvec without per-row branching.
+    With this conversion, the forward computes bk_corr = P @ ds as a single
+    matvec without per-row branching.
     """
     n_pol = P_level.shape[0]
     if len(output_links) != n_pol:
@@ -219,6 +241,32 @@ def _convert_p_per_link(
     # Per-row scale factor: 1/ss for log rows, 1.0 for linear rows
     scale = jnp.where(is_log, 1.0 / (ss + 1e-12), 1.0)
     return jnp.asarray(P_level) * scale[:, None]
+
+
+def anchor_kwargs(model, output_links: Optional[Sequence[str]]) -> dict:
+    """The constructor arguments a BK-anchored network takes from ``model``:
+    sizes, the linearization ``P`` (rows converted per output link), the
+    steady state, the links and the policy bounds."""
+    from deqn_jax.training.linearize import linearize_model
+
+    if model.steady_state_fn is None:
+        raise ValueError(
+            "a network anchored at the linear policy requires model.steady_state_fn"
+        )
+    P, _Q = linearize_model(model, verbose=False)
+    ss_state, ss_policy = model.steady_state_fn(model.constants)
+    if output_links is not None:
+        P = _convert_p_per_link(P, ss_policy, output_links)
+    return dict(
+        n_states=model.n_states,
+        n_policies=model.n_policies,
+        P=P,
+        ss_state=ss_state,
+        ss_policy=ss_policy,
+        output_links=output_links,
+        policy_lower=model.policy_lower,
+        policy_upper=model.policy_upper,
+    )
 
 
 def create_linear_plus_mlp(
@@ -236,36 +284,14 @@ def create_linear_plus_mlp(
     """Factory: build a generic LinearPlusMLP using the model's linearization.
 
     Args:
-        output_links: per-policy parameterization. None defaults to all-linear
-            (legacy behavior). Each entry must be ``"linear"`` or ``"log"``.
+        output_links: per-policy parameterization. None defaults to
+            all-linear. Each entry must be ``"linear"`` or ``"log"``.
             Log-output policies require ``ss_policy[i] > 0``.
-
-    This factory has NO model-specific knobs. For disaster-specific shape
-    priors (K/F restriction, ELB feature, q-as-M reparameterization), use
-    ``create_disaster_policy_net`` from ``deqn_jax.models.disaster.network``.
     """
-    from deqn_jax.training.linearize import linearize_model
-
-    P_level, _Q = linearize_model(model, verbose=False)
-    ss_state, ss_policy = model.steady_state_fn(model.constants)
-
-    if output_links is None:
-        # Backward-compat: pass P unchanged, link defaults to all-linear inside __init__.
-        P = P_level
-    else:
-        P = _convert_p_per_link(P_level, ss_policy, output_links)
-
     return LinearPlusMLP(
-        n_states=model.n_states,
-        n_policies=model.n_policies,
+        **anchor_kwargs(model, output_links),
         hidden_sizes=hidden_sizes,
         activation=activation,
-        P=P,
-        ss_state=ss_state,
-        ss_policy=ss_policy,
-        output_links=output_links,
-        policy_lower=model.policy_lower,
-        policy_upper=model.policy_upper,
         init=init,
         init_scale=init_scale,
         input_shift=input_shift,

@@ -94,7 +94,9 @@ def test_weight_decay_still_shrinks_the_mlp(pinned, opt_name, rate):
 def test_checkpoint_round_trip(tmp_path):
     model = load_model("disaster")
     opt_cfg = OptimizerConfig(name="adamw", learning_rate=LR, weight_decay=WD)
-    net_cfg = NetworkConfig(type="disaster_policy_net", hidden_sizes=[16], bk_pin=True)
+    net_cfg = NetworkConfig(
+        type="disaster_policy_net", hidden_sizes=[16], options={"bk_pin": True}
+    )
     state, _, _ = create_train_state(
         model,
         jax.random.PRNGKey(0),

@@ -72,6 +72,15 @@ in any minor version bump.
   network; an LR warm-up at least as long as the run; an expectation type the
   model's shock process contradicts; a disaster-network prior whose state or
   constant is missing.
+- The seven disaster-only network settings (`kf_names`, `use_zlb_feature`,
+  `zlb_feature_kind`, `bk_pin`, `reparam_q_as_m`, `reparam_pi_as_kp_inner`,
+  `reparam_piw_as_kw_inner`) left `NetworkConfig` for `network.options`, a
+  block owned by the disaster model (`DisasterNetOptions`): write
+  `network.options.bk_pin: true`, or `--set network.options.bk_pin=true`. The
+  old spelling `network.bk_pin` is an unknown key. `DisasterPolicyNet` is now
+  a subclass of `LinearPlusMLP` instead of a copy of it, and `LinearPlusMLP`
+  keeps its linearization anchors outside the parameter tree as well, so
+  `linear_plus_mlp` checkpoints saved before this change do not load.
 - A `network.*` field the chosen `network.type` does not read is rejected
   when set away from its default (`activations` or `history_len` on a
   residual network, `init` or `activation` on `lstm`/`transformer`, ...); it

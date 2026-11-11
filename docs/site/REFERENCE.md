@@ -550,9 +550,8 @@ are constructed via `default_factory` — omitting a sub-block is safe.
 | `history_len` | int | 1 | 1 = MLP; >1 = LSTM/Transformer |
 | `num_heads` | int | 4 | Transformer attention heads |
 | `n_layers` | int | 2 | Transformer block count |
-| `init_scale` | float | 0.0 | `linear_plus_mlp` only — MLP delta init scale (0 = start at linear) |
-| `use_zlb_feature` | bool | False | `linear_plus_mlp` + disaster only |
-| `kf_names` | tuple[str, ...] | `("F_p","K_p","F_w","K_w")` | `disaster_policy_net` only |
+| `init_scale` | float | 0.0 | `linear_plus_mlp`, `disaster_policy_net` — MLP delta init scale (0 = start at linear) |
+| `options` | dict | `{}` | Options owned by a model-specific type. `disaster_policy_net`: `kf_names`, `use_zlb_feature`, `zlb_feature_kind`, `bk_pin`, `reparam_*` (see `DisasterNetOptions` in the config reference) |
 
 ### `OptimizerConfig`
 

@@ -652,6 +652,9 @@ class TrainConfig(_ConfigBase):
     def with_overrides(self, overrides: Dict[str, Any]) -> "TrainConfig":
         """Return a new config with dot-notation overrides applied.
 
+        ``network.options.<name>`` sets one entry of the network's options
+        block and keeps the others.
+
         Example:
             config.with_overrides({"optimizer.learning_rate": 0.01, "episodes": 500})
         """
@@ -664,6 +667,10 @@ class TrainConfig(_ConfigBase):
         d = _config_to_flat_dict(self)
         for key, val in overrides.items():
             val = _infer_type(val)
+            block, dot, option = key.partition(".options.")
+            if dot:
+                key = f"{block}.options"
+                val = {**d.get(key, {}), option: val}
             d[key] = val
         return _flat_dict_to_config(d)
 
