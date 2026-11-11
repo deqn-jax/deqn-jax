@@ -1,0 +1,52 @@
+# Disaster model, baseline recipe WITHOUT the pull towards the linearization.
+#
+# = configs/disaster.yaml with composite_loss.anchor_weight and jac_weight set
+# to 0. The network still starts as the exact first-order rule (warm_start,
+# init_scale 0); nothing in the loss holds it there. Purpose: measure whether
+# the anchor terms are what keeps the trained policy on the first-order rule.
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0   # 0.0 = exact linear policy at init; delta grows via training
+
+optimizer:
+  name: adam
+  learning_rate: 1e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 0.0      # no pull towards the linearized policy
+  jac_weight: 0.0         # no pull towards the linearized slope
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_noanchor
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_noanchor
