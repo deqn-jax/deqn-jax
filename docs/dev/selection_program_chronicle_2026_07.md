@@ -42,9 +42,14 @@ record, with all amendments in place).
 - **House audit v2** (docs/dev/disaster_house_audit.md, untracked): π-gap mechanism =
   Taylor rule vs miscalibrated y_ss (indexation hypothesis refuted by blind refereeing);
   model determinate at shipped calibration (boundary ξ_p ≈ 0.79); ELB crossed 1.18σ from
-  SS, ~12% of quarters — strongest confirmed finding; recal config exists
+  SS, ~12% of quarters — strongest confirmed finding; recal config existed
   (`configs/disaster_recal.yaml`: y_ss 3.006808, R_ss 1.0116421, opt-in, doubles ELB
-  exposure).
+  exposure). *Superseded 2026-11-11:* the Taylor targets are derived from the solved
+  steady state (π* = 1.006 by construction) and the config is removed; in the same change
+  wage inflation gained the growth factor it lacked against the draft
+  (π_w = π·μ_z·w̃/w̃₋₁, indexation to current growth with weight ι_μ), which moves the
+  steady state (c 1.594 → 1.602, k 27.42 → 27.58). "All 11 equations … math clean" below
+  predates this finding. ELB exposure under the new steady state is not re-measured.
 - **Model tex vindicated** (07-06/07): all 11 equations re-derived by hand + cross-checked;
   math clean; 5 prose-slop errata fixed (b6fbe6f). ELB floor traced to commit fdfbf2b
   (2026-04-17) — added as a training guardrail, absent from the original model. The

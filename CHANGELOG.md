@@ -91,6 +91,19 @@ in any minor version bump.
 
 ### Fixed
 
+- Disaster model, wage block: wage inflation lacked trend growth
+  (`pi_w = pi * w_tilda / w_tilda_lag`, while `w_tilda` is scaled by the
+  trend), and non-reoptimised wages were indexed to steady-state growth
+  instead of `mu_z**iota_mu * mu_z_ss**(1 - iota_mu)`. Both now follow the
+  model's source. The steady state moves (c 1.594 → 1.602, k 27.42 → 27.58);
+  every disaster checkpoint trained before this is a solution of the old
+  equations.
+- Disaster model, Taylor-rule targets: `R_ss` and `y_ss` were hardcoded and
+  inconsistent with the model's own steady state, which put steady-state
+  inflation at 1.0123 against `pi_ss = 1.006`. They are derived from the
+  solved steady state (`consistent_targets`), re-derived when a run changes
+  the calibration, and kept as given when a run sets either explicitly.
+  `configs/disaster_recal.yaml` is removed.
 - `fp64: true` gave a float32 steady state and bounds for the disaster model
   when the model was imported before x64 was enabled (Python API; some CLI
   paths), crashing the pinned network. The steady state is solved on first

@@ -142,7 +142,15 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     # Inflation indexation
     pi_tilda = c["pi_ss"] ** c["iota"] * st.pi_lag ** (1 - c["iota"])
     pi_w_tilda = c["pi_ss"] ** c["iota_w"] * st.pi_lag ** (1 - c["iota_w"])
-    pi_w = p.pi * p.w_tilda / st.w_tilda_lag
+    # Nominal wage inflation. w_tilda is the wage divided by price AND trend
+    # (z*), so the growth factor belongs here: W_t/W_{t-1} = pi * mu_z *
+    # w_tilda/w_tilda_lag. Wages that are not reoptimised are indexed to
+    # growth too, with weight iota_mu on current growth. At the steady
+    # state the ratio of the index to wage inflation is then pi_w_tilda/pi,
+    # the same form as the price block.
+    pi_w = p.pi * st.mu_z * p.w_tilda / st.w_tilda_lag
+    mu_w_tilda = st.mu_z ** c["iota_mu"] * c["mu_z_ss"] ** (1 - c["iota_mu"])
+    wage_index_ratio = pi_w_tilda * mu_w_tilda / pi_w
 
     # Investment adjustment
     i_ratio = st.mu_z * p.i / st.i_lag
@@ -229,15 +237,16 @@ def definitions(state: Array, policy: Array, constants: Dict) -> Dict[str, Array
     )
     K_p_inner = _soft_floor(K_p_inner, 0.01)
 
-    K_w_inner = (
-        1 - c["xi_w"] * (pi_w_tilda / pi_w * c["mu_z_ss"]) ** (1 / (1 - c["lambda_w"]))
-    ) / (1 - c["xi_w"])
+    K_w_inner = (1 - c["xi_w"] * wage_index_ratio ** (1 / (1 - c["lambda_w"]))) / (
+        1 - c["xi_w"]
+    )
     K_w_inner = _soft_floor(K_w_inner, 0.01)
 
     return {
         "pi_tilda": pi_tilda,
         "pi_w_tilda": pi_w_tilda,
         "pi_w": pi_w,
+        "wage_index_ratio": wage_index_ratio,
         "S_val": S_val,
         "S_prime_val": S_prime_val,
         "omega_bar": omega_bar,
@@ -284,7 +293,7 @@ def anchor_gate(
     weight = sigmoid(k * (R_taylor - R_lb - margin)), evaluated ONCE on the
     fixed anchor cloud at trainer setup (pre-JIT, zero runtime cost).
     margin=0.005 and k=400 are fixed a priori (EWM protocol style, never
-    tuned on reported metrics): at the SS gap (~0.018) weight ≈ 0.995; at
+    tuned on reported metrics): at the SS gap (~0.0116) weight ≈ 0.93; at
     the floor ≈ 0.12; below → 0. Non-finite R_taylor (linear policy
     extrapolated into infeasibility) → weight 0.
     """
@@ -376,7 +385,7 @@ def equations(
 
     # Eq 4b: K_w recursion — ratio form K_w = E[RHS] → RHS/K_w - 1 = 0.
     # Same Jensen-correctness argument as Eq 2b.
-    eq4_ratio_next = (defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]) ** (
+    eq4_ratio_next = defs_n["wage_index_ratio"] ** (
         c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
     )
     eq4_rhs = (

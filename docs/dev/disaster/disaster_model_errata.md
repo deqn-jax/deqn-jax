@@ -495,12 +495,26 @@ the paper; the tex is wrong on these four points.
 
 ## Note on Hardcoded Constants
 
-The constants `pi_ss = 1.006`, `R_ss = 1.011678`, and `y_ss = 3.0308`
-are calibration targets. The numerically solved steady state has
-`pi = 1.012` and `R = 1.018`, which differ from `pi_ss` and `R_ss`
-because the Taylor rule with non-zero `alpha_y` and the financial frictions
-shift the steady-state inflation rate above the target. This is
-economically expected behavior for this class of models and is not a bug.
+**Superseded 2026-11-11.** This note used to say that `R_ss = 1.011678` and
+`y_ss = 3.0308` are calibration targets and that the solved steady state at
+`pi = 1.012`, `R = 1.018` is "economically expected … not a bug". It was a
+bug: `y_ss` sat 0.9% above the model's own steady-state output, so the
+Taylor rule read a permanent output gap and held inflation above target.
+`R_ss` and `y_ss` are now derived from the solved steady state
+(`steady_state.consistent_targets`); the steady state has `pi = pi_ss =
+1.006`, `R = 1.011642`, `y = 3.017715`.
+
+## Wage inflation and growth (2026-11-11)
+
+`w_tilda` is the wage divided by the price level and by the trend, so
+nominal wage inflation is `pi_w = pi * mu_z * w_tilda / w_tilda_lag`. The
+code had `pi_w = pi * w_tilda / w_tilda_lag` and indexed non-reoptimised
+wages to `mu_z_ss` instead of `mu_z**iota_mu * mu_z_ss**(1 - iota_mu)`. The
+F_w recursion already carried the growth exponents that assume the correct
+`pi_w`; the K_w block did not, which left steady-state wage dispersion
+(`K_w_inner = 1.031` instead of 1). Fixed in `definitions()`, eq 4b, the
+`w_tilda` reparameterisation and the diagnostics. Both versions are
+determinate (13 stable roots, largest 0.987).
 
 ---
 

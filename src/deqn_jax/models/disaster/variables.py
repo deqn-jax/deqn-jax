@@ -86,8 +86,14 @@ CONSTANTS = {
     # Steady states
     "pi_ss": 1.006,
     "mu_z_ss": 1.0041,
-    "R_ss": 1.011678,
-    "y_ss": 3.0308,
+    # Taylor-rule targets. Derived, not chosen: the values that
+    # steady_state.consistent_targets returns for this calibration, so the
+    # steady state sits at pi_ss (a test holds the two together; the
+    # training hook re-derives them when a run changes the calibration).
+    # R_ss is a hair below the steady-state rate 1.011642 because the rule
+    # is passed through the lower-bound soft floor.
+    "R_ss": 1.0116024777734063,
+    "y_ss": 3.0177148930958593,
     "g_ss": 0.616,
     # Shock parameters
     "rho_eps": 0.809,
@@ -108,33 +114,32 @@ CONSTANTS = {
 }
 
 STEADY_STATE = {
-    # Numerically solved (max |residual| < 2e-15) with the eq5 habit
-    # soft floor at sharpness 100 (see the eq5 block in equations.py).
+    # Numerically solved (max |residual| < 2e-15) at CONSTANTS above.
     # Used as the initial guess of the steady-state solver.
-    "pi_lag": 1.012287,
-    "k_lag": 27.421465,
-    "c_lag": 1.593674,
+    "pi_lag": 1.006,
+    "k_lag": 27.577678,
+    "c_lag": 1.602481,
     "q_lag": 1.0,
-    "i_lag": 0.794706,
-    "R_lag": 1.017964,
-    "w_tilda_lag": 1.920213,
-    "L_lag": 1.965712,
+    "i_lag": 0.799234,
+    "R_lag": 1.011642,
+    "w_tilda_lag": 1.923428,
+    "L_lag": 1.965719,
     "eps": 1.0,
     "mu_ups": 1.0,
     "g": 0.616,
     "mu_z": 1.0041,
     "m_p": 0.0,
-    "lambda_z": 0.601832,
-    "i": 0.794706,
-    "pi": 1.012287,
-    "c": 1.593674,
-    "w_tilda": 1.920213,
-    "h": 0.944027,
-    "F_w": 0.885314,
-    "F_p": 4.735946,
+    "lambda_z": 0.598524,
+    "i": 0.799234,
+    "pi": 1.006,
+    "c": 1.602481,
+    "w_tilda": 1.923428,
+    "h": 0.946269,
+    "F_w": 0.894732,
+    "F_p": 4.529869,
     "q": 1.0,
-    "K_p": 4.777398,
-    "K_w": 2.182547,
+    "K_p": 4.529866,
+    "K_w": 2.233541,
 }
 
 # omega_bar SS value (computed analytically from bank participation constraint)
@@ -151,7 +156,7 @@ OMEGA_BAR_SS = 0.488466
 # gradient explosion through the soft_floor at 0.01.
 #
 # Policy:     lambda_z  i     pi    c     w_tilda  h     F_w   F_p   q     K_p   K_w
-# SS:         0.602     0.795 1.012 1.594 1.920    0.944 0.885 4.736 1.000 4.78  2.18
+# SS:         0.599     0.799 1.006 1.602 1.923    0.946 0.895 4.530 1.000 4.53  2.23
 # Bounding:   softplus  soft  sigm  soft  softplus soft  soft  soft  soft  soft  soft
 #
 # numpy float64, not jnp: a jnp array built here takes the precision in force

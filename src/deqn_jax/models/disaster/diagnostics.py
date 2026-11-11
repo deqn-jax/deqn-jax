@@ -154,7 +154,7 @@ def _eq4_diagnostics(
     defs_fn = model.definitions_fn
     defs_n = jax.vmap(lambda s, p: defs_fn(s, p, c))(next_states, next_policies)
 
-    ratio_base = defs_n["pi_w_tilda"] * c["mu_z_ss"] / defs_n["pi_w"]
+    ratio_base = defs_n["wage_index_ratio"]
     exponent = c["lambda_w"] / (1 - c["lambda_w"]) * (1 + c["sigma_L"])
     eq4_ratio = ratio_base**exponent
 
@@ -173,9 +173,7 @@ def _eq4_diagnostics(
 
     xi_w = c["xi_w"]
     lambda_w = c["lambda_w"]
-    K_w_inner_ratio = (defs["pi_w_tilda"] / defs["pi_w"] * c["mu_z_ss"]) ** (
-        1 / (1 - lambda_w)
-    )
+    K_w_inner_ratio = defs["wage_index_ratio"] ** (1 / (1 - lambda_w))
     K_w_inner = (1 - xi_w * K_w_inner_ratio) / (1 - xi_w)
     floor_frac = float(np.mean(np.asarray(K_w_inner) < 0.02))
 

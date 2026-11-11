@@ -172,6 +172,41 @@ def steady_state(constants: Dict) -> Tuple[Array, Array]:
     return jnp.array(ss_state_np), jnp.array(ss_policy_np)
 
 
+TARGET_NAMES = ("R_ss", "y_ss")
+
+
+def consistent_targets(constants: Dict) -> Dict[str, float]:
+    """Taylor-rule targets under which the steady state has pi = pi_ss.
+
+    ``R_ss`` and ``y_ss`` are not free parameters: the rule is centred on
+    the steady state only when ``R_ss`` is the rate the bond Euler implies
+    at target inflation and ``y_ss`` is the output of that steady state.
+    Hardcoded, they go stale whenever the model or its calibration moves,
+    and the rule then pushes inflation off target (a 0.9% output gap moved
+    it from 1.006 to 1.0123).
+
+    ``R_ss`` undoes the lower-bound soft floor, so the floored rate, not
+    the raw prescription, equals ``pi_ss*mu_z/beta``. The rule smooths on
+    the lagged floored rate, hence the ``rho_p`` exponents.
+    ``y_ss`` is read off the steady state solved with the output-gap term
+    switched off, which is the steady state the full rule then reproduces.
+    """
+    c = constants
+    R_target = c["pi_ss"] * c["mu_z_ss"] / c["beta"]
+    R_lb = c.get("R_lb", 1.0)
+    sharpness = c.get("R_lb_sharpness", 100.0)
+    # Raw prescription whose floored value is R_target (inverse of
+    # equations._soft_floor), then R_ss from
+    # raw = R_ss**(1 - rho_p) * R_target**rho_p.
+    raw = R_lb + float(np.log(np.expm1(sharpness * (R_target - R_lb)))) / sharpness
+    rho_p = c["rho_p"]
+    R_ss = float((raw / R_target**rho_p) ** (1.0 / (1.0 - rho_p)))
+    _, policy = _solve_steady_state({**c, "alpha_y": 0.0, "R_ss": R_ss})
+    names = SPEC.policy_names
+    y_ss = c["g_ss"] + policy[names.index("c")] + policy[names.index("i")]
+    return {"R_ss": R_ss, "y_ss": float(y_ss)}
+
+
 def init_state(key: Array, batch_size: int, constants: Dict) -> Array:
     ss_state, _ = steady_state(constants)
     noise = jax.random.uniform(key, (batch_size, 13), minval=-0.05, maxval=0.05)

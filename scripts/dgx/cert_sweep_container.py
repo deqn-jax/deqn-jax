@@ -1,15 +1,20 @@
 """Disaster certification sweep — NGC-container launcher (GPU).
 
-Same 4 arms x 3 seeds as scripts/dgx/disaster_cert_sweep.sh, but as a python
-launcher for scripts/dgx/run_sweep_in_container.sh (in-process, no uv/console
-scripts needed inside the container):
+The arms below x 3 seeds, as a python launcher for
+scripts/dgx/run_sweep_in_container.sh (in-process, no uv/console scripts
+needed inside the container):
 
   LAUNCHER=scripts/dgx/cert_sweep_container.py ./scripts/dgx/run_sweep_in_container.sh
+
+Arm names given as arguments restrict the sweep to those arms:
+
+  LAUNCHER=... ./scripts/dgx/run_sweep_in_container.sh disaster disaster_gated_pcgrad_bkpin
 
 Resumable: a tag is skipped iff its DONE marker exists (checkpoint_best.eqx
 alone is not enough — fallback saves write it mid-run).
 """
 
+import sys
 from pathlib import Path
 
 from deqn_jax.config import TrainConfig
@@ -33,7 +38,7 @@ SEEDS = [0, 1, 2]
 
 
 def main() -> None:
-    for arm in ARMS:
+    for arm in sys.argv[1:] or ARMS:
         for seed in SEEDS:
             tag = f"{arm}_s{seed}"
             outdir = Path("runs/disaster_cert") / tag

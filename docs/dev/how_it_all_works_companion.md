@@ -129,8 +129,10 @@ figures). Three years of rewrites did not corrupt the math. What's wrong lives i
    actually produced; the Taylor rule reads the phantom gap every quarter and the solved
    economy runs 5% inflation under a 2.4% label. Established by counterfactual re-solves (the
    tex's old "financial-friction compounding" story was wrong and is now rewritten — errata
-   item 12). The honest calibration exists and is runnable (`configs/disaster_recal.yaml`,
-   π* = 1.005918 verified) but doubles ELB exposure — opt-in, decision coupled to the ELB fix.
+   item 12). **Fixed 2026-11-11:** `R_ss` and `y_ss` are now derived from the solved steady
+   state (`steady_state.consistent_targets`), so π* = π_ss = 1.006 by construction; the opt-in
+   `configs/disaster_recal.yaml` is gone. The cost stands: on-target inflation means a lower
+   steady-state rate and more ELB exposure (not re-measured on the current model).
 2. **The model lives on its own kink.** The Taylor rate wants to cross its floor one quarter
    in eight; every linear tool is blind exactly there.
 3. **The disaster is a costume.** p = 0 ships (mechanism inert), θ = 5% vs Alex's Barro-sized

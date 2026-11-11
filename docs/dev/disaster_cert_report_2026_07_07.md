@@ -14,6 +14,11 @@ probe (`scripts/disaster_ss_probe.py`); raw checkpoints under `runs/disaster_cer
 > as the record of the July code. No arm is certified on the current code until it is retrained
 > and re-probed at the frozen convention; pictures of the July pinned arm show a policy that is the
 > first-order rule plus seed noise, with equation errors no better than the linear rule.
+>
+> **Model changed (2026-11-11).** Wage inflation gained the trend-growth factor it lacked and
+> the Taylor targets `R_ss`, `y_ss` are derived from the solved steady state (inflation at the
+> 1.006 target instead of 1.0123). Every number below is a measurement of the old equations
+> at the old steady state.
 
 ## Design
 

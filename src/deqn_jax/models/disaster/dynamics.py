@@ -113,7 +113,7 @@ _SIM_UPPER = np.array(
 # Kept full-13 for trajectory reproducibility; doc §6.5 reflects this.
 #
 #              pi     k     c     q     i     R     w_t   L     eps   mu_u  g     mu_z  m_p
-# SS values: 1.012  27.42  1.59  1.00  0.79  1.02  1.92  1.97  1.00  1.00  0.62  1.00  0.00
+# SS values: 1.006  27.58  1.60  1.00  0.80  1.01  1.92  1.97  1.00  1.00  0.62  1.00  0.00
 _SOFT_LOWER = np.array(
     [-1.0, 1.0, -1.0, -1.5, -1.5, -1.0, -0.5, -0.5, -1.5, -1.5, -2.0, -1.5, -5.0]
 )
