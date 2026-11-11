@@ -26,7 +26,12 @@ from deqn_jax.models.disaster.equations import (
     definitions,
     equations,
 )
-from deqn_jax.models.disaster.steady_state import init_state, steady_state
+from deqn_jax.models.disaster.steady_state import (
+    TARGET_NAMES,
+    consistent_targets,
+    init_state,
+    steady_state,
+)
 from deqn_jax.models.disaster.variables import (
     CONSTANTS,
     N_SHOCKS,
@@ -40,23 +45,41 @@ from deqn_jax.types import ModelSpec
 def _setup(model: ModelSpec, config) -> ModelSpec:
     """Pre-train hook for the disaster model.
 
+    Two adaptations to the run's calibration.
+
+    The Taylor-rule targets ``R_ss`` and ``y_ss`` follow the calibration:
+    a run that overrides constants has them re-derived by
+    ``consistent_targets``, so changing, say, ``beta`` still leaves the
+    steady state at ``pi_ss``. A run that sets either target in
+    ``config.constants`` keeps both as given; a run with no overrides uses
+    the shipped values, which are the derived ones for the shipped
+    calibration.
+
     When ``p_disaster > 0`` the equilibrium contains a discrete
     capital-destruction branch and the deterministic steady state is
     no longer the relevant anchor. Composite-loss anchors and
     Blanchard-Kahn linearization should target the *risky* steady
     state instead -- the SS that solves ``E_d[F] = 0`` under the
-    disaster mixture.
-
-    This hook swaps ``steady_state_fn`` to ``risky_steady_state`` when
-    both ``constants['p_disaster'] > 0`` and
+    disaster mixture. The hook swaps ``steady_state_fn`` to
+    ``risky_steady_state`` when both ``constants['p_disaster'] > 0`` and
     ``config.use_risky_steady_state`` is True (the default). Setting
     the flag False forces the deterministic SS even under disaster
     risk -- used for ablating the anchor/residual disagreement.
 
     Lives here, not in trainer.py, so the framework core stays model-
     agnostic. Triggered via ``ModelSpec.setup_fn`` from
-    ``train_from_config``.
+    ``calibrate_model``, which training and the checkpoint loader share.
     """
+    overrides = getattr(config, "constants", None) or {}
+    if overrides and not any(name in overrides for name in TARGET_NAMES):
+        targets = consistent_targets(model.constants)
+        model = model._replace(constants={**model.constants, **targets})
+        if getattr(config, "verbose", False):
+            print(
+                f"  Taylor targets from the steady state: "
+                f"R_ss={targets['R_ss']:.7f}, y_ss={targets['y_ss']:.6f}"
+            )
+
     p = float(model.constants.get("p_disaster", 0.0))
     if p <= 0.0:
         return model

@@ -42,9 +42,14 @@ record, with all amendments in place).
 - **House audit v2** (docs/dev/disaster_house_audit.md, untracked): π-gap mechanism =
   Taylor rule vs miscalibrated y_ss (indexation hypothesis refuted by blind refereeing);
   model determinate at shipped calibration (boundary ξ_p ≈ 0.79); ELB crossed 1.18σ from
-  SS, ~12% of quarters — strongest confirmed finding; recal config exists
+  SS, ~12% of quarters — strongest confirmed finding; recal config existed
   (`configs/disaster_recal.yaml`: y_ss 3.006808, R_ss 1.0116421, opt-in, doubles ELB
-  exposure).
+  exposure). *Superseded 2026-11-11:* the Taylor targets are derived from the solved
+  steady state (π* = 1.006 by construction) and the config is removed; in the same change
+  wage inflation gained the growth factor it lacked against the draft
+  (π_w = π·μ_z·w̃/w̃₋₁, indexation to current growth with weight ι_μ), which moves the
+  steady state (c 1.594 → 1.602, k 27.42 → 27.58). "All 11 equations … math clean" below
+  predates this finding. ELB exposure under the new steady state is not re-measured.
 - **Model tex vindicated** (07-06/07): all 11 equations re-derived by hand + cross-checked;
   math clean; 5 prose-slop errata fixed (b6fbe6f). ELB floor traced to commit fdfbf2b
   (2026-04-17) — added as a training guardrail, absent from the original model. The
@@ -413,3 +418,33 @@ whether night-1's table is a warm-start artifact.
 Method lesson #8: **probe episode 0.** Every certificate was measured on final checkpoints
 and none on the initial state; the one number that would have caught this (ρ at s\* before
 training) was never in the table. Certify the start of a run the way you certify its end.
+
+## 21. Coda (11-11) — the model changed, and the network adds nothing to first order
+
+The disaster model was checked against its source for the first time: wage inflation lacked
+trend growth and the Taylor targets were inconsistent with the model's own steady state
+(errata, "Wage inflation and growth"; "Note on Hardcoded Constants"). Both fixed; every run
+before this date solves other equations. First runs on the corrected model, final
+checkpoints, fp64, seeds 0–2, DGX:
+
+- **Baseline ×3** (`configs/disaster.yaml`, the re-run §20 asked for, on the new model so
+  not a clean answer to it): ρ(SS) 0.9870 in 3/3 (the exogenous root — the learned block
+  is stable), max SS error 0.12–0.17%, drift@100 0.2–0.4%.
+- **But the policy is the first-order rule.** Impulse responses and policy slices lie on
+  the Blanchard–Kahn rule. Max-over-equations error (conditional expectation) against
+  distance from s\*: first-order rule 2.3e-3 at 0.5 sd → 6.0e-2 at 2.7 sd; networks
+  3.0–3.8e-3 → 3.8–4.2e-2. The region visited is not linear, and the network closes a
+  third of the gap far out and none near s\*. The training loss does not fall: 2.5e-5 at
+  episode 100, 2.4–4.8e-5 at 3000.
+- **Without the anchor terms** (`configs/disaster_noanchor.yaml`, anchor_weight = jac_weight
+  = 0, same exact-linear start): loss flat at ~2e-5 for 300 episodes, then diverges
+  (7e3 at episode 500, just after the shock curriculum ends at 200); final ρ(SS)
+  1.62–2.60, SS error 47–97%, 0/3. The anchor is what holds the policy at the
+  linearization; residual descent alone leaves it and does not come back.
+- The steady state is not a fixed point of `step()`: its closing `soft_clip_state` moves
+  s\* by 8e-6 per quarter in π and R, so the exact first-order rule drifts ~0.03% of
+  output by itself and the drift leg measures that too.
+
+Method lesson #9: **compare with the first-order rule on the same picture.** A stable
+root and a small steady-state error are also what the linearization has; neither shows
+that training found anything.

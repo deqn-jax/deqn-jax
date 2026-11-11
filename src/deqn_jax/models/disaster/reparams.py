@@ -277,10 +277,12 @@ class CalvoWage(_Reparam):
     pi_idx: int = _policy("pi")
     w_tilda_lag_idx: int = _state("w_tilda_lag")
     pi_lag_idx: int = _state("pi_lag")
+    mu_z_idx: int = _state("mu_z")
     xi_w: float = _constant("xi_w")
     lambda_w: float = _constant("lambda_w")
     sigma_L: float = _constant("sigma_L")
     iota_w: float = _constant("iota_w")
+    iota_mu: float = _constant("iota_mu")
     psi_L: float = _constant("psi_L")
     pi_ss: float = _constant("pi_ss")
     mu_z_ss: float = _constant("mu_z_ss")
@@ -313,23 +315,26 @@ class CalvoWage(_Reparam):
             1.0 / (1.0 - self.xi_w) - 0.01,
         )
 
+    def _mu_w_tilda(self, mu_z):
+        return (mu_z**self.iota_mu) * (self.mu_z_ss ** (1.0 - self.iota_mu))
+
     def bk_target(self, bk_level, state):
+        mu_z = state[self.mu_z_idx]
         pi_w_BK = (
             bk_level[self.pi_idx]
+            * mu_z
             * bk_level[self.w_tilda_idx]
             / (state[self.w_tilda_lag_idx] + 1e-12)
         )
-        pi_w_tilda_t = self._pi_w_tilda(state[self.pi_lag_idx])
+        index_t = self._pi_w_tilda(state[self.pi_lag_idx]) * self._mu_w_tilda(mu_z)
         aw_exp = 1.0 / (1.0 - self.lambda_w)
-        return (1.0 - self.xi_w * (pi_w_tilda_t * self.mu_z_ss / pi_w_BK) ** aw_exp) / (
-            1.0 - self.xi_w
-        )
+        return (1.0 - self.xi_w * (index_t / pi_w_BK) ** aw_exp) / (1.0 - self.xi_w)
 
     def recover(self, raw, state):
         """Post-clip, after ``CalvoPrice.recover``: invert the Calvo formula
         for pi_w_t, so the K_w_inner that definitions() recomputes from
-        (pi_w_tilda·µ_z_ss/pi_w) equals K_w_inner_t identically; derive
-        w_tilda_t from pi_w_t = pi_t·w_tilda_t/w_tilda_lag; then set
+        (the wage index over pi_w) equals K_w_inner_t identically; derive
+        w_tilda_t from pi_w_t = pi_t·µ_z,t·w_tilda_t/w_tilda_lag; then set
         K_w = (1/ψ_L)·K_w_inner^{1−λ_w(1+σ_L)}·w_tilda·F_w so eq 4a holds up to
         the soft-floor wedge. (Inverting eq 4a directly for w_tilda is wrong
         off the SS: definitions() would then recompute a different K_w_inner.)
@@ -338,12 +343,13 @@ class CalvoWage(_Reparam):
         w_tilda_lag = state[self.w_tilda_lag_idx]
         kw_inner_t = raw[self.w_tilda_idx]
         inner_term_w = (1.0 - (1.0 - self.xi_w) * kw_inner_t) / self.xi_w
+        mu_z = state[self.mu_z_idx]
         pi_w_t = (
             self._pi_w_tilda(state[self.pi_lag_idx])
-            * self.mu_z_ss
+            * self._mu_w_tilda(mu_z)
             * inner_term_w ** (self.lambda_w - 1.0)
         )
-        w_tilda_t = pi_w_t * w_tilda_lag / (raw[self.pi_idx] + 1e-12)
+        w_tilda_t = pi_w_t * w_tilda_lag / (raw[self.pi_idx] * mu_z + 1e-12)
         kw_exponent = 1.0 - self.lambda_w * (1.0 + self.sigma_L)
         K_w_t = (
             (1.0 / self.psi_L)

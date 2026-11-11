@@ -147,9 +147,9 @@ Equation 2a is the optimal-reset-price condition (no expectation — it's a stat
 
 ## 5. Labor Unions (Calvo Wages)
 
-A continuum of unions sets wages with Calvo friction. Each period a fraction $1 - \xi_w$ can reoptimize; the rest index to lagged inflation $\tilde\pi_w \equiv (\pi^{ss})^{\iota_w} \pi_{t-1}^{1-\iota_w}$.
+A continuum of unions sets wages with Calvo friction. Each period a fraction $1 - \xi_w$ can reoptimize; the rest index to lagged inflation $\tilde\pi_w \equiv (\pi^{ss})^{\iota_w} \pi_{t-1}^{1-\iota_w}$ and to growth, $\tilde\mu_{w,t} \equiv \mu_{z,t}^{\iota_\mu} (\mu_z^{ss})^{1-\iota_\mu}$.
 
-Define wage inflation $\pi_{w,t} \equiv \pi_t \tilde w_t / \tilde w_{t-1}$ and the wage-trend factor $\Lambda_{w,t} \equiv \mu_{z,t}^{\iota_\mu / (1-\lambda_w)} (\mu_z^{ss})^{(1-\iota_\mu)/(1-\lambda_w)}$.
+Define wage inflation $\pi_{w,t} \equiv \pi_t \mu_{z,t} \tilde w_t / \tilde w_{t-1}$ ($\tilde w$ is scaled by the trend, so growth enters) and the wage-trend factor $\Lambda_{w,t} \equiv \mu_{z,t}^{\iota_\mu / (1-\lambda_w)} (\mu_z^{ss})^{(1-\iota_\mu)/(1-\lambda_w)}$.
 
 The auxiliary recursive variables:
 
@@ -364,8 +364,8 @@ All $\xi \sim \mathcal{N}(0,1)$ i.i.d. Plus the disaster Bernoulli $d_t \sim \te
 | | $\mu_{\text{mon}}$ | 0.22 | monitoring cost |
 | Targets | $\pi^{ss}$ | 1.006 | quarterly inflation, 2.4% annual |
 | | $\mu_z^{ss}$ | 1.0041 | quarterly trend, 1.6% annual |
-| | $R^{ss}$ | 1.0117 | quarterly gross rate |
-| | $y^{ss}$ | 3.0308 | output target |
+| | $R^{ss}$ | 1.0116 | derived: rate at target inflation |
+| | $y^{ss}$ | 3.0177 | derived: steady-state output |
 | | $g^{ss}$ | 0.616 | gov't spending target |
 | Shocks ($\rho, \sigma$) | $\varepsilon$ | (0.809, 0.0046) | productivity |
 | | $\mu_\Upsilon$ | (0.987, 0.004) | inv-specific tech |
