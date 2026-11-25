@@ -48,18 +48,36 @@ class NetworkConfig(_ConfigBase):
             "lecun_normal",
         }
     )
+    VALID_INPUT_SCALE_MODES: ClassVar[frozenset] = frozenset({"ss", "ergodic_std"})
 
     # The fields each network type reads (``networks.factory.build_policy_net``
     # passes exactly these on). Any other field set away from its default is
     # rejected below: it would not reach the network.
     FIELDS_READ: ClassVar[dict] = {
-        "mlp": frozenset({"type", "hidden_sizes", "activation", "activations", "init"}),
+        "mlp": frozenset(
+            {
+                "type",
+                "hidden_sizes",
+                "activation",
+                "activations",
+                "init",
+                "input_scale_mode",
+            }
+        ),
         "lstm": frozenset({"type", "hidden_sizes", "history_len"}),
         "transformer": frozenset(
             {"type", "hidden_sizes", "history_len", "num_heads", "n_layers"}
         ),
         "linear_plus_mlp": frozenset(
-            {"type", "hidden_sizes", "activation", "init", "init_scale", "output_links"}
+            {
+                "type",
+                "hidden_sizes",
+                "activation",
+                "init",
+                "init_scale",
+                "output_links",
+                "input_scale_mode",
+            }
         ),
         "rss_market_clearing_net": frozenset({"type", "hidden_sizes"}),
     }
@@ -118,6 +136,10 @@ class NetworkConfig(_ConfigBase):
         default=None,
         description="Per-policy output parameterization for residual networks. Each entry must be 'linear' (additive: π_i = ss_i + BK + MLP) or 'log' (multiplicative: π_i = ss_i·exp(BK_log + MLP), bakes in positivity). Length must equal n_policies. None = use the model's default_output_links (or all-linear if model doesn't specify).",
     )
+    input_scale_mode: str = Field(
+        default="ss",
+        description="Input normalization scale for `mlp`, `linear_plus_mlp` and `disaster_policy_net`: `ss` (default: `max(|ss_state|, 0.01)`) or `ergodic_std` (square-root diagonal of the linearized ergodic state covariance from `compute_ergodic_covariance`, floored at `1e-6`, so every state enters the MLP at O(1) scale).",
+    )
 
     @field_validator("output_links", mode="before")
     @classmethod
@@ -169,7 +191,7 @@ class NetworkConfig(_ConfigBase):
     def _coerce_init_scale(cls, v, info):
         return _coerce_float(v, f"network.{info.field_name}")
 
-    @field_validator("type", "activation", "init", mode="before")
+    @field_validator("type", "activation", "init", "input_scale_mode", mode="before")
     @classmethod
     def _check_str_type(cls, v, info):
         if not isinstance(v, str):
@@ -192,6 +214,11 @@ class NetworkConfig(_ConfigBase):
         if self.init not in self.VALID_INITS:
             raise ValueError(
                 f"Unknown init '{self.init}'. Valid: {sorted(self.VALID_INITS)}"
+            )
+        if self.input_scale_mode not in self.VALID_INPUT_SCALE_MODES:
+            raise ValueError(
+                f"Unknown input_scale_mode '{self.input_scale_mode}'. "
+                f"Valid: {sorted(self.VALID_INPUT_SCALE_MODES)}"
             )
         if not self.hidden_sizes:
             raise ValueError("hidden_sizes must be non-empty")

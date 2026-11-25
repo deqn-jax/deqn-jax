@@ -772,3 +772,17 @@ JAX_ENABLE_X64=1 uv run python scripts/cert/disaster_ss_probe.py \
 ```
 
 **Naming correction (2026-09-17).** The "K/F gauge mask" named in the curvature measurement above is a *restriction*, not a gauge fix: the Calvo recursions are affine with a current-period source term, so a common rescaling of the four auxiliaries is not a symmetry of the equilibrium system — verified numerically at the steady state (definition residuals unchanged, recursion residuals move by −0.035 at ×1.1). The measurement stands; the rationale is withdrawn. Its cost is unmeasured and is the first item of the disaster-network lane (graph @aleph/deqn, #34, #39).
+
+## Unblocked `bk_pin` with ergodic scaling on the corrected model (2026-11-25)
+
+**Model and arm.** Corrected disaster equations (trend growth `mu_z` in `pi_w`, derived Taylor targets, `p_disaster = 0`); `configs/disaster_unblocked_bkpin.yaml` (`bk_pin: true`, `anchor_weight = 0`, `jac_weight = 0`, `kf_names: []`, `network.input_scale_mode: ergodic_std`, `ss_reset_mode: ergodic_std`, `lr = 3e-4` cosine, `3000` episodes, `3^5 = 243` Gauss-Hermite nodes, `fp64`, DGX GB10, seeds `0, 1, 2`).
+
+**Why prior arms stayed linear (diagnostic):** `input_scale = max(|ss|, 0.01)` created a `67.8x` normalized `1σ` input skew (`mu_z` `0.0072` vs `m_p` `0.49`); multiplicative `ss_reset` (`±5%`) threw `mu_z`/`eps` `6–7σ` (`87x` loss jump); and at the trained nonlinear policy `aux_anchor = 3.42e-3` vs `base_loss = 4.57e-7` (`7,500x` ratio), locking `anchor_weight = 1.0` arms onto `π_BK`.
+
+**Certificates (3/3 seeds, `checkpoint_003000.eqx`, `fp64`):**
+
+- **SS & learned-block stability (`disaster_ss_probe.py` + 8×8 split):** `ρ_learned(s*) = 0.97608`, `ρ_learned(ŝ) = 0.97607 / 0.97597 / 0.97598`, raw `ρ = 0.98699` (exogenous floor), `max|dSS| = 0.000%`, `‖ŝ − s*‖ = 0.0546% / 0.0545% / 0.0545%`, `drift@100 = 0.053%` (identical to exact `π_BK`'s `soft_clip_state` floor).
+- **Held-out 300-quarter ergodic `GH-243` residuals (`|E[r]|`):** common-state RMS `4.56e-4 / 6.56e-4 / 4.63e-4` vs `3.91e-3` for 1st-order BK (`6.0x–8.6x` lower); far-from-SS `med(max_eq)` `8.90e-4 / 1.39e-3 / 1.04e-3` vs `6.21e-3` (`4.5x–7.0x` lower); own-trajectory RMS `6.84e-4 / 1.28e-3 / 6.85e-4`. Seeds `0` and `2` beat 1st-order BK on `11/11` equations (seed `1` on `10/11`), with median `log10(|E[r]|)` across `s0 / s1 / s2` vs BK: `eq1` `-3.89 / -3.68 / -3.96` vs `-2.97`, `eq2a` `-4.10 / -3.88 / -4.00` vs `-3.25`, `eq2b` `-3.68 / -3.62 / -3.68` vs `-2.78`, `eq3` `-3.99 / -3.71 / -3.97` vs `-3.25`, `eq4a` `-3.80 / -3.59 / -3.64` vs `-2.96`, `eq4b` `-3.51 / -3.48 / -3.50` vs `-2.71`, `eq5` `-3.88 / -3.72 / -3.84` vs `-3.37`, `eq6` `-3.56 / -3.42 / -3.51` vs `-3.12`, `eq7` `-3.26 / -3.09 / -3.25` vs `-2.69`, `eq8` `-3.42 / -3.25 / -3.40` vs `-3.35`, `eq9` `-3.96 / -3.74 / -4.00` vs `-3.22`.
+- **Cross-seed agreement:** nonlinear shift `|π − π_BK|` median `0.69–1.00%` (max `8.11%`); cross-seed gap median `0.23–0.55%`; cosine similarity of `(π_s0 − π_BK)` vs `(π_s1 − π_BK)` = `+0.9394`.
+- **Held-out ELB stress grid (`ewm_stress_table.py`, `configs/disaster_elbcov.yaml`, `(E[r])²` units):** `stress max(all eqs)` `1.905e-5 / 1.430e-5 / 1.306e-4` (median `1.905e-5`) vs `1.229e-2` for `linear_bk`; `base total` `1.143e-3 / 2.698e-3 / 1.697e-3` (median `1.697e-3`) vs `4.288e-2` for `linear_bk`.
+- **Falsifier (`bk_pin_slope_only`, freeing `δ(s*)`):** improved `max|E[r(ŝ)]|` on seed `0` (`3.86e-4`) but drifted `12.56%` (`drift@100 = 20.06%`, own RMS `2.64e-1`) on seed `1`; rejected in favor of full `bk_pin`.

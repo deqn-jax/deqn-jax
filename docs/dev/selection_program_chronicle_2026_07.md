@@ -448,3 +448,16 @@ checkpoints, fp64, seeds 0–2, DGX:
 Method lesson #9: **compare with the first-order rule on the same picture.** A stable
 root and a small steady-state error are also what the linearization has; neither shows
 that training found anything.
+
+## 22. Coda (11-25) — unblocked `bk_pin` with ergodic scaling beats first order across 3/3 seeds
+
+Diagnosed why the corrected disaster arm stayed pinned to `π_BK`: `input_scale = max(|ss|, 0.01)` distorted normalized `1σ` inputs by `67.8×` (`mu_z` `0.0072` vs `m_p` `0.49`), multiplicative `±5%` `ss_reset` threw `mu_z`/`eps` `6–7σ` (`87×` loss jump), `kf_names` froze the Calvo heads, and `anchor_weight = 1.0` (`aux_anchor = 3.42e-3` vs `base_loss = 4.57e-7` at the nonlinear solution) locked the optimum onto `π_BK`.
+
+Removing all five bottlenecks (`configs/disaster_unblocked_bkpin.yaml`: `bk_pin: true`, `anchor/jac_weight = 0`, `kf_names: []`, `network.input_scale_mode: ergodic_std`, `ss_reset_mode: ergodic_std`, 3000 episodes, `GH-243`, `fp64`, DGX GB10, seeds `0–2`):
+
+- **Stability (3/3):** `ρ_learned(ŝ) = 0.97607 / 0.97597 / 0.97598`, raw `ρ = 0.98699`, `max|dSS| = 0.000%`, `drift@100 = 0.053%` (the `soft_clip_state` floor of `step()`).
+- **Held-out accuracy (`GH-243`, 300 ergodic states):** common-state RMS `4.56e-4 / 6.56e-4 / 4.63e-4` vs `3.91e-3` for 1st-order BK (`6.0–8.6×` lower); `s0`/`s2` beat BK on `11/11` equations (`s1` on `10/11`). Held-out ELB stress grid (`ewm_stress_table.py`, `(E[r])²` units): median `stress max(all eqs) = 1.905e-5` vs `1.229e-2` for `linear_bk`; median `base total = 1.697e-3` vs `4.288e-2`.
+- **Same nonlinear policy across seeds:** `|π − π_BK|` median `0.69–1.00%` (max `8.11%`), cross-seed median gap `0.23–0.55%`, cosine similarity `(π_s0 − π_BK)` vs `(π_s1 − π_BK)` = `+0.9394`.
+- **Falsifier (`bk_pin_slope_only`):** freeing `δ(s*)` cut `max|E[r(ŝ)]|` on `s0` (`3.86e-4`) but drifted `12.56%` (`drift@100 = 20.06%`) on `s1`; full `bk_pin` stays required.
+
+Method lesson #10: **scale inputs and resets by the ergodic covariance before blaming the optimizer.** A `68×` input-scale mismatch and `7σ` resets made first-order Adam look stuck when the real culprit was input conditioning and an un-decayed linear anchor.

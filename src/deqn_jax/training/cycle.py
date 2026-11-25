@@ -29,8 +29,16 @@ def apply_ss_reset(
     ep_states: Array,
     ss_reset_frac: float,
     ss_state: Array,
+    reset_std: Optional[Array] = None,
 ) -> Array:
-    """Reset a random ``ss_reset_frac`` of batch rows to SS * U[0.95, 1.05].
+    """Reset a random ``ss_reset_frac`` of batch rows near SS.
+
+    When ``reset_std`` is None (default, legacy ``ss_reset_mode='relative'``),
+    rows are drawn from ``ss_state * (1 + U[-0.05, 0.05])``. When ``reset_std``
+    is provided (``ss_reset_mode='ergodic_std'``), rows are drawn from
+    ``ss_state + U[-1.5, 1.5] * reset_std``, scaling each state by its
+    linearized ergodic standard deviation so zero-SS states (e.g. ``m_p``)
+    still get perturbed and tight states (e.g. ``mu_z``) are not thrown 6-7σ.
 
     Indices are drawn WITHOUT replacement from the whole batch each call,
     so every path's time-to-reset is geometric with mean ~1/frac episodes.
@@ -47,13 +55,22 @@ def apply_ss_reset(
         return ep_states
     idx_key, noise_key = jax.random.split(reset_key)
     idx = jax.random.choice(idx_key, batch_n, (n_reset,), replace=False)
-    noise = jax.random.uniform(
-        noise_key,
-        (n_reset, ep_states.shape[1]),
-        minval=-0.05,
-        maxval=0.05,
-    )
-    fresh = ss_state * (1 + noise)
+    if reset_std is not None:
+        noise = jax.random.uniform(
+            noise_key,
+            (n_reset, ep_states.shape[1]),
+            minval=-1.5,
+            maxval=1.5,
+        )
+        fresh = ss_state + noise * reset_std
+    else:
+        noise = jax.random.uniform(
+            noise_key,
+            (n_reset, ep_states.shape[1]),
+            minval=-0.05,
+            maxval=0.05,
+        )
+        fresh = ss_state * (1 + noise)
     return ep_states.at[idx].set(fresh)
 
 
@@ -63,6 +80,7 @@ def make_rollout_fn(
     history_len: int,
     ss_reset_frac: float,
     initialize_each_episode: bool = False,
+    reset_std: Optional[Array] = None,
 ):
     """JIT'd: run one rollout → return (trajectory, final_state, history, new_key).
 
@@ -91,7 +109,9 @@ def make_rollout_fn(
                 "ss_reset_frac>0 requires a model with steady_state_fn"
             )
             ss_state, _ = model.steady_state_fn(model.constants)
-            ep_states = apply_ss_reset(reset_key, ep_states, ss_reset_frac, ss_state)
+            ep_states = apply_ss_reset(
+                reset_key, ep_states, ss_reset_frac, ss_state, reset_std=reset_std
+            )
         if history_len > 1:
             trajectory, final_state, final_history = run_episode_with_history(
                 model,

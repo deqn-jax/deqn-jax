@@ -51,6 +51,7 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
     n_layers = 2
     init_scale = 0.0
     output_links = None
+    input_scale_mode = "ss"
     if network_config is not None:
         hidden_sizes = network_config.hidden_sizes
         activation = network_config.activation
@@ -65,13 +66,30 @@ def build_policy_net(model: ModelSpec, net_key, hidden_sizes, network_config):
         # model.default_output_links, then None (the residual networks
         # default to all-linear, legacy behavior).
         output_links = network_config.output_links
+        input_scale_mode = getattr(network_config, "input_scale_mode", "ss")
     if output_links is None:
         output_links = model.default_output_links
 
-    # Compute input normalization from steady state
+    # Compute input normalization from steady state (or linearized ergodic std)
     input_shift = None
     input_scale = None
-    if model.steady_state_fn is not None:
+    if input_scale_mode == "ergodic_std":
+        if model.steady_state_fn is None:
+            raise ValueError(
+                f"network.input_scale_mode='ergodic_std' requires model "
+                f"'{model.name}' to define steady_state_fn"
+            )
+        from deqn_jax.training.linearize import (
+            compute_ergodic_covariance,
+            linearize_model,
+        )
+
+        ss_state, _ = model.steady_state_fn(model.constants)
+        _, Q = linearize_model(model, verbose=False)
+        sigma = compute_ergodic_covariance(Q, model, verbose=False)
+        input_shift = ss_state
+        input_scale = jnp.maximum(jnp.sqrt(jnp.maximum(jnp.diag(sigma), 0.0)), 1e-6)
+    elif model.steady_state_fn is not None:
         ss_state, _ = model.steady_state_fn(model.constants)
         input_shift = ss_state
         input_scale = jnp.maximum(jnp.abs(ss_state), 0.01)

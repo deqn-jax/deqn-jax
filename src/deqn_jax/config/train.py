@@ -201,6 +201,10 @@ class TrainConfig(_ConfigBase):
         default=0.0,
         description="Fraction of batch re-initialized to SS-neighborhood each rollout (prevents trajectory drift). Not applied when `initialize_each_episode` redraws the whole batch.",
     )
+    ss_reset_mode: str = Field(
+        default="relative",
+        description="Perturbation shape used by `ss_reset_frac` (and initial batch seeding when `ergodic_std`): `relative` (default: `ss_state * (1 + U[-0.05, 0.05])`) or `ergodic_std` (`ss_state + U[-1.5, 1.5] * erg_std`, scaled to the linearized ergodic state stds so zero-SS states like `m_p` are perturbed and tight states like `mu_z` are not thrown 6-7σ).",
+    )
 
     initialize_each_episode: bool = Field(
         default=False,
@@ -327,6 +331,7 @@ class TrainConfig(_ConfigBase):
         {"none", "lr_annealing", "relobralo"}
     )
     VALID_GRADIENT_SURGERY: ClassVar[frozenset] = frozenset({"none", "pcgrad"})
+    VALID_SS_RESET_MODES: ClassVar[frozenset] = frozenset({"relative", "ergodic_std"})
     VALID_EXPECTATION_TYPES: ClassVar[frozenset] = frozenset(
         {"mc", "quadrature", "gh", "gauss_hermite", "monomial", "discrete"}
     )
@@ -515,6 +520,11 @@ class TrainConfig(_ConfigBase):
             raise ValueError(
                 f"Unknown gradient_surgery '{self.gradient_surgery}'. "
                 f"Valid: {sorted(self.VALID_GRADIENT_SURGERY)}"
+            )
+        if self.ss_reset_mode not in self.VALID_SS_RESET_MODES:
+            raise ValueError(
+                f"Unknown ss_reset_mode '{self.ss_reset_mode}'. "
+                f"Valid: {sorted(self.VALID_SS_RESET_MODES)}"
             )
         if self.expectation_type not in self.VALID_EXPECTATION_TYPES:
             raise ValueError(
