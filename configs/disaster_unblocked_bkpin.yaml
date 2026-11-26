@@ -1,0 +1,59 @@
+# Disaster model — unblocked BK-pin arm (ergodic scaling + ergodic resets + no anchor + free K/F).
+#
+# Tests the 5 mechanical fixes identified by the 2026-11-25 solver diagnostic:
+#   1. bk_pin: true         — structural BK selection at s* (no anchor needed for stability)
+#   2. anchor/jac_weight: 0 — frees nonlinear curvature beyond first order
+#   3. kf_names: []         — frees F_p, K_p, F_w, K_w to bend nonlinearly
+#   4. input_scale_mode: ergodic_std — fixes the 68x input scale distortion in tanh
+#   5. ss_reset_mode: ergodic_std    — removes 6-7 sigma multiplicative reset spikes
+model: disaster
+episodes: 3000
+batch_size: 64
+episode_length: 20
+mc_samples: 2
+seed: 42
+fp64: true
+log_every: 100
+warm_start: true
+curriculum_episodes: 200
+curriculum_start: 0.1
+ss_reset_frac: 0.15
+ss_reset_mode: ergodic_std
+
+network:
+  type: disaster_policy_net
+  hidden_sizes: [128, 128]
+  activation: tanh
+  init: xavier_normal
+  init_scale: 0.0
+  input_scale_mode: ergodic_std
+  options:
+    kf_names: []
+    bk_pin: true
+
+optimizer:
+  name: adam
+  learning_rate: 3e-4
+  lr_schedule: cosine
+  lr_warmup: 100
+  lr_min_factor: 0.05
+  grad_clip: 0.5
+
+shock_mask: [1, 1, 1, 1, 1]
+expectation_type: quadrature
+n_quadrature_points: 3
+
+loss_type: composite
+composite_loss:
+  anchor_weight: 0.0
+  jac_weight: 0.0
+  barrier_weight: 0.01
+  newton_weight: 0.01
+  n_anchor_points: 128
+  anchor_sigma: 1.0
+  aux_decay_floor: 1.0
+
+checkpoint_dir: checkpoints/disaster_unblocked_bkpin
+checkpoint_every: 250
+max_checkpoints: 15
+tensorboard_dir: runs/disaster_unblocked_bkpin

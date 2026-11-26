@@ -53,6 +53,23 @@ def build_optimizer(optimizer_config, n_equations: int) -> Tuple[Any, OptimizerK
     return opt, kind
 
 
+def _ergodic_state_std(model: ModelSpec) -> Array:
+    """Linearized ergodic state standard deviations for ``ergodic_std`` resets."""
+    if model.steady_state_fn is None:
+        raise ValueError(
+            f"ss_reset_mode='ergodic_std' requires model '{model.name}' "
+            "to define steady_state_fn"
+        )
+    from deqn_jax.training.linearize import (
+        compute_ergodic_covariance,
+        linearize_model,
+    )
+
+    _, Q = linearize_model(model, verbose=False)
+    sigma = compute_ergodic_covariance(Q, model, verbose=False)
+    return jnp.sqrt(jnp.maximum(jnp.diag(sigma), 0.0))
+
+
 def create_train_state(
     model: ModelSpec,
     key: Array,
@@ -67,6 +84,7 @@ def create_train_state(
     network_config=None,
     sim_batch: Optional[int] = None,
     replay_config=None,
+    ss_reset_mode: str = "relative",
 ) -> Tuple[TrainState, Any, OptimizerKind]:
     """Initialize training state and optimizer.
 
@@ -106,7 +124,16 @@ def create_train_state(
     # sim_batch parallel trajectories; otherwise fall back to batch_size
     # (so trajectory count == minibatch size).
     n_sim = sim_batch if sim_batch is not None else batch_size
-    init_states = sample_initial_states(model, state_key, n_sim)
+    if ss_reset_mode == "ergodic_std":
+        assert model.steady_state_fn is not None
+        ss_state, _ = model.steady_state_fn(model.constants)
+        erg_std = _ergodic_state_std(model)
+        noise = jax.random.uniform(
+            state_key, (n_sim, model.n_states), minval=-1.0, maxval=1.0
+        )
+        init_states = ss_state + noise * erg_std
+    else:
+        init_states = sample_initial_states(model, state_key, n_sim)
 
     # Loss weights
     if loss_weights is not None:
@@ -176,6 +203,7 @@ def make_train_step(
     initialize_each_episode: bool = False,
     sorted_within_batch: bool = False,
     replay_cfg: Any = None,
+    reset_std: Optional[Array] = None,
 ):
     """Build the per-episode cycle step: one JIT'd rollout + a sweep of
     JIT'd minibatch grad steps (the cycle itself is Python-level).
@@ -212,6 +240,7 @@ def make_train_step(
         history_len,
         ss_reset_frac,
         initialize_each_episode=initialize_each_episode,
+        reset_std=reset_std,
     )
 
     if gradient_surgery == "pcgrad" and kind == OptimizerKind.STANDARD:
@@ -308,6 +337,12 @@ def make_config_train_step(
     the step after a mid-run optimizer switch differ only in ``opt`` and
     ``kind``.
     """
+    reset_std = (
+        _ergodic_state_std(model)
+        if getattr(config, "ss_reset_mode", "relative") == "ergodic_std"
+        and config.ss_reset_frac > 0.0
+        else None
+    )
     return make_train_step(
         model,
         opt,
@@ -330,6 +365,7 @@ def make_config_train_step(
         initialize_each_episode=config.initialize_each_episode,
         sorted_within_batch=config.sorted_within_batch,
         replay_cfg=config.replay_buffer,
+        reset_std=reset_std,
     )
 
 
@@ -821,6 +857,7 @@ def _build_initial_state(
         network_config=config.network,
         sim_batch=config.sim_batch,
         replay_config=config.replay_buffer,
+        ss_reset_mode=getattr(config, "ss_reset_mode", "relative"),
     )
 
     # BK-anchored nets (linear_plus_mlp, disaster_policy_net)
